@@ -11,7 +11,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import GradientBackground from '../components/common/GradientBackground';
 import TickRing from '../components/common/TickRing';
 import LongPressButton from '../components/common/LongPressButton';
-import { TIMERS } from '../lib/timers-config';
+import { useTimers } from '../contexts/TimersContext';
 import { computeState, skipToNextPhaseElapsed } from '../lib/timer-engine';
 import { getTokens } from '../lib/tokens';
 import { fonts } from '../lib/fonts';
@@ -24,8 +24,9 @@ export default function Running() {
   const router = useRouter();
   const { timerId } = useLocalSearchParams();
   const haptic = useHaptic();
+  const { timers } = useTimers();
 
-  const timer = TIMERS.find((t) => t.id === timerId) ?? TIMERS[0];
+  const timer = timers.find((t) => t.id === timerId) ?? timers[0];
   const t = getTokens(timer.textMode);
 
   const {

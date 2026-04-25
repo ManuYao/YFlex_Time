@@ -5,43 +5,69 @@ import {
   Pressable,
   FlatList,
   Dimensions,
+  Modal,
   StyleSheet,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 
 import GradientBackground from '../components/common/GradientBackground';
 import TickRing from '../components/common/TickRing';
-import { TIMERS, getTimerHero } from '../lib/timers-config';
+import WheelPicker from '../components/common/WheelPicker';
+import { getTimerHero } from '../lib/timers-config';
 import { getTokens } from '../lib/tokens';
 import { fonts } from '../lib/fonts';
+import { useTimers } from '../contexts/TimersContext';
+import { useHaptic } from '../hooks/useHaptic';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
 export default function Home() {
   const router = useRouter();
+  const haptic = useHaptic();
   const flatListRef = useRef(null);
+  const { timers, updateStat, hydrated } = useTimers();
   const [activeIndex, setActiveIndex] = useState(0);
-  const active = TIMERS[activeIndex];
+  const [picker, setPicker] = useState(null); // { timerId, statKey }
+
+  if (!hydrated) {
+    return <View style={{ flex: 1, backgroundColor: '#000' }} />;
+  }
+
+  const active = timers[activeIndex];
   const t = getTokens(active.textMode);
 
   const handleMomentumEnd = (e) => {
     const index = Math.round(e.nativeEvent.contentOffset.x / SCREEN_W);
     if (index !== activeIndex) {
       setActiveIndex(index);
-      Haptics.selectionAsync().catch(() => {});
+      haptic.selection();
     }
   };
 
   const handleLaunch = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    haptic.medium();
     router.push({ pathname: '/countdown', params: { timerId: active.id } });
   };
 
   const handleDotPress = (index) => {
     flatListRef.current?.scrollToIndex({ index, animated: true });
   };
+
+  const handleStatPress = (timerId, statKey) => {
+    haptic.light();
+    setPicker({ timerId, statKey });
+  };
+
+  const handleValidate = (newValue) => {
+    if (!picker) return;
+    haptic.medium();
+    updateStat(picker.timerId, picker.statKey, newValue);
+    setPicker(null);
+  };
+
+  const pickerTimer = picker ? timers.find((t) => t.id === picker.timerId) : null;
+  const pickerStat = pickerTimer ? pickerTimer.stats.find((s) => s.key === picker.statKey) : null;
 
   return (
     <GradientBackground colors={active.bgColors} textMode={active.textMode}>
@@ -50,14 +76,18 @@ export default function Home() {
 
         <FlatList
           ref={flatListRef}
-          data={TIMERS}
+          data={timers}
           horizontal
           pagingEnabled
           showsHorizontalScrollIndicator={false}
           onMomentumScrollEnd={handleMomentumEnd}
           keyExtractor={(item) => item.id}
           renderItem={({ item, index }) => (
-            <TimerCard timer={item} isActive={index === activeIndex} />
+            <TimerCard
+              timer={item}
+              isActive={index === activeIndex}
+              onStatPress={handleStatPress}
+            />
           )}
           getItemLayout={(_, i) => ({
             length: SCREEN_W,
@@ -68,7 +98,7 @@ export default function Home() {
         />
 
         <BottomBar
-          timers={TIMERS}
+          timers={timers}
           activeIndex={activeIndex}
           active={active}
           tokens={t}
@@ -76,6 +106,15 @@ export default function Home() {
           onLaunch={handleLaunch}
         />
       </SafeAreaView>
+
+      <StatPickerModal
+        visible={!!picker}
+        stat={pickerStat}
+        accentColor={pickerTimer?.color}
+        textMode={pickerTimer?.textMode}
+        onClose={() => setPicker(null)}
+        onValidate={handleValidate}
+      />
     </GradientBackground>
   );
 }
@@ -107,7 +146,7 @@ function TopBar({ tag, tokens, onBack }) {
   );
 }
 
-function TimerCard({ timer, isActive }) {
+function TimerCard({ timer, isActive, onStatPress }) {
   const t = getTokens(timer.textMode);
   const hero = getTimerHero(timer);
   const heroFontSize = hero.number.length > 3 ? 110 : 140;
@@ -144,29 +183,41 @@ function TimerCard({ timer, isActive }) {
       </View>
 
       <View style={styles.statsRow}>
-        {timer.stats.map((stat) => (
-          <View
-            key={stat.key}
-            style={[
-              styles.statChip,
-              { backgroundColor: t.chipBg, borderColor: t.chipBorder },
-            ]}
-          >
-            <Text style={[styles.statLabel, { color: t.tertiary }]}>
-              {stat.label}
-            </Text>
-            <View style={styles.statValueRow}>
-              <Text style={[styles.statValue, { color: t.primary }]}>
-                {stat.value}
-              </Text>
-              {!!stat.unit && (
-                <Text style={[styles.statUnit, { color: t.tertiary }]}>
-                  {stat.unit}
+        {timer.stats.map((stat) => {
+          const editable = stat.editable;
+          const Comp = editable ? Pressable : View;
+          return (
+            <Comp
+              key={stat.key}
+              onPress={editable ? () => onStatPress(timer.id, stat.key) : undefined}
+              style={({ pressed }) => [
+                styles.statChip,
+                { backgroundColor: t.chipBg, borderColor: t.chipBorder },
+                editable && pressed && { opacity: 0.7, transform: [{ scale: 0.96 }] },
+              ]}
+              hitSlop={editable ? 4 : 0}
+            >
+              <View style={styles.statLabelRow}>
+                <Text style={[styles.statLabel, { color: t.tertiary }]}>
+                  {stat.label}
                 </Text>
-              )}
-            </View>
-          </View>
-        ))}
+                {editable && (
+                  <Text style={[styles.chevron, { color: t.tertiary }]}>▾</Text>
+                )}
+              </View>
+              <View style={styles.statValueRow}>
+                <Text style={[styles.statValue, { color: t.primary }]}>
+                  {stat.value}
+                </Text>
+                {!!stat.unit && (
+                  <Text style={[styles.statUnit, { color: t.tertiary }]}>
+                    {stat.unit}
+                  </Text>
+                )}
+              </View>
+            </Comp>
+          );
+        })}
       </View>
 
       <Text style={[styles.phasesLabel, { color: t.muted }]}>Déroulé</Text>
@@ -237,6 +288,61 @@ function BottomBar({ timers, activeIndex, active, tokens, onDotPress, onLaunch }
         ← Glisse ou tape les points →
       </Text>
     </View>
+  );
+}
+
+function StatPickerModal({ visible, stat, accentColor, textMode, onClose, onValidate }) {
+  const [draft, setDraft] = useState(null);
+
+  if (!stat) return null;
+
+  const values = [];
+  for (let i = stat.range[0]; i <= stat.range[1]; i++) values.push(i);
+  const ctaText = textMode === 'dark' ? '#0A0A0A' : '#FFFFFF';
+  const currentValue = draft ?? stat.value;
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      onRequestClose={onClose}
+      onShow={() => setDraft(null)}
+    >
+      <Pressable style={modalStyles.backdrop} onPress={onClose}>
+        <Pressable style={modalStyles.sheet} onPress={(e) => e.stopPropagation?.()}>
+          <View style={modalStyles.handle} />
+          <Text style={modalStyles.kicker}>MODIFIER</Text>
+          <Text style={modalStyles.title}>{stat.label}</Text>
+
+          <View style={modalStyles.wheelWrap}>
+            <WheelPicker
+              values={values}
+              selectedValue={stat.value}
+              type={stat.type}
+              accentColor={accentColor || '#FFFFFF'}
+              onChange={(v) => setDraft(v)}
+            />
+          </View>
+
+          <Pressable
+            onPress={() => onValidate(currentValue)}
+            style={({ pressed }) => [
+              modalStyles.cta,
+              {
+                backgroundColor: accentColor || '#FFFFFF',
+                opacity: pressed ? 0.9 : 1,
+                transform: [{ scale: pressed ? 0.97 : 1 }],
+              },
+            ]}
+          >
+            <Text style={[modalStyles.ctaText, { color: ctaText }]}>✓ Valider</Text>
+          </Pressable>
+
+          <Text style={modalStyles.hint}>Fais défiler pour choisir</Text>
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }
 
@@ -343,12 +449,21 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
   },
+  statLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    marginBottom: 4,
+  },
   statLabel: {
     fontFamily: fonts.sansSemibold,
     fontSize: 9,
     letterSpacing: 1.8,
     textTransform: 'uppercase',
-    marginBottom: 4,
+  },
+  chevron: {
+    fontSize: 9,
+    marginTop: -1,
   },
   statValueRow: {
     flexDirection: 'row',
@@ -438,5 +553,75 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     textAlign: 'center',
     marginTop: 12,
+  },
+});
+
+const modalStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    backgroundColor: '#0A0A0A',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingTop: 12,
+    paddingHorizontal: 20,
+    paddingBottom: 32,
+    borderTopWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+  handle: {
+    alignSelf: 'center',
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.30)',
+    marginBottom: 20,
+  },
+  kicker: {
+    fontFamily: fonts.sansBold,
+    fontSize: 10,
+    letterSpacing: 3,
+    color: 'rgba(255,255,255,0.50)',
+    textAlign: 'center',
+    marginBottom: 6,
+  },
+  title: {
+    fontFamily: fonts.sansBold,
+    fontSize: 24,
+    letterSpacing: -0.5,
+    color: '#FFFFFF',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  wheelWrap: {
+    marginBottom: 24,
+  },
+  cta: {
+    height: 56,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 14,
+    elevation: 6,
+  },
+  ctaText: {
+    fontFamily: fonts.sansBold,
+    fontSize: 15,
+    letterSpacing: -0.15,
+  },
+  hint: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 10,
+    letterSpacing: 2.5,
+    textTransform: 'uppercase',
+    color: 'rgba(255,255,255,0.40)',
+    textAlign: 'center',
+    marginTop: 14,
   },
 });

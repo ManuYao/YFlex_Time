@@ -3,7 +3,7 @@ import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 
 import GradientBackground from '../components/common/GradientBackground';
-import { TIMERS } from '../lib/timers-config';
+import { useTimers } from '../contexts/TimersContext';
 import { fonts } from '../lib/fonts';
 import { useHaptic } from '../hooks/useHaptic';
 
@@ -13,8 +13,9 @@ export default function Countdown() {
   const router = useRouter();
   const { timerId } = useLocalSearchParams();
   const haptic = useHaptic();
+  const { timers } = useTimers();
 
-  const timer = TIMERS.find((t) => t.id === timerId) ?? TIMERS[0];
+  const timer = timers.find((t) => t.id === timerId) ?? timers[0];
   const [count, setCount] = useState(COUNTDOWN_FROM);
   const [isGo, setIsGo] = useState(false);
 

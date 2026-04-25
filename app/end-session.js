@@ -2,14 +2,15 @@ import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 
-import { TIMERS } from '../lib/timers-config';
+import { useTimers } from '../contexts/TimersContext';
 import { formatDuration } from '../lib/formatters';
 import { fonts } from '../lib/fonts';
 
 export default function EndSession() {
   const router = useRouter();
   const { timerId, elapsed } = useLocalSearchParams();
-  const timer = TIMERS.find((t) => t.id === timerId);
+  const { timers } = useTimers();
+  const timer = timers.find((t) => t.id === timerId);
   const elapsedNum = Number(elapsed) || 0;
 
   return (

@@ -16,6 +16,8 @@ import {
 } from '@expo-google-fonts/jetbrains-mono';
 import { StatusBar } from 'expo-status-bar';
 
+import { TimersProvider } from '../contexts/TimersContext';
+
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
     Anton_400Regular,
@@ -33,14 +35,16 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000000' }}>
       <SafeAreaProvider>
-        <StatusBar style="light" />
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            animation: 'fade',
-            contentStyle: { backgroundColor: '#000000' },
-          }}
-        />
+        <TimersProvider>
+          <StatusBar style="light" />
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              animation: 'fade',
+              contentStyle: { backgroundColor: '#000000' },
+            }}
+          />
+        </TimersProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
