@@ -71,12 +71,18 @@ export default function WheelPicker({
         {values.map((v, i) => {
           const distance = Math.abs(i - activeIdx);
           const opacity = distance === 0 ? 1 : distance === 1 ? 0.4 : 0.15;
+          const scale = distance === 0 ? 1 : 0.8;
           const isSelected = distance === 0;
           const fmt = formatValue(v, type);
 
           return (
             <View key={i} style={[styles.item, { height: ITEM_HEIGHT }]}>
-              <View style={[styles.itemRow, { opacity }]}>
+              <View
+                style={[
+                  styles.itemRow,
+                  { opacity, transform: [{ scale }] },
+                ]}
+              >
                 <Text
                   style={[
                     styles.mainText,

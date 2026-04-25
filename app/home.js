@@ -10,6 +10,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { BlurView } from 'expo-blur';
+import Svg, { Path } from 'react-native-svg';
 
 import GradientBackground from '../components/common/GradientBackground';
 import TickRing from '../components/common/TickRing';
@@ -309,7 +311,9 @@ function StatPickerModal({ visible, stat, accentColor, textMode, onClose, onVali
       onRequestClose={onClose}
       onShow={() => setDraft(null)}
     >
-      <Pressable style={modalStyles.backdrop} onPress={onClose}>
+      <Pressable style={modalStyles.backdropPress} onPress={onClose}>
+        <BlurView intensity={40} tint="dark" style={modalStyles.backdropBlur} />
+        <View style={modalStyles.backdropDim} pointerEvents="none" />
         <Pressable style={modalStyles.sheet} onPress={(e) => e.stopPropagation?.()}>
           <View style={modalStyles.handle} />
           <Text style={modalStyles.kicker}>MODIFIER</Text>
@@ -336,7 +340,16 @@ function StatPickerModal({ visible, stat, accentColor, textMode, onClose, onVali
               },
             ]}
           >
-            <Text style={[modalStyles.ctaText, { color: ctaText }]}>✓ Valider</Text>
+            <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
+              <Path
+                d="M2 7l4 4 6-8"
+                stroke={ctaText}
+                strokeWidth={2.5}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </Svg>
+            <Text style={[modalStyles.ctaText, { color: ctaText }]}>Valider</Text>
           </Pressable>
 
           <Text style={modalStyles.hint}>Fais défiler pour choisir</Text>
@@ -557,20 +570,26 @@ const styles = StyleSheet.create({
 });
 
 const modalStyles = StyleSheet.create({
-  backdrop: {
+  backdropPress: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.65)',
     justifyContent: 'flex-end',
   },
+  backdropBlur: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  backdropDim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
   sheet: {
-    backgroundColor: '#0A0A0A',
+    backgroundColor: 'rgba(10,10,10,0.85)',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     paddingTop: 12,
     paddingHorizontal: 20,
     paddingBottom: 32,
     borderTopWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
+    borderColor: 'rgba(255,255,255,0.12)',
   },
   handle: {
     alignSelf: 'center',
@@ -602,8 +621,10 @@ const modalStyles = StyleSheet.create({
   cta: {
     height: 56,
     borderRadius: 18,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.3,
