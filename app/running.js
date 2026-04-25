@@ -147,6 +147,7 @@ function TopBar({ tokens, name, tag, roundLabel, onReturn, progress }) {
         <LongPressButton
           label="Retour"
           size={44}
+          duration={2000}
           borderColor={tokens.btnBorder}
           ringColor={tokens.primary}
           labelColor={tokens.muted}
