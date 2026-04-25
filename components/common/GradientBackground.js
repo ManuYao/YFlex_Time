@@ -1,9 +1,16 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import GrainOverlay from './GrainOverlay';
 
-export default function GradientBackground({ colors, textMode = 'light', children }) {
+export default function GradientBackground({
+  colors,
+  textMode = 'light',
+  grain = true,
+  children,
+}) {
   const vignetteColor = textMode === 'dark' ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.55)';
+  const grainTint = textMode === 'dark' ? '#000000' : '#FFFFFF';
 
   return (
     <View style={styles.root}>
@@ -23,6 +30,7 @@ export default function GradientBackground({ colors, textMode = 'light', childre
         pointerEvents="none"
       />
       {children}
+      {grain && <GrainOverlay tint={grainTint} opacity={0.07} />}
     </View>
   );
 }
