@@ -185,10 +185,10 @@ function TimerCard({ timer, isActive, onStatPress }) {
       <View style={styles.statsRow}>
         {timer.stats.map((stat) => {
           const editable = stat.editable;
-          const Comp = editable ? Pressable : View;
           return (
-            <Comp
+            <Pressable
               key={stat.key}
+              disabled={!editable}
               onPress={editable ? () => onStatPress(timer.id, stat.key) : undefined}
               style={({ pressed }) => [
                 styles.statChip,
@@ -215,7 +215,7 @@ function TimerCard({ timer, isActive, onStatPress }) {
                   </Text>
                 )}
               </View>
-            </Comp>
+            </Pressable>
           );
         })}
       </View>
