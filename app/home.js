@@ -74,7 +74,12 @@ export default function Home() {
   return (
     <GradientBackground colors={active.bgColors} textMode={active.textMode}>
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-        <TopBar tag={active.tag} tokens={t} onBack={() => router.back()} />
+        <TopBar
+          tag={active.tag}
+          tokens={t}
+          onBack={() => router.back()}
+          onMenu={() => router.push('/history')}
+        />
 
         <FlatList
           ref={flatListRef}
@@ -121,7 +126,7 @@ export default function Home() {
   );
 }
 
-function TopBar({ tag, tokens, onBack }) {
+function TopBar({ tag, tokens, onBack, onMenu }) {
   return (
     <View style={styles.topBar}>
       <Pressable
@@ -135,6 +140,7 @@ function TopBar({ tag, tokens, onBack }) {
       <Text style={[styles.tag, { color: tokens.secondary }]}>{tag}</Text>
 
       <Pressable
+        onPress={onMenu}
         style={[styles.iconBtn, { borderColor: tokens.btnBorder }]}
         hitSlop={8}
       >
