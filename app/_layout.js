@@ -17,6 +17,7 @@ import {
 import { StatusBar } from 'expo-status-bar';
 
 import { TimersProvider } from '../contexts/TimersContext';
+import { SettingsProvider } from '../contexts/SettingsContext';
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
@@ -35,16 +36,18 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000000' }}>
       <SafeAreaProvider>
-        <TimersProvider>
-          <StatusBar style="light" />
-          <Stack
-            screenOptions={{
-              headerShown: false,
-              animation: 'none',
-              contentStyle: { backgroundColor: '#000000' },
-            }}
-          />
-        </TimersProvider>
+        <SettingsProvider>
+          <TimersProvider>
+            <StatusBar style="light" />
+            <Stack
+              screenOptions={{
+                headerShown: false,
+                animation: 'none',
+                contentStyle: { backgroundColor: '#000000' },
+              }}
+            />
+          </TimersProvider>
+        </SettingsProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

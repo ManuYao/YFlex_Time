@@ -77,7 +77,7 @@ export default function Home() {
         <TopBar
           tag={active.tag}
           tokens={t}
-          onBack={() => router.back()}
+          onBack={() => router.push('/settings')}
           onMenu={() => router.push('/history')}
         />
 
@@ -134,7 +134,19 @@ function TopBar({ tag, tokens, onBack, onMenu }) {
         style={[styles.iconBtn, { borderColor: tokens.btnBorder }]}
         hitSlop={8}
       >
-        <Text style={[styles.iconBtnText, { color: tokens.primary }]}>‹</Text>
+        <Svg width={16} height={16} viewBox="0 0 16 16" fill="none">
+          <Path
+            d="M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z"
+            stroke={tokens.primary}
+            strokeWidth={1.5}
+          />
+          <Path
+            d="M13 8c0 .4-.04.79-.11 1.16l1.4 1.04-1.5 2.6-1.65-.6a5 5 0 0 1-2.01 1.17L8.75 15h-3l-.38-1.63a5 5 0 0 1-2.01-1.17l-1.65.6-1.5-2.6 1.4-1.04A5 5 0 0 1 1.5 8c0-.4.04-.79.11-1.16l-1.4-1.04 1.5-2.6 1.65.6a5 5 0 0 1 2.01-1.17L5.75 1h3l.38 1.63a5 5 0 0 1 2.01 1.17l1.65-.6 1.5 2.6-1.4 1.04c.07.37.11.76.11 1.16z"
+            stroke={tokens.primary}
+            strokeWidth={1.3}
+            strokeLinejoin="round"
+          />
+        </Svg>
       </Pressable>
 
       <Text style={[styles.tag, { color: tokens.secondary }]}>{tag}</Text>
@@ -317,10 +329,11 @@ function StatPickerModal({ visible, stat, accentColor, textMode, onClose, onVali
       onRequestClose={onClose}
       onShow={() => setDraft(null)}
     >
-      <Pressable style={modalStyles.backdropPress} onPress={onClose}>
+      <View style={modalStyles.backdropPress}>
         <BlurView pointerEvents="none" intensity={40} tint="dark" style={modalStyles.backdropBlur} />
         <View style={modalStyles.backdropDim} pointerEvents="none" />
-        <Pressable style={modalStyles.sheet} onPress={(e) => e.stopPropagation?.()}>
+        <Pressable style={modalStyles.backdropTap} onPress={onClose} />
+        <View style={modalStyles.sheet}>
           <View style={modalStyles.handle} />
           <Text style={modalStyles.kicker}>MODIFIER</Text>
           <Text style={modalStyles.title}>{stat.label}</Text>
@@ -359,8 +372,8 @@ function StatPickerModal({ visible, stat, accentColor, textMode, onClose, onVali
           </Pressable>
 
           <Text style={modalStyles.hint}>Fais défiler pour choisir</Text>
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </Modal>
   );
 }
@@ -586,6 +599,9 @@ const modalStyles = StyleSheet.create({
   backdropDim: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  backdropTap: {
+    flex: 1,
   },
   sheet: {
     backgroundColor: 'rgba(10,10,10,0.85)',

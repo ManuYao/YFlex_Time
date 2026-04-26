@@ -1,21 +1,20 @@
 import { useEffect } from 'react';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
+import { useSettings } from '../contexts/SettingsContext';
 
 const TAG = 'flextimer-session';
 
 export function useWakeLock(active = true) {
+  const { settings } = useSettings();
+  const enabled = active && settings.keepScreenOn;
+
   useEffect(() => {
-    if (!active) return undefined;
-
-    let cancelled = false;
+    if (!enabled) return undefined;
     activateKeepAwakeAsync(TAG).catch(() => {});
-
     return () => {
-      cancelled = true;
       try {
         deactivateKeepAwake(TAG);
       } catch {}
-      void cancelled;
     };
-  }, [active]);
+  }, [enabled]);
 }

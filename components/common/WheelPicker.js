@@ -102,6 +102,7 @@ export default function WheelPicker({
                       color: isSelected ? accentColor : 'rgba(255,255,255,0.5)',
                     },
                   ]}
+                  numberOfLines={1}
                 >
                   {fmt.unit}
                 </Text>
@@ -144,20 +145,24 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   itemRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   mainText: {
     color: '#FFFFFF',
     letterSpacing: -0.7,
     lineHeight: 36,
     includeFontPadding: false,
+    textAlign: 'center',
   },
   unitText: {
     fontFamily: fonts.sansBold,
     letterSpacing: 1.3,
     textTransform: 'uppercase',
+    position: 'absolute',
+    left: '100%',
+    bottom: 4,
+    marginLeft: 8,
   },
   fadeTop: {
     position: 'absolute',

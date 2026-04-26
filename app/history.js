@@ -81,7 +81,20 @@ export default function History() {
             </Text>
           </View>
 
-          <View style={styles.iconBtnGhost} />
+          <Pressable
+            onPress={() => router.push('/settings')}
+            style={styles.iconBtn}
+            hitSlop={8}
+          >
+            <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
+              <Path
+                d="M2 4h10M4 7h6M6 10h2"
+                stroke="#FFFFFF"
+                strokeWidth={1.8}
+                strokeLinecap="round"
+              />
+            </Svg>
+          </Pressable>
         </View>
 
         <View style={styles.heroRow}>
@@ -145,7 +158,13 @@ export default function History() {
               <View key={group.date} style={styles.group}>
                 <Text style={styles.groupLabel}>{group.date}</Text>
                 {group.items.map((s) => (
-                  <SessionRow key={s.id} session={s} />
+                  <SessionRow
+                    key={s.id}
+                    session={s}
+                    onPress={() =>
+                      router.push({ pathname: '/session-detail', params: { id: s.id } })
+                    }
+                  />
                 ))}
               </View>
             ))
@@ -172,7 +191,7 @@ function HeroStat({ label, value, unit, color }) {
   );
 }
 
-function SessionRow({ session }) {
+function SessionRow({ session, onPress }) {
   const color = session.color || '#FFFFFF';
   const tag = session.intensity || '—';
   const roundsLabel =
@@ -181,7 +200,13 @@ function SessionRow({ session }) {
       : '∞';
 
   return (
-    <View style={styles.row}>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.row,
+        pressed && { opacity: 0.7, transform: [{ scale: 0.98 }] },
+      ]}
+    >
       <View
         style={[styles.rowBlob, { backgroundColor: color }]}
         pointerEvents="none"
@@ -227,7 +252,7 @@ function SessionRow({ session }) {
           strokeLinejoin="round"
         />
       </Svg>
-    </View>
+    </Pressable>
   );
 }
 

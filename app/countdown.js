@@ -6,6 +6,7 @@ import GradientBackground from '../components/common/GradientBackground';
 import { useTimers } from '../contexts/TimersContext';
 import { fonts } from '../lib/fonts';
 import { useHaptic } from '../hooks/useHaptic';
+import { useSound } from '../hooks/useSound';
 
 const COUNTDOWN_FROM = 3;
 
@@ -13,6 +14,7 @@ export default function Countdown() {
   const router = useRouter();
   const { timerId } = useLocalSearchParams();
   const haptic = useHaptic();
+  const sound = useSound();
   const { timers } = useTimers();
 
   const timer = timers.find((t) => t.id === timerId) ?? timers[0];
@@ -21,6 +23,7 @@ export default function Countdown() {
 
   useEffect(() => {
     haptic.medium();
+    sound.playTick();
     if (count > 1) {
       const id = setTimeout(() => setCount((c) => c - 1), 1000);
       return () => clearTimeout(id);
@@ -35,6 +38,7 @@ export default function Countdown() {
   useEffect(() => {
     if (!isGo) return undefined;
     haptic.success();
+    sound.playComplete();
     const id = setTimeout(() => {
       router.replace({ pathname: '/running', params: { timerId: timer.id } });
     }, 600);

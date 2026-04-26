@@ -4,6 +4,7 @@ import {
   Text,
   Pressable,
   StyleSheet,
+  BackHandler,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -19,11 +20,13 @@ import { formatDuration } from '../lib/formatters';
 import { useTimer } from '../hooks/useTimer';
 import { useHaptic } from '../hooks/useHaptic';
 import { useWakeLock } from '../hooks/useWakeLock';
+import { useSound } from '../hooks/useSound';
 
 export default function Running() {
   const router = useRouter();
   const { timerId } = useLocalSearchParams();
   const haptic = useHaptic();
+  const sound = useSound();
   const { timers } = useTimers();
 
   const timer = timers.find((t) => t.id === timerId) ?? timers[0];
@@ -46,7 +49,10 @@ export default function Running() {
   useEffect(() => {
     if (state.phaseLabel !== lastPhaseRef.current) {
       lastPhaseRef.current = state.phaseLabel;
-      if (!state.isComplete) haptic.medium();
+      if (!state.isComplete) {
+        haptic.medium();
+        sound.playPhase();
+      }
     }
   }, [state.phaseLabel, state.isComplete]);
 
@@ -54,6 +60,7 @@ export default function Running() {
     if (state.isComplete && !navigatedRef.current) {
       navigatedRef.current = true;
       haptic.success();
+      sound.playComplete();
       setTimeout(() => haptic.success(), 220);
       router.replace({
         pathname: '/end-session',
@@ -64,6 +71,11 @@ export default function Running() {
       });
     }
   }, [state.isComplete]);
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => true);
+    return () => sub.remove();
+  }, []);
 
   const handleReturn = () => {
     haptic.warning();

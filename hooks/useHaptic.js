@@ -1,6 +1,15 @@
 import * as Haptics from 'expo-haptics';
 
-const safe = (fn) => fn().catch(() => {});
+let vibrateEnabled = true;
+
+export const setHapticEnabled = (v) => {
+  vibrateEnabled = !!v;
+};
+
+const safe = (fn) => {
+  if (!vibrateEnabled) return Promise.resolve();
+  return fn().catch(() => {});
+};
 
 export const haptic = {
   light: () => safe(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)),
