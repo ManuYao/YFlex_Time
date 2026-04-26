@@ -45,6 +45,7 @@ export default function Running() {
   const state = computeState(timer, secondsElapsed) ?? fallbackState();
   const lastPhaseRef = useRef(state.phaseLabel);
   const navigatedRef = useRef(false);
+  const skippedRef = useRef(0);
 
   useEffect(() => {
     if (state.phaseLabel !== lastPhaseRef.current) {
@@ -62,11 +63,15 @@ export default function Running() {
       haptic.success();
       sound.playComplete();
       setTimeout(() => haptic.success(), 220);
+      const realElapsed = Math.max(
+        0,
+        Math.floor(state.totalSecondsTarget - skippedRef.current)
+      );
       router.replace({
         pathname: '/end-session',
         params: {
           timerId: timer.id,
-          elapsed: Math.floor(state.totalSecondsTarget),
+          elapsed: realElapsed,
         },
       });
     }
@@ -79,13 +84,14 @@ export default function Running() {
 
   const handleReturn = () => {
     haptic.warning();
-    router.replace('/home');
+    router.replace({ pathname: '/home', params: { lastTimerId: timer.id } });
   };
 
   const handleReset = () => {
     haptic.warning();
     navigatedRef.current = false;
     lastPhaseRef.current = '';
+    skippedRef.current = 0;
     if (isPaused) resume();
     seek(0);
   };
@@ -97,6 +103,7 @@ export default function Running() {
   };
 
   const handleSkip = () => {
+    skippedRef.current += state.phaseSecondsLeft;
     const next = skipToNextPhaseElapsed(timer, secondsElapsed);
     seek(next);
     haptic.medium();

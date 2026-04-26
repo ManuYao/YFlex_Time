@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { useAudioPlayer, setAudioModeAsync } from 'expo-audio';
+import { useAudioPlayer } from 'expo-audio';
 import { useSettings } from '../contexts/SettingsContext';
 
 const TICK_SRC = require('../assets/sounds/tick.mp3');
 const PHASE_SRC = require('../assets/sounds/phase.mp3');
 const COMPLETE_SRC = require('../assets/sounds/complete.mp3');
-
-let modeConfigured = false;
 
 export function useSound() {
   const { settings } = useSettings();
@@ -17,15 +15,6 @@ export function useSound() {
   const enabledRef = useRef(settings.sound);
   enabledRef.current = settings.sound;
   const volume = (settings.volume ?? 75) / 100;
-
-  useEffect(() => {
-    if (modeConfigured) return;
-    modeConfigured = true;
-    setAudioModeAsync({
-      playsInSilentMode: true,
-      allowsRecording: false,
-    }).catch(() => {});
-  }, []);
 
   useEffect(() => {
     [tickPlayer, phasePlayer, completePlayer].forEach((p) => {

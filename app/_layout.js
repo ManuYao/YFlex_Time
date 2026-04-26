@@ -15,9 +15,19 @@ import {
   JetBrainsMono_800ExtraBold,
 } from '@expo-google-fonts/jetbrains-mono';
 import { StatusBar } from 'expo-status-bar';
+import { setAudioModeAsync } from 'expo-audio';
 
 import { TimersProvider } from '../contexts/TimersContext';
 import { SettingsProvider } from '../contexts/SettingsContext';
+
+setAudioModeAsync({
+  playsInSilentMode: true,
+  allowsRecording: false,
+  interruptionMode: 'mixWithOthers',
+  interruptionModeAndroid: 'duckOthers',
+  shouldPlayInBackground: false,
+  shouldRouteThroughEarpiece: false,
+}).catch(() => {});
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({

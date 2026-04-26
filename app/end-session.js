@@ -120,7 +120,9 @@ export default function EndSession() {
 
       <View style={styles.actions}>
         <Pressable
-          onPress={() => router.replace('/home')}
+          onPress={() =>
+            router.replace({ pathname: '/home', params: { lastTimerId: timer.id } })
+          }
           style={({ pressed }) => [
             styles.btnSecondary,
             pressed && { opacity: 0.85, transform: [{ scale: 0.97 }] },

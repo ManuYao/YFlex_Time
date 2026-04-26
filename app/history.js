@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Swipeable } from 'react-native-gesture-handler';
 import { useRouter, useFocusEffect } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 
@@ -14,6 +15,7 @@ import GradientBackground from '../components/common/GradientBackground';
 import { TIMERS } from '../lib/timers-config';
 import {
   loadHistory,
+  removeSession,
   groupByPeriod,
   computeStreak,
   computeTotals,
@@ -21,11 +23,13 @@ import {
 } from '../lib/history';
 import { formatDuration } from '../lib/formatters';
 import { fonts } from '../lib/fonts';
+import { useHaptic } from '../hooks/useHaptic';
 
 const FILTERS = ['TOUS', 'AMRAP', 'BASIC', 'EMOM', 'TABATA', 'MIX'];
 
 export default function History() {
   const router = useRouter();
+  const haptic = useHaptic();
   const [sessions, setSessions] = useState([]);
   const [filter, setFilter] = useState('TOUS');
 
@@ -40,6 +44,12 @@ export default function History() {
       };
     }, [])
   );
+
+  const handleDelete = async (id) => {
+    haptic.warning();
+    const next = await removeSession(id);
+    setSessions(next ?? sessions.filter((s) => s.id !== id));
+  };
 
   const filtered =
     filter === 'TOUS'
@@ -164,6 +174,7 @@ export default function History() {
                     onPress={() =>
                       router.push({ pathname: '/session-detail', params: { id: s.id } })
                     }
+                    onDelete={() => handleDelete(s.id)}
                   />
                 ))}
               </View>
@@ -191,68 +202,102 @@ function HeroStat({ label, value, unit, color }) {
   );
 }
 
-function SessionRow({ session, onPress }) {
+function SessionRow({ session, onPress, onDelete }) {
   const color = session.color || '#FFFFFF';
   const tag = session.intensity || '—';
   const roundsLabel =
     session.totalRounds && session.completedRounds != null
       ? `${session.completedRounds} tours`
       : '∞';
+  const swipeRef = useRef(null);
 
-  return (
+  const renderRightActions = () => (
     <Pressable
-      onPress={onPress}
+      onPress={() => {
+        swipeRef.current?.close();
+        onDelete?.();
+      }}
       style={({ pressed }) => [
-        styles.row,
-        pressed && { opacity: 0.7, transform: [{ scale: 0.98 }] },
+        styles.deleteAction,
+        pressed && { opacity: 0.85, transform: [{ scale: 0.96 }] },
       ]}
     >
-      <View
-        style={[styles.rowBlob, { backgroundColor: color }]}
-        pointerEvents="none"
-      />
-      <View
-        style={[
-          styles.rowBadge,
-          {
-            backgroundColor: `${color}22`,
-            borderColor: `${color}44`,
-          },
-        ]}
-      >
-        <Text style={[styles.rowBadgeText, { color }]}>
-          {session.name.slice(0, 4)}
-        </Text>
-      </View>
-
-      <View style={styles.rowInfo}>
-        <Text style={styles.rowName}>{session.name}</Text>
-        <View style={styles.rowMeta}>
-          <Text style={styles.rowMetaText}>{formatSessionTime(session.date)}</Text>
-          <Dot />
-          <Text style={styles.rowMetaText}>{roundsLabel}</Text>
-          <Dot />
-          <Text style={styles.rowMetaText}>{tag}</Text>
-        </View>
-      </View>
-
-      <View style={styles.rowDuration}>
-        <Text style={styles.rowDurationValue}>
-          {formatDuration(session.durationSeconds || 0)}
-        </Text>
-        <Text style={styles.rowDurationLabel}>min</Text>
-      </View>
-
-      <Svg width={8} height={12} viewBox="0 0 8 12" fill="none">
+      <Svg width={18} height={18} viewBox="0 0 18 18" fill="none">
         <Path
-          d="M2 2l4 4-4 4"
-          stroke="rgba(255,255,255,0.4)"
-          strokeWidth={1.8}
+          d="M3 5h12M7 5V3h4v2M5 5l1 10h6l1-10M8 8v5M10 8v5"
+          stroke="#FFFFFF"
+          strokeWidth={1.6}
           strokeLinecap="round"
           strokeLinejoin="round"
         />
       </Svg>
+      <Text style={styles.deleteLabel}>Supprimer</Text>
     </Pressable>
+  );
+
+  return (
+    <Swipeable
+      ref={swipeRef}
+      renderRightActions={renderRightActions}
+      overshootRight={false}
+      friction={2}
+      rightThreshold={40}
+      containerStyle={styles.swipeContainer}
+    >
+      <Pressable
+        onPress={onPress}
+        style={({ pressed }) => [
+          styles.row,
+          pressed && { opacity: 0.7, transform: [{ scale: 0.98 }] },
+        ]}
+      >
+        <View
+          style={[styles.rowBlob, { backgroundColor: color }]}
+          pointerEvents="none"
+        />
+        <View
+          style={[
+            styles.rowBadge,
+            {
+              backgroundColor: `${color}22`,
+              borderColor: `${color}44`,
+            },
+          ]}
+        >
+          <Text style={[styles.rowBadgeText, { color }]}>
+            {session.name.slice(0, 4)}
+          </Text>
+        </View>
+
+        <View style={styles.rowInfo}>
+          <Text style={styles.rowName}>{session.name}</Text>
+          <View style={styles.rowMeta}>
+            <Text style={styles.rowMetaText}>{formatSessionTime(session.date)}</Text>
+            <Dot />
+            <Text style={styles.rowMetaText}>{roundsLabel}</Text>
+            <Dot />
+            <Text style={styles.rowMetaText}>{tag}</Text>
+          </View>
+        </View>
+
+        <View style={styles.rowDuration}>
+          <Text style={styles.rowDurationValue}>
+            {formatDuration(session.durationSeconds || 0)}
+          </Text>
+          <Text style={styles.rowDurationLabel}>min</Text>
+        </View>
+
+        <Svg width={8} height={12} viewBox="0 0 8 12" fill="none">
+          <Path
+            d="M2 2l4 4-4 4"
+            stroke="rgba(255,255,255,0.4)"
+            strokeWidth={1.8}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </Svg>
+      </Pressable>
+    </Swipeable>
   );
 }
 
@@ -428,6 +473,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
 
+  swipeContainer: {
+    marginBottom: 8,
+    borderRadius: 18,
+    overflow: 'hidden',
+  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -437,8 +487,23 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 18,
     padding: 14,
-    marginBottom: 8,
     overflow: 'hidden',
+  },
+  deleteAction: {
+    width: 96,
+    backgroundColor: '#FF5454',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderTopRightRadius: 18,
+    borderBottomRightRadius: 18,
+    gap: 4,
+  },
+  deleteLabel: {
+    color: '#FFFFFF',
+    fontFamily: fonts.sansBold,
+    fontSize: 10,
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
   },
   rowBlob: {
     position: 'absolute',

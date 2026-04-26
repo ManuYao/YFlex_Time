@@ -9,7 +9,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { BlurView } from 'expo-blur';
 import Svg, { Path } from 'react-native-svg';
 
@@ -29,7 +29,13 @@ export default function Home() {
   const haptic = useHaptic();
   const flatListRef = useRef(null);
   const { timers, updateStat, hydrated } = useTimers();
-  const [activeIndex, setActiveIndex] = useState(0);
+  const { lastTimerId } = useLocalSearchParams();
+  const initialIndex = (() => {
+    if (!lastTimerId) return 0;
+    const i = timers.findIndex((t) => t.id === lastTimerId);
+    return i >= 0 ? i : 0;
+  })();
+  const [activeIndex, setActiveIndex] = useState(initialIndex);
   const [picker, setPicker] = useState(null); // { timerId, statKey }
 
   if (!hydrated) {
@@ -89,6 +95,7 @@ export default function Home() {
           showsHorizontalScrollIndicator={false}
           onMomentumScrollEnd={handleMomentumEnd}
           keyExtractor={(item) => item.id}
+          initialScrollIndex={initialIndex}
           renderItem={({ item, index }) => (
             <TimerCard
               timer={item}
