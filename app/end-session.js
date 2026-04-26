@@ -1,25 +1,18 @@
 import { useEffect, useRef } from 'react';
-import {
-  View,
-  Text,
-  Pressable,
-  StyleSheet,
-  Dimensions,
-} from 'react-native';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Svg, { Path } from 'react-native-svg';
 
 import TickRing from '../components/common/TickRing';
-import GrainOverlay from '../components/common/GrainOverlay';
+import GradientBackground from '../components/common/GradientBackground';
 import { useTimers } from '../contexts/TimersContext';
 import { computeSessionStats } from '../lib/timer-engine';
 import { formatDuration } from '../lib/formatters';
 import { fonts } from '../lib/fonts';
 
 const HISTORY_KEY = 'flexTimer_history';
-const { height: SCREEN_H } = Dimensions.get('window');
 
 export default function EndSession() {
   const router = useRouter();
@@ -74,19 +67,15 @@ export default function EndSession() {
   const workValue = formatDuration(stats.workTotal);
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      <View
-        pointerEvents="none"
-        style={[
-          styles.glow,
-          { backgroundColor: timer.color, shadowColor: timer.color },
-        ]}
-      />
-      <GrainOverlay tint="#FFFFFF" opacity={0.06} />
-
-      <View style={styles.statusBar}>
-        <Text style={styles.statusText}>SÉANCE TERMINÉE</Text>
-      </View>
+    <GradientBackground
+      colors={[timer.color, '#0A0A0A', '#000000']}
+      textMode="light"
+      ambient
+    >
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+        <View style={styles.statusBar}>
+          <Text style={styles.statusText}>SÉANCE TERMINÉE</Text>
+        </View>
 
       <View style={styles.body}>
         <View style={styles.badge}>
@@ -165,7 +154,8 @@ export default function EndSession() {
           </Text>
         </Pressable>
       </View>
-    </SafeAreaView>
+      </SafeAreaView>
+    </GradientBackground>
   );
 }
 
@@ -185,22 +175,7 @@ const formatDateLabel = (d) => {
 };
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#000000' },
-
-  glow: {
-    position: 'absolute',
-    top: -SCREEN_H * 0.25,
-    left: '50%',
-    width: 500,
-    height: 500,
-    marginLeft: -250,
-    borderRadius: 250,
-    opacity: 0.18,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 120,
-    elevation: 0,
-  },
+  safe: { flex: 1 },
 
   statusBar: {
     paddingHorizontal: 24,

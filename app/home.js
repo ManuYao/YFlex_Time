@@ -312,7 +312,7 @@ function StatPickerModal({ visible, stat, accentColor, textMode, onClose, onVali
       onShow={() => setDraft(null)}
     >
       <Pressable style={modalStyles.backdropPress} onPress={onClose}>
-        <BlurView intensity={40} tint="dark" style={modalStyles.backdropBlur} />
+        <BlurView pointerEvents="none" intensity={40} tint="dark" style={modalStyles.backdropBlur} />
         <View style={modalStyles.backdropDim} pointerEvents="none" />
         <Pressable style={modalStyles.sheet} onPress={(e) => e.stopPropagation?.()}>
           <View style={modalStyles.handle} />
