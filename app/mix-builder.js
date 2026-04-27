@@ -570,7 +570,7 @@ function EditBlockSheet({ block, onClose, onUpdate }) {
   const type = getBlockType(block.type);
 
   const ranges = getRangesForType(block.type);
-  const showRest = block.type === 'tabata' || block.type === 'basic';
+  const showRest = block.type === 'tabata';
   const showRounds = block.type !== 'rest' && block.type !== 'amrap';
 
   return (
@@ -607,7 +607,11 @@ function EditBlockSheet({ block, onClose, onUpdate }) {
           <View style={sheetStyles.pickersRow}>
             <View style={sheetStyles.pickerCol}>
               <Text style={sheetStyles.pickerLabel}>
-                {block.type === 'rest' ? 'DURÉE' : block.type === 'amrap' ? 'DURÉE' : block.type === 'emom' ? 'INTERVALLE' : 'TRAVAIL'}
+                {block.type === 'rest' ? 'DURÉE'
+                  : block.type === 'amrap' ? 'DURÉE'
+                  : block.type === 'emom' ? 'INTERVALLE'
+                  : block.type === 'basic' ? 'REPOS'
+                  : 'TRAVAIL'}
               </Text>
               <WheelPicker
                 values={ranges.duration}
@@ -754,7 +758,7 @@ const getRangesForType = (typeId) => {
   if (typeId === 'amrap') return { duration: range(60, 1800, 30), rest: [], rounds: [] };
   if (typeId === 'rest') return { duration: range(10, 600, 5), rest: [], rounds: [] };
   if (typeId === 'tabata') return { duration: range(5, 60, 5), rest: range(5, 60, 5), rounds: range(1, 30) };
-  if (typeId === 'basic') return { duration: range(10, 600, 5), rest: range(0, 300, 5), rounds: range(1, 30) };
+  if (typeId === 'basic') return { duration: range(5, 600, 5), rest: [], rounds: range(1, 30) };
   if (typeId === 'emom') return { duration: range(10, 300, 5), rest: [], rounds: range(1, 30) };
   return { duration: range(10, 300), rest: [], rounds: [] };
 };

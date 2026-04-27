@@ -106,11 +106,16 @@ const formatTimerHint = (timer) => {
     const rounds = timer.stats.find((s) => s.key === 'rounds')?.value ?? 0;
     return `${rounds} × ${interval}s`;
   }
-  if (timer.id === 'tabata' || timer.id === 'basic') {
+  if (timer.id === 'tabata') {
     const work = timer.stats.find((s) => s.key === 'work')?.value ?? 0;
     const rest = timer.stats.find((s) => s.key === 'rest')?.value ?? 0;
     const rounds = timer.stats.find((s) => s.key === 'rounds')?.value ?? 0;
     return `${rounds} × ${work}/${rest}s`;
+  }
+  if (timer.id === 'basic') {
+    const rest = timer.stats.find((s) => s.key === 'rest')?.value ?? 0;
+    const rounds = timer.stats.find((s) => s.key === 'rounds')?.value ?? 0;
+    return `${rounds} × ${rest}s repos`;
   }
   if (timer.id === 'mix') {
     const blocks = timer._mix?.blocks?.length ?? 0;
