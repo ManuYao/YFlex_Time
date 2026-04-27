@@ -1,9 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
   Pressable,
-  ScrollView,
   TextInput,
   Modal,
   StyleSheet,
@@ -12,6 +11,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 import { useRouter } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
+import DraggableFlatList, {
+  ScaleDecorator,
+} from 'react-native-draggable-flatlist';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+} from 'react-native-reanimated';
 
 import GradientBackground from '../components/common/GradientBackground';
 import WheelPicker from '../components/common/WheelPicker';
@@ -29,15 +36,17 @@ import { useTimers } from '../contexts/TimersContext';
 import { useHaptic } from '../hooks/useHaptic';
 
 const ACCENT = '#9575FF';
+const SAVE_HOLD_MS = 3000;
 
 export default function MixBuilder() {
   const router = useRouter();
   const haptic = useHaptic();
-  const { activeMix, saveMix } = useTimers();
+  const { activeMix, mixes, saveMix, setActiveMix, deleteMix } = useTimers();
 
   const [draft, setDraft] = useState(null);
   const [addOpen, setAddOpen] = useState(false);
   const [editingBlockId, setEditingBlockId] = useState(null);
+  const [libraryOpen, setLibraryOpen] = useState(false);
 
   useEffect(() => {
     if (draft) return;
@@ -75,23 +84,16 @@ export default function MixBuilder() {
     setDraft((d) => ({ ...d, blocks: d.blocks.filter((b) => b.id !== id) }));
   };
 
-  const moveBlock = (id, delta) => {
-    setDraft((d) => {
-      const idx = d.blocks.findIndex((b) => b.id === id);
-      const next = [...d.blocks];
-      const target = idx + delta;
-      if (idx < 0 || target < 0 || target >= next.length) return d;
-      [next[idx], next[target]] = [next[target], next[idx]];
-      haptic.selection();
-      return { ...d, blocks: next };
-    });
-  };
-
   const updateBlock = (id, patch) => {
     setDraft((d) => ({
       ...d,
       blocks: d.blocks.map((b) => (b.id === id ? { ...b, ...patch } : b)),
     }));
+  };
+
+  const handleDragEnd = ({ data }) => {
+    haptic.selection();
+    setDraft((d) => ({ ...d, blocks: data }));
   };
 
   const handleCancel = () => {
@@ -106,9 +108,114 @@ export default function MixBuilder() {
     router.back();
   };
 
+  const handleSaveAsNew = async () => {
+    if (draft.blocks.length === 0) return;
+    haptic.success();
+    const copy = {
+      ...draft,
+      id: `mix_${Date.now()}`,
+      name: `${draft.name || 'Sans nom'} (copie)`.slice(0, 28),
+    };
+    await saveMix(copy);
+    setDraft(copy);
+  };
+
+  const handleLoadMix = async (mixId) => {
+    const target = mixes.find((m) => m.id === mixId);
+    if (!target) return;
+    haptic.medium();
+    await setActiveMix(mixId);
+    setDraft({ ...target, blocks: target.blocks.map((b) => ({ ...b })) });
+    setLibraryOpen(false);
+  };
+
+  const handleDeleteMix = async (mixId) => {
+    haptic.warning();
+    await deleteMix(mixId);
+  };
+
   const editingBlock = editingBlockId
     ? draft.blocks.find((b) => b.id === editingBlockId)
     : null;
+
+  const ListHeader = (
+    <View>
+      <View style={styles.hero}>
+        <View style={styles.heroLeft}>
+          <Text style={styles.heroKicker}>Ton MIX</Text>
+          <TextInput
+            value={draft.name}
+            onChangeText={updateName}
+            style={styles.heroName}
+            maxLength={28}
+            placeholder="Nom du mix"
+            placeholderTextColor="rgba(255,255,255,0.30)"
+            selectionColor={ACCENT}
+          />
+          <Text style={styles.heroMeta}>
+            {draft.blocks.length} bloc{draft.blocks.length > 1 ? 's' : ''} ·{' '}
+            {formatTotalShort(totalSec)}
+          </Text>
+        </View>
+        <View style={styles.heroRight}>
+          <Text style={styles.heroDurLabel}>Durée</Text>
+          <Text style={styles.heroDurValue}>
+            {String(totalMin).padStart(2, '0')}
+            <Text style={styles.heroDurSep}>:</Text>
+            {String(totalRest).padStart(2, '0')}
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.timeline}>
+        {draft.blocks.length === 0 ? (
+          <View style={styles.timelineEmpty} />
+        ) : (
+          draft.blocks.map((b) => {
+            const t = getBlockType(b.type);
+            const flex = Math.max(0.001, getBlockDuration(b)) / Math.max(1, totalSec);
+            return (
+              <View
+                key={b.id}
+                style={[
+                  styles.timelineSeg,
+                  { flex, backgroundColor: t?.color || '#FFFFFF' },
+                ]}
+              />
+            );
+          })
+        )}
+      </View>
+
+      <View style={styles.sectionHead}>
+        <Text style={styles.sectionTitle}>Blocs de la séance</Text>
+        <Text style={styles.sectionHint}>Maintiens ≡ pour réorganiser</Text>
+      </View>
+    </View>
+  );
+
+  const ListFooter = (
+    <Pressable
+      onPress={() => {
+        haptic.light();
+        setAddOpen(true);
+      }}
+      style={({ pressed }) => [
+        styles.addCta,
+        pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] },
+      ]}
+    >
+      <Svg width={16} height={16} viewBox="0 0 16 16" fill="none">
+        <Path
+          d="M8 2v12M2 8h12"
+          stroke="rgba(255,255,255,0.65)"
+          strokeWidth={2}
+          strokeLinecap="round"
+        />
+      </Svg>
+      <Text style={styles.addCtaText}>Ajouter un bloc</Text>
+    </Pressable>
+  );
 
   return (
     <GradientBackground colors={[ACCENT, '#0A0A0A', '#000000']} ambient textMode="light">
@@ -118,10 +225,10 @@ export default function MixBuilder() {
         </View>
 
         <View style={styles.topBar}>
-          <Pressable onPress={handleCancel} style={styles.iconBtn} hitSlop={8}>
-            <Svg width={12} height={12} viewBox="0 0 12 12" fill="none">
+          <Pressable onPress={handleCancel} style={styles.iconBtn} hitSlop={10}>
+            <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
               <Path
-                d="M2 2l8 8M10 2l-8 8"
+                d="M3 3l8 8M11 3l-8 8"
                 stroke="#FFFFFF"
                 strokeWidth={2}
                 strokeLinecap="round"
@@ -129,101 +236,48 @@ export default function MixBuilder() {
             </Svg>
           </Pressable>
           <Text style={styles.topTitle}>Constructeur</Text>
-          <View style={styles.iconBtnGhost} />
-        </View>
-
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={styles.hero}>
-            <View style={styles.heroLeft}>
-              <Text style={styles.heroKicker}>Ton MIX</Text>
-              <TextInput
-                value={draft.name}
-                onChangeText={updateName}
-                style={styles.heroName}
-                maxLength={28}
-                placeholder="Nom du mix"
-                placeholderTextColor="rgba(255,255,255,0.30)"
-                selectionColor={ACCENT}
-              />
-              <Text style={styles.heroMeta}>
-                {draft.blocks.length} bloc{draft.blocks.length > 1 ? 's' : ''} ·{' '}
-                {formatTotalShort(totalSec)}
-              </Text>
-            </View>
-            <View style={styles.heroRight}>
-              <Text style={styles.heroDurLabel}>Durée</Text>
-              <Text style={styles.heroDurValue}>
-                {String(totalMin).padStart(2, '0')}
-                <Text style={styles.heroDurSep}>:</Text>
-                {String(totalRest).padStart(2, '0')}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.timeline}>
-            {draft.blocks.length === 0 ? (
-              <View style={styles.timelineEmpty} />
-            ) : (
-              draft.blocks.map((b) => {
-                const t = getBlockType(b.type);
-                const flex = Math.max(0.001, getBlockDuration(b)) / Math.max(1, totalSec);
-                return (
-                  <View
-                    key={b.id}
-                    style={[
-                      styles.timelineSeg,
-                      { flex, backgroundColor: t?.color || '#FFFFFF' },
-                    ]}
-                  />
-                );
-              })
-            )}
-          </View>
-
-          <View style={styles.sectionHead}>
-            <Text style={styles.sectionTitle}>Blocs de la séance</Text>
-            <Text style={styles.sectionHint}>↑ ↓ pour réorganiser</Text>
-          </View>
-
-          {draft.blocks.map((b, i) => (
-            <BlockRow
-              key={b.id}
-              block={b}
-              index={i}
-              isFirst={i === 0}
-              isLast={i === draft.blocks.length - 1}
-              onEdit={() => setEditingBlockId(b.id)}
-              onDelete={() => removeBlock(b.id)}
-              onUp={() => moveBlock(b.id, -1)}
-              onDown={() => moveBlock(b.id, 1)}
-            />
-          ))}
-
           <Pressable
             onPress={() => {
               haptic.light();
-              setAddOpen(true);
+              setLibraryOpen(true);
             }}
             style={({ pressed }) => [
-              styles.addCta,
-              pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] },
+              styles.libraryBtn,
+              pressed && { opacity: 0.85, transform: [{ scale: 0.96 }] },
             ]}
+            hitSlop={10}
           >
             <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
               <Path
-                d="M7 2v10M2 7h10"
-                stroke="rgba(255,255,255,0.65)"
-                strokeWidth={2}
+                d="M2 3h10M2 7h10M2 11h7"
+                stroke="#FFFFFF"
+                strokeWidth={1.8}
                 strokeLinecap="round"
               />
             </Svg>
-            <Text style={styles.addCtaText}>Ajouter un bloc</Text>
+            <Text style={styles.libraryBtnText}>{mixes.length}</Text>
           </Pressable>
-        </ScrollView>
+        </View>
+
+        <DraggableFlatList
+          data={draft.blocks}
+          onDragEnd={handleDragEnd}
+          keyExtractor={(item) => item.id}
+          ListHeaderComponent={ListHeader}
+          ListFooterComponent={ListFooter}
+          contentContainerStyle={styles.listContent}
+          activationDistance={6}
+          renderItem={({ item, drag, isActive, getIndex }) => (
+            <BlockRow
+              block={item}
+              index={getIndex() ?? 0}
+              drag={drag}
+              isActive={isActive}
+              onEdit={() => setEditingBlockId(item.id)}
+              onDelete={() => removeBlock(item.id)}
+            />
+          )}
+        />
 
         <View style={styles.bottomActions}>
           <Pressable
@@ -235,27 +289,11 @@ export default function MixBuilder() {
           >
             <Text style={styles.btnSecondaryText}>Annuler</Text>
           </Pressable>
-          <Pressable
-            onPress={handleSave}
+          <SaveButton
             disabled={draft.blocks.length === 0}
-            style={({ pressed }) => [
-              styles.btnPrimary,
-              { backgroundColor: ACCENT, shadowColor: ACCENT },
-              draft.blocks.length === 0 && { opacity: 0.45 },
-              pressed && draft.blocks.length > 0 && { opacity: 0.92, transform: [{ scale: 0.97 }] },
-            ]}
-          >
-            <Svg width={12} height={12} viewBox="0 0 12 12" fill="none">
-              <Path
-                d="M2 6l3 3 5-6"
-                stroke="#FFFFFF"
-                strokeWidth={2.2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </Svg>
-            <Text style={styles.btnPrimaryText}>Enregistrer le MIX</Text>
-          </Pressable>
+            onTap={handleSave}
+            onLongComplete={handleSaveAsNew}
+          />
         </View>
       </SafeAreaView>
 
@@ -270,111 +308,209 @@ export default function MixBuilder() {
         onClose={() => setEditingBlockId(null)}
         onUpdate={(patch) => editingBlock && updateBlock(editingBlock.id, patch)}
       />
+
+      <LibrarySheet
+        visible={libraryOpen}
+        mixes={mixes}
+        activeId={activeMix?.id}
+        onClose={() => setLibraryOpen(false)}
+        onLoad={handleLoadMix}
+        onDelete={handleDeleteMix}
+      />
     </GradientBackground>
   );
 }
 
-function BlockRow({ block, index, isFirst, isLast, onEdit, onDelete, onUp, onDown }) {
+function BlockRow({ block, index, drag, isActive, onEdit, onDelete }) {
   const type = getBlockType(block.type);
   if (!type) return null;
   return (
-    <View style={styles.row}>
-      <View
-        style={[styles.rowBlob, { backgroundColor: type.color }]}
-        pointerEvents="none"
-      />
+    <ScaleDecorator>
       <View
         style={[
-          styles.rowIndex,
-          {
-            backgroundColor: `${type.color}22`,
-            borderColor: `${type.color}66`,
+          styles.row,
+          isActive && {
+            backgroundColor: 'rgba(149,117,255,0.18)',
+            borderColor: ACCENT,
           },
         ]}
       >
-        <Text style={[styles.rowIndexText, { color: type.color }]}>{index + 1}</Text>
-      </View>
-      <View
-        style={[
-          styles.rowBadge,
-          { backgroundColor: `${type.color}22` },
-        ]}
-      >
-        <Text style={[styles.rowBadgeText, { color: type.color }]}>{type.name}</Text>
-      </View>
-      <View style={styles.rowInfo}>
-        <Text style={styles.rowLabel} numberOfLines={1}>{block.label}</Text>
-        <Text style={styles.rowSubtitle}>{formatBlockSubtitle(block)}</Text>
-      </View>
-
-      <View style={styles.rowArrows}>
-        <Pressable
-          onPress={onUp}
-          disabled={isFirst}
-          hitSlop={4}
-          style={({ pressed }) => [
-            styles.arrowBtn,
-            isFirst && { opacity: 0.25 },
-            pressed && !isFirst && { opacity: 0.6 },
+        <View
+          style={[styles.rowBlob, { backgroundColor: type.color }]}
+          pointerEvents="none"
+        />
+        <View
+          style={[
+            styles.rowIndex,
+            {
+              backgroundColor: `${type.color}22`,
+              borderColor: `${type.color}66`,
+            },
           ]}
         >
-          <Svg width={10} height={10} viewBox="0 0 10 10" fill="none">
-            <Path d="M2 7l3-4 3 4" stroke="#FFFFFF" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" />
-          </Svg>
-        </Pressable>
+          <Text style={[styles.rowIndexText, { color: type.color }]}>{index + 1}</Text>
+        </View>
+
+        <View style={styles.rowInfo}>
+          <View style={styles.rowInfoTop}>
+            <View
+              style={[
+                styles.rowBadge,
+                { backgroundColor: `${type.color}22` },
+              ]}
+            >
+              <Text style={[styles.rowBadgeText, { color: type.color }]}>{type.name}</Text>
+            </View>
+            <Text style={styles.rowLabel} numberOfLines={1}>{block.label}</Text>
+          </View>
+          <Text style={styles.rowSubtitle}>{formatBlockSubtitle(block)}</Text>
+        </View>
+
         <Pressable
-          onPress={onDown}
-          disabled={isLast}
-          hitSlop={4}
+          onPress={onEdit}
+          hitSlop={10}
           style={({ pressed }) => [
-            styles.arrowBtn,
-            isLast && { opacity: 0.25 },
-            pressed && !isLast && { opacity: 0.6 },
+            styles.iconAction,
+            pressed && { opacity: 0.6 },
           ]}
         >
-          <Svg width={10} height={10} viewBox="0 0 10 10" fill="none">
-            <Path d="M2 3l3 4 3-4" stroke="#FFFFFF" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" />
+          <Svg width={16} height={16} viewBox="0 0 16 16" fill="none">
+            <Path
+              d="M11 2l3 3-8 8H3v-3l8-8z"
+              stroke="#FFFFFF"
+              strokeWidth={1.6}
+              strokeLinejoin="round"
+            />
+          </Svg>
+        </Pressable>
+
+        <Pressable
+          onPress={onDelete}
+          hitSlop={10}
+          style={({ pressed }) => [
+            styles.iconAction,
+            { backgroundColor: 'rgba(255,84,84,0.14)' },
+            pressed && { opacity: 0.6 },
+          ]}
+        >
+          <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
+            <Path
+              d="M3 3l8 8M11 3l-8 8"
+              stroke="#FF5454"
+              strokeWidth={2}
+              strokeLinecap="round"
+            />
+          </Svg>
+        </Pressable>
+
+        <Pressable
+          onLongPress={drag}
+          delayLongPress={120}
+          hitSlop={10}
+          style={({ pressed }) => [
+            styles.dragHandle,
+            pressed && { opacity: 0.6 },
+          ]}
+        >
+          <Svg width={18} height={18} viewBox="0 0 18 18" fill="none">
+            <Path
+              d="M5 5h2M11 5h2M5 9h2M11 9h2M5 13h2M11 13h2"
+              stroke="rgba(255,255,255,0.55)"
+              strokeWidth={2}
+              strokeLinecap="round"
+            />
           </Svg>
         </Pressable>
       </View>
+    </ScaleDecorator>
+  );
+}
 
-      <Pressable
-        onPress={onEdit}
-        hitSlop={6}
-        style={({ pressed }) => [
-          styles.iconAction,
-          pressed && { opacity: 0.7 },
-        ]}
-      >
-        <Svg width={12} height={12} viewBox="0 0 12 12" fill="none">
-          <Path
-            d="M8 2l2 2-6 6H2v-2l6-6z"
-            stroke="#FFFFFF"
-            strokeWidth={1.5}
-            strokeLinejoin="round"
-          />
-        </Svg>
-      </Pressable>
+function SaveButton({ disabled, onTap, onLongComplete }) {
+  const haptic = useHaptic();
+  const progress = useSharedValue(0);
+  const startedRef = useRef(0);
+  const triggeredRef = useRef(false);
+  const tickRef = useRef(null);
+  const longTimeoutRef = useRef(null);
 
-      <Pressable
-        onPress={onDelete}
-        hitSlop={6}
-        style={({ pressed }) => [
-          styles.iconAction,
-          { backgroundColor: 'rgba(255,84,84,0.12)' },
-          pressed && { opacity: 0.7 },
-        ]}
-      >
-        <Svg width={10} height={10} viewBox="0 0 10 10" fill="none">
-          <Path
-            d="M2 2l6 6M8 2l-6 6"
-            stroke="#FF5454"
-            strokeWidth={2}
-            strokeLinecap="round"
-          />
-        </Svg>
-      </Pressable>
-    </View>
+  const fillStyle = useAnimatedStyle(() => ({
+    width: `${progress.value * 100}%`,
+  }));
+
+  const cleanup = () => {
+    if (tickRef.current) clearInterval(tickRef.current);
+    if (longTimeoutRef.current) clearTimeout(longTimeoutRef.current);
+    tickRef.current = null;
+    longTimeoutRef.current = null;
+  };
+
+  const handlePressIn = () => {
+    if (disabled) return;
+    triggeredRef.current = false;
+    startedRef.current = Date.now();
+    progress.value = withTiming(1, { duration: SAVE_HOLD_MS });
+    let lastSec = 0;
+    tickRef.current = setInterval(() => {
+      const elapsed = Date.now() - startedRef.current;
+      const sec = Math.floor(elapsed / 1000);
+      if (sec > lastSec && sec < SAVE_HOLD_MS / 1000) {
+        lastSec = sec;
+        haptic.light();
+      }
+    }, 100);
+    longTimeoutRef.current = setTimeout(() => {
+      triggeredRef.current = true;
+      cleanup();
+      progress.value = withTiming(0, { duration: 200 });
+      onLongComplete?.();
+    }, SAVE_HOLD_MS);
+  };
+
+  const handlePressOut = () => {
+    cleanup();
+    if (triggeredRef.current) return;
+    progress.value = withTiming(0, { duration: 200 });
+  };
+
+  const handlePress = () => {
+    if (disabled) return;
+    if (triggeredRef.current) {
+      triggeredRef.current = false;
+      return;
+    }
+    onTap?.();
+  };
+
+  return (
+    <Pressable
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      onPress={handlePress}
+      disabled={disabled}
+      style={({ pressed }) => [
+        styles.btnPrimary,
+        { backgroundColor: ACCENT, shadowColor: ACCENT },
+        disabled && { opacity: 0.45 },
+        pressed && !disabled && { opacity: 0.92 },
+      ]}
+    >
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.btnPrimaryFill, fillStyle]}
+      />
+      <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
+        <Path
+          d="M2 7l3 3 6-7"
+          stroke="#FFFFFF"
+          strokeWidth={2.4}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </Svg>
+      <Text style={styles.btnPrimaryText}>Enregistrer</Text>
+      <Text style={styles.btnPrimaryHint}>Maintiens 3s = nouveau</Text>
+    </Pressable>
   );
 }
 
@@ -392,9 +528,9 @@ function AddBlockSheet({ visible, onClose, onPick }) {
               <Text style={sheetStyles.kicker}>NOUVEAU BLOC</Text>
               <Text style={sheetStyles.title}>Choisis un type</Text>
             </View>
-            <Pressable onPress={onClose} style={sheetStyles.closeBtn} hitSlop={6}>
-              <Svg width={12} height={12} viewBox="0 0 12 12" fill="none">
-                <Path d="M2 2l8 8M10 2l-8 8" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" />
+            <Pressable onPress={onClose} style={sheetStyles.closeBtn} hitSlop={10}>
+              <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
+                <Path d="M3 3l8 8M11 3l-8 8" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" />
               </Svg>
             </Pressable>
           </View>
@@ -453,7 +589,7 @@ function EditBlockSheet({ block, onClose, onUpdate }) {
         <View style={[sheetStyles.sheet, { paddingBottom: 24 }]}>
           <View style={sheetStyles.handle} />
           <View style={sheetStyles.headerRow}>
-            <View>
+            <View style={{ flex: 1, paddingRight: 12 }}>
               <Text style={sheetStyles.kicker}>BLOC {type.name}</Text>
               <TextInput
                 value={labelDraft}
@@ -468,9 +604,9 @@ function EditBlockSheet({ block, onClose, onUpdate }) {
                 placeholderTextColor="rgba(255,255,255,0.30)"
               />
             </View>
-            <Pressable onPress={onClose} style={sheetStyles.closeBtn} hitSlop={6}>
-              <Svg width={12} height={12} viewBox="0 0 12 12" fill="none">
-                <Path d="M2 2l8 8M10 2l-8 8" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" />
+            <Pressable onPress={onClose} style={sheetStyles.closeBtn} hitSlop={10}>
+              <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
+                <Path d="M3 3l8 8M11 3l-8 8" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" />
               </Svg>
             </Pressable>
           </View>
@@ -532,6 +668,89 @@ function EditBlockSheet({ block, onClose, onUpdate }) {
   );
 }
 
+function LibrarySheet({ visible, mixes, activeId, onClose, onLoad, onDelete }) {
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={sheetStyles.root}>
+        <BlurView intensity={40} tint="dark" pointerEvents="none" style={StyleSheet.absoluteFill} />
+        <View pointerEvents="none" style={sheetStyles.dim} />
+        <Pressable style={sheetStyles.tap} onPress={onClose} />
+        <View style={sheetStyles.sheet}>
+          <View style={sheetStyles.handle} />
+          <View style={sheetStyles.headerRow}>
+            <View>
+              <Text style={sheetStyles.kicker}>MES MIX</Text>
+              <Text style={sheetStyles.title}>
+                {mixes.length} enregistré{mixes.length > 1 ? 's' : ''}
+              </Text>
+            </View>
+            <Pressable onPress={onClose} style={sheetStyles.closeBtn} hitSlop={10}>
+              <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
+                <Path d="M3 3l8 8M11 3l-8 8" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" />
+              </Svg>
+            </Pressable>
+          </View>
+
+          <View style={sheetStyles.libList}>
+            {mixes.length === 0 && (
+              <Text style={sheetStyles.libEmpty}>Aucun mix enregistré</Text>
+            )}
+            {mixes.map((m) => {
+              const isActive = m.id === activeId;
+              const total = getMixTotalDuration(m.blocks || []);
+              const min = Math.floor(total / 60);
+              const sec = total % 60;
+              return (
+                <View
+                  key={m.id}
+                  style={[
+                    sheetStyles.libRow,
+                    isActive && { borderColor: ACCENT, backgroundColor: 'rgba(149,117,255,0.10)' },
+                  ]}
+                >
+                  <Pressable
+                    onPress={() => onLoad(m.id)}
+                    style={({ pressed }) => [
+                      sheetStyles.libRowMain,
+                      pressed && { opacity: 0.7 },
+                    ]}
+                  >
+                    <View style={[sheetStyles.libDot, { backgroundColor: isActive ? ACCENT : 'rgba(255,255,255,0.30)' }]} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={sheetStyles.libName} numberOfLines={1}>{m.name}</Text>
+                      <Text style={sheetStyles.libMeta}>
+                        {(m.blocks?.length || 0)} blocs · {String(min).padStart(2, '0')}:{String(sec).padStart(2, '0')}
+                      </Text>
+                    </View>
+                  </Pressable>
+                  {!isActive && (
+                    <Pressable
+                      onPress={() => onDelete(m.id)}
+                      style={({ pressed }) => [
+                        sheetStyles.libDelete,
+                        pressed && { opacity: 0.7 },
+                      ]}
+                      hitSlop={10}
+                    >
+                      <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
+                        <Path d="M3 3l8 8M11 3l-8 8" stroke="#FF5454" strokeWidth={2} strokeLinecap="round" />
+                      </Svg>
+                    </Pressable>
+                  )}
+                </View>
+              );
+            })}
+          </View>
+
+          <Text style={sheetStyles.libHint}>
+            Tap = charger · 3s sur Enregistrer = nouveau mix
+          </Text>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 const formatTotalShort = (s) => {
   if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);
@@ -573,20 +792,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 24,
+    paddingHorizontal: 20,
     paddingTop: 12,
     paddingBottom: 8,
   },
   iconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.20)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  iconBtnGhost: { width: 40, height: 40 },
   topTitle: {
     fontFamily: fonts.sansBold,
     fontSize: 10,
@@ -594,11 +812,27 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.50)',
     textTransform: 'uppercase',
   },
+  libraryBtn: {
+    height: 44,
+    minWidth: 44,
+    paddingHorizontal: 12,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.20)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  libraryBtnText: {
+    fontFamily: fonts.sansBold,
+    fontSize: 12,
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
 
-  scroll: { flex: 1 },
-  scrollContent: {
+  listContent: {
     paddingHorizontal: 20,
-    paddingBottom: 110,
+    paddingBottom: 130,
   },
 
   hero: {
@@ -696,14 +930,15 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
     backgroundColor: 'rgba(255,255,255,0.04)',
     borderColor: 'rgba(255,255,255,0.10)',
     borderWidth: 1,
     borderRadius: 16,
-    padding: 10,
-    marginBottom: 8,
+    padding: 12,
+    marginBottom: 10,
     overflow: 'hidden',
+    minHeight: 64,
   },
   rowBlob: {
     position: 'absolute',
@@ -715,19 +950,29 @@ const styles = StyleSheet.create({
     opacity: 0.18,
   },
   rowIndex: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
   },
   rowIndexText: {
     fontFamily: fonts.sansBold,
-    fontSize: 11,
+    fontSize: 13,
+  },
+  rowInfo: {
+    flex: 1,
+    minWidth: 0,
+  },
+  rowInfoTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 3,
   },
   rowBadge: {
-    paddingHorizontal: 6,
+    paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
   },
@@ -736,11 +981,8 @@ const styles = StyleSheet.create({
     fontSize: 9,
     letterSpacing: 1.3,
   },
-  rowInfo: {
-    flex: 1,
-    minWidth: 0,
-  },
   rowLabel: {
+    flex: 1,
     fontFamily: fonts.sansBold,
     fontSize: 13,
     color: '#FFFFFF',
@@ -748,35 +990,28 @@ const styles = StyleSheet.create({
   },
   rowSubtitle: {
     fontFamily: fonts.monoRegular,
-    fontSize: 10,
-    color: 'rgba(255,255,255,0.50)',
-    marginTop: 1,
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.55)',
   },
-  rowArrows: {
-    flexDirection: 'column',
-    gap: 2,
-    paddingHorizontal: 2,
-  },
-  arrowBtn: {
-    width: 22,
-    height: 18,
-    borderRadius: 6,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+  iconAction: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  iconAction: {
-    width: 28,
-    height: 28,
+  dragHandle: {
+    width: 36,
+    height: 44,
     borderRadius: 8,
-    backgroundColor: 'rgba(255,255,255,0.06)',
     alignItems: 'center',
     justifyContent: 'center',
   },
 
   addCta: {
-    height: 56,
-    borderRadius: 16,
+    height: 60,
+    borderRadius: 18,
     borderWidth: 1.5,
     borderColor: 'rgba(255,255,255,0.18)',
     borderStyle: 'dashed',
@@ -784,11 +1019,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    marginTop: 4,
+    marginTop: 6,
   },
   addCtaText: {
     fontFamily: fonts.sansBold,
-    fontSize: 12,
+    fontSize: 13,
     letterSpacing: 2,
     color: 'rgba(255,255,255,0.65)',
     textTransform: 'uppercase',
@@ -800,12 +1035,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 12,
     paddingBottom: 8,
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    backgroundColor: 'rgba(0,0,0,0.62)',
   },
   btnSecondary: {
     flex: 1,
-    height: 50,
-    borderRadius: 16,
+    height: 56,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.20)',
     backgroundColor: 'rgba(255,255,255,0.06)',
@@ -819,23 +1054,39 @@ const styles = StyleSheet.create({
     letterSpacing: -0.2,
   },
   btnPrimary: {
-    flex: 1.6,
-    height: 50,
-    borderRadius: 16,
+    flex: 1.7,
+    height: 56,
+    borderRadius: 18,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
+    overflow: 'hidden',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.4,
     shadowRadius: 16,
     elevation: 8,
   },
+  btnPrimaryFill: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+  },
   btnPrimaryText: {
     color: '#FFFFFF',
     fontFamily: fonts.sansBold,
-    fontSize: 13,
+    fontSize: 14,
     letterSpacing: -0.2,
+  },
+  btnPrimaryHint: {
+    position: 'absolute',
+    bottom: 4,
+    color: 'rgba(255,255,255,0.65)',
+    fontFamily: fonts.sansMedium,
+    fontSize: 9,
+    letterSpacing: 0.6,
   },
 });
 
@@ -895,12 +1146,11 @@ const sheetStyles = StyleSheet.create({
     letterSpacing: -0.5,
     padding: 0,
     margin: 0,
-    minWidth: 200,
   },
   closeBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: 'rgba(255,255,255,0.10)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.15)',
@@ -974,7 +1224,7 @@ const sheetStyles = StyleSheet.create({
     marginBottom: 6,
   },
   doneBtn: {
-    height: 48,
+    height: 50,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
@@ -984,6 +1234,68 @@ const sheetStyles = StyleSheet.create({
     fontSize: 13,
     color: '#FFFFFF',
     letterSpacing: 1.5,
+    textTransform: 'uppercase',
+  },
+
+  libList: {
+    gap: 8,
+    marginBottom: 16,
+  },
+  libEmpty: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.45)',
+    textAlign: 'center',
+    paddingVertical: 24,
+  },
+  libRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderColor: 'rgba(255,255,255,0.10)',
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingRight: 8,
+  },
+  libRowMain: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  libDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  libName: {
+    fontFamily: fonts.sansBold,
+    fontSize: 13,
+    color: '#FFFFFF',
+    letterSpacing: -0.2,
+  },
+  libMeta: {
+    fontFamily: fonts.monoRegular,
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.55)',
+    marginTop: 2,
+  },
+  libDelete: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,84,84,0.10)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  libHint: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 10,
+    letterSpacing: 1.5,
+    color: 'rgba(255,255,255,0.40)',
+    textAlign: 'center',
     textTransform: 'uppercase',
   },
 });

@@ -33,7 +33,13 @@ const applyMixToTimer = (timer, activeMix) => {
     if (s.key === 'duration') return { ...s, value: formatComputedTotal(total) };
     return s;
   });
-  return { ...timer, stats, _mix: activeMix || null };
+  const phases = blocks.length === 0
+    ? ['EMPTY']
+    : blocks
+        .slice(0, 5)
+        .map((b) => (b.label || b.type || '—').toUpperCase().slice(0, 8))
+        .concat(blocks.length > 5 ? ['…'] : []);
+  return { ...timer, stats, phases, _mix: activeMix || null };
 };
 
 const applyOverrides = (timers, overrides, activeMix) =>
