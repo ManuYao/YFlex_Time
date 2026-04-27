@@ -435,9 +435,7 @@ function BlockRow({ block, index, drag, isActive, onEdit, onDelete }) {
 function SaveButton({ disabled, onTap, onLongComplete }) {
   const haptic = useHaptic();
   const progress = useSharedValue(0);
-  const startedRef = useRef(0);
   const triggeredRef = useRef(false);
-  const tickRef = useRef(null);
   const longTimeoutRef = useRef(null);
 
   const fillStyle = useAnimatedStyle(() => ({
@@ -445,30 +443,19 @@ function SaveButton({ disabled, onTap, onLongComplete }) {
   }));
 
   const cleanup = () => {
-    if (tickRef.current) clearInterval(tickRef.current);
     if (longTimeoutRef.current) clearTimeout(longTimeoutRef.current);
-    tickRef.current = null;
     longTimeoutRef.current = null;
   };
 
   const handlePressIn = () => {
     if (disabled) return;
     triggeredRef.current = false;
-    startedRef.current = Date.now();
     progress.value = withTiming(1, { duration: SAVE_HOLD_MS });
-    let lastSec = 0;
-    tickRef.current = setInterval(() => {
-      const elapsed = Date.now() - startedRef.current;
-      const sec = Math.floor(elapsed / 1000);
-      if (sec > lastSec && sec < SAVE_HOLD_MS / 1000) {
-        lastSec = sec;
-        haptic.light();
-      }
-    }, 100);
     longTimeoutRef.current = setTimeout(() => {
       triggeredRef.current = true;
-      cleanup();
+      longTimeoutRef.current = null;
       progress.value = withTiming(0, { duration: 200 });
+      haptic.medium();
       onLongComplete?.();
     }, SAVE_HOLD_MS);
   };

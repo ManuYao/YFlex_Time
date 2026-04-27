@@ -3,11 +3,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { TIMERS } from '../lib/timers-config';
 import {
-  loadLibrary,
   addToLibrary as persistAddToLibrary,
   removeFromLibrary as persistRemoveFromLibrary,
-  loadCurrentMix,
   saveCurrentMix as persistCurrentMix,
+  hydrateMixState,
 } from '../lib/mixes';
 import { getMixTotalDuration } from '../lib/mix-blocks';
 
@@ -72,9 +71,8 @@ export function TimersProvider({ children }) {
         if (raw) setOverrides(JSON.parse(raw));
       } catch {}
       try {
-        const lib = await loadLibrary();
+        const { currentMix: cur, library: lib } = await hydrateMixState();
         setLibrary(lib);
-        const cur = await loadCurrentMix();
         setCurrentMixState(cur);
       } catch {}
       setHydrated(true);
