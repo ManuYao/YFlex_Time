@@ -133,7 +133,15 @@ export default function Running() {
               colorInactive={t.ringInactive}
             />
             <View style={styles.ringCenter} pointerEvents="none">
-              <Text style={[styles.phaseLabel, { color: t.tertiary }]}>
+              <Text
+                style={[
+                  styles.phaseLabel,
+                  { color: t.tertiary },
+                  state.phaseLabel.length > 16 && { fontSize: 9, letterSpacing: 2.5 },
+                ]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+              >
                 {state.phaseLabel}
               </Text>
               <Text style={[styles.bigTime, { color: t.primary }]}>

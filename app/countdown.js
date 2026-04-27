@@ -112,6 +112,11 @@ const formatTimerHint = (timer) => {
     const rounds = timer.stats.find((s) => s.key === 'rounds')?.value ?? 0;
     return `${rounds} × ${work}/${rest}s`;
   }
+  if (timer.id === 'mix') {
+    const blocks = timer._mix?.blocks?.length ?? 0;
+    const total = timer.stats.find((s) => s.key === 'duration')?.value ?? '00:00';
+    return `${blocks} blocs · ${total}`;
+  }
   return '';
 };
 

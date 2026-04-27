@@ -55,7 +55,16 @@ export default function Home() {
 
   const handleLaunch = () => {
     haptic.medium();
+    if (active.id === 'mix' && (!active._mix || active._mix.blocks.length === 0)) {
+      router.push('/mix-builder');
+      return;
+    }
     router.push({ pathname: '/countdown', params: { timerId: active.id } });
+  };
+
+  const handleMixEdit = () => {
+    haptic.light();
+    router.push('/mix-builder');
   };
 
   const handleDotPress = (index) => {
@@ -101,6 +110,7 @@ export default function Home() {
               timer={item}
               isActive={index === activeIndex}
               onStatPress={handleStatPress}
+              onMixEdit={handleMixEdit}
             />
           )}
           getItemLayout={(_, i) => ({
@@ -173,10 +183,11 @@ function TopBar({ tag, tokens, onBack, onMenu }) {
   );
 }
 
-function TimerCard({ timer, isActive, onStatPress }) {
+function TimerCard({ timer, isActive, onStatPress, onMixEdit }) {
   const t = getTokens(timer.textMode);
   const hero = getTimerHero(timer);
   const heroFontSize = hero.number.length > 3 ? 110 : 140;
+  const isMix = timer.id === 'mix';
 
   return (
     <View style={styles.card}>
@@ -209,31 +220,42 @@ function TimerCard({ timer, isActive, onStatPress }) {
         </View>
       </View>
 
-      <View style={styles.statsRow}>
+      <Pressable
+        disabled={!isMix}
+        onPress={isMix ? onMixEdit : undefined}
+        style={({ pressed }) => [
+          styles.statsRow,
+          isMix && pressed && { opacity: 0.75 },
+        ]}
+      >
         {timer.stats.map((stat) => {
           const editable = stat.editable;
+          const tappable = editable && !isMix;
           return (
             <Pressable
               key={stat.key}
-              disabled={!editable}
-              onPress={editable ? () => onStatPress(timer.id, stat.key) : undefined}
+              disabled={!tappable}
+              onPress={tappable ? () => onStatPress(timer.id, stat.key) : undefined}
               style={({ pressed }) => [
                 styles.statChip,
                 { backgroundColor: t.chipBg, borderColor: t.chipBorder },
-                editable && pressed && { opacity: 0.7, transform: [{ scale: 0.96 }] },
+                tappable && pressed && { opacity: 0.7, transform: [{ scale: 0.96 }] },
               ]}
-              hitSlop={editable ? 4 : 0}
+              hitSlop={tappable ? 4 : 0}
             >
               <View style={styles.statLabelRow}>
                 <Text style={[styles.statLabel, { color: t.tertiary }]}>
                   {stat.label}
                 </Text>
-                {editable && (
+                {(editable || isMix) && (
                   <Text style={[styles.chevron, { color: t.tertiary }]}>▾</Text>
                 )}
               </View>
               <View style={styles.statValueRow}>
-                <Text style={[styles.statValue, { color: t.primary }]}>
+                <Text
+                  style={[styles.statValue, { color: t.primary }]}
+                  numberOfLines={1}
+                >
                   {stat.value}
                 </Text>
                 {!!stat.unit && (
@@ -245,7 +267,7 @@ function TimerCard({ timer, isActive, onStatPress }) {
             </Pressable>
           );
         })}
-      </View>
+      </Pressable>
 
       <Text style={[styles.phasesLabel, { color: t.muted }]}>Déroulé</Text>
       <View style={styles.phasesRow}>
