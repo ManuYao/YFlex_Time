@@ -1,6 +1,16 @@
 import { useEffect, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import Svg, { Line } from 'react-native-svg';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
+  withSequence,
+  withTiming,
+  cancelAnimation,
+  Easing,
+} from 'react-native-reanimated';
 
 import GradientBackground from '../components/common/GradientBackground';
 import { useTimers } from '../contexts/TimersContext';
@@ -9,6 +19,8 @@ import { useHaptic } from '../hooks/useHaptic';
 import { useSound } from '../hooks/useSound';
 
 const COUNTDOWN_FROM = 3;
+const TICK_RING_SIZE = 500;
+const TICK_COUNT = 60;
 
 export default function Countdown() {
   const router = useRouter();
@@ -55,11 +67,103 @@ export default function Countdown() {
   const textColor = isDark ? '#0A0A0A' : '#FFFFFF';
   const dimColor = isDark ? 'rgba(10,10,10,0.65)' : 'rgba(255,255,255,0.75)';
   const mutedColor = isDark ? 'rgba(10,10,10,0.45)' : 'rgba(255,255,255,0.55)';
+  const waveColor = isGo ? (isDark ? '#0A0A0A' : '#FFFFFF') : timer.color;
+  const tickColor = isDark ? 'rgba(10,10,10,0.55)' : 'rgba(255,255,255,0.55)';
 
   const heroDuration = formatTimerHint(timer);
 
+  // Onde radiale par tick
+  const waveScale = useSharedValue(0);
+  const waveOpacity = useSharedValue(0);
+  useEffect(() => {
+    waveScale.value = 0;
+    waveOpacity.value = 0.6;
+    waveScale.value = withTiming(5, { duration: 1000, easing: Easing.out(Easing.cubic) });
+    waveOpacity.value = withTiming(0, { duration: 1000, easing: Easing.out(Easing.cubic) });
+  }, [count, isGo]);
+  const waveStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: waveScale.value }],
+    opacity: waveOpacity.value,
+  }));
+
+  // Ticks rotatifs décoratifs
+  const rotation = useSharedValue(0);
+  useEffect(() => {
+    rotation.value = withRepeat(
+      withTiming(360, { duration: 10000, easing: Easing.linear }),
+      -1
+    );
+    return () => cancelAnimation(rotation);
+  }, []);
+  const rotStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${rotation.value}deg` }],
+    opacity: 0.4,
+  }));
+
+  // Hero number scale overshoot par tick
+  const heroScale = useSharedValue(0.3);
+  const heroOpacity = useSharedValue(0);
+  useEffect(() => {
+    heroScale.value = 0.3;
+    heroOpacity.value = 0;
+    heroScale.value = withSequence(
+      withTiming(1.25, { duration: 280, easing: Easing.bezier(0.22, 1.4, 0.36, 1) }),
+      withTiming(1, { duration: 220, easing: Easing.out(Easing.cubic) })
+    );
+    heroOpacity.value = withTiming(1, { duration: 200 });
+  }, [count, isGo]);
+  const heroStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: heroScale.value }],
+    opacity: heroOpacity.value,
+  }));
+
   return (
     <GradientBackground colors={timer.bgColors} textMode={timer.textMode}>
+      {/* Ticks rotatifs en arrière-plan */}
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.ticksLayer, rotStyle]}
+      >
+        <Svg width={TICK_RING_SIZE} height={TICK_RING_SIZE} viewBox={`0 0 ${TICK_RING_SIZE} ${TICK_RING_SIZE}`}>
+          {Array.from({ length: TICK_COUNT }).map((_, i) => {
+            const angle = (i / TICK_COUNT) * Math.PI * 2;
+            const r1 = TICK_RING_SIZE / 2 - 10;
+            const r2 = TICK_RING_SIZE / 2;
+            const cx = TICK_RING_SIZE / 2;
+            const cy = TICK_RING_SIZE / 2;
+            const x1 = cx + Math.cos(angle) * r1;
+            const y1 = cy + Math.sin(angle) * r1;
+            const x2 = cx + Math.cos(angle) * r2;
+            const y2 = cy + Math.sin(angle) * r2;
+            return (
+              <Line
+                key={i}
+                x1={x1}
+                y1={y1}
+                x2={x2}
+                y2={y2}
+                stroke={tickColor}
+                strokeWidth={i % 5 === 0 ? 2 : 1}
+                strokeLinecap="round"
+              />
+            );
+          })}
+        </Svg>
+      </Animated.View>
+
+      {/* Onde radiale */}
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.wave,
+          {
+            borderColor: waveColor,
+            shadowColor: waveColor,
+          },
+          waveStyle,
+        ]}
+      />
+
       <Pressable style={styles.full} onPress={handleCancel}>
         <View style={styles.topLabel} pointerEvents="none">
           <Text style={[styles.prepLabel, { color: dimColor }]}>PRÉPARE-TOI</Text>
@@ -67,19 +171,22 @@ export default function Countdown() {
         </View>
 
         <View style={styles.center} pointerEvents="none">
-          <Text
-            key={isGo ? 'go' : `n${count}`}
+          <Animated.Text
             style={[
               styles.heroNumber,
               {
                 color: textColor,
                 fontSize: isGo ? 200 : 240,
                 lineHeight: isGo ? 200 : 240,
+                textShadowColor: waveColor + '88',
+                textShadowOffset: { width: 0, height: 0 },
+                textShadowRadius: 40,
               },
+              heroStyle,
             ]}
           >
             {isGo ? 'GO' : count}
-          </Text>
+          </Animated.Text>
         </View>
 
         <View style={styles.bottomLabel} pointerEvents="none">
@@ -131,6 +238,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: 80,
+  },
+  ticksLayer: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  wave: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    width: 240,
+    height: 240,
+    marginTop: -120,
+    marginLeft: -120,
+    borderRadius: 120,
+    borderWidth: 3,
+    shadowOpacity: 0.7,
+    shadowRadius: 40,
+    shadowOffset: { width: 0, height: 0 },
   },
   topLabel: {
     alignItems: 'center',
