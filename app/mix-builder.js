@@ -435,52 +435,38 @@ function BlockRow({ block, index, drag, isActive, onEdit, onDelete }) {
 function SaveButton({ disabled, onTap, onLongComplete }) {
   const haptic = useHaptic();
   const progress = useSharedValue(0);
-  const triggeredRef = useRef(false);
-  const longTimeoutRef = useRef(null);
+  const longFiredRef = useRef(false);
 
   const fillStyle = useAnimatedStyle(() => ({
     width: `${progress.value * 100}%`,
   }));
 
-  const cleanup = () => {
-    if (longTimeoutRef.current) clearTimeout(longTimeoutRef.current);
-    longTimeoutRef.current = null;
-  };
-
-  const handlePressIn = () => {
-    if (disabled) return;
-    triggeredRef.current = false;
-    progress.value = withTiming(1, { duration: SAVE_HOLD_MS });
-    longTimeoutRef.current = setTimeout(() => {
-      triggeredRef.current = true;
-      longTimeoutRef.current = null;
-      progress.value = withTiming(0, { duration: 200 });
-      haptic.medium();
-      onLongComplete?.();
-    }, SAVE_HOLD_MS);
-  };
-
-  const handlePressOut = () => {
-    cleanup();
-    if (triggeredRef.current) return;
-    progress.value = withTiming(0, { duration: 200 });
-  };
-
-  const handlePress = () => {
-    if (disabled) return;
-    if (triggeredRef.current) {
-      triggeredRef.current = false;
-      return;
-    }
-    onTap?.();
-  };
-
   return (
     <Pressable
-      onPressIn={handlePressIn}
-      onPressOut={handlePressOut}
-      onPress={handlePress}
       disabled={disabled}
+      delayLongPress={SAVE_HOLD_MS}
+      onPressIn={() => {
+        if (disabled) return;
+        longFiredRef.current = false;
+        progress.value = withTiming(1, { duration: SAVE_HOLD_MS });
+      }}
+      onPressOut={() => {
+        progress.value = withTiming(0, { duration: 200 });
+      }}
+      onLongPress={() => {
+        if (disabled) return;
+        longFiredRef.current = true;
+        haptic.medium();
+        onLongComplete?.();
+      }}
+      onPress={() => {
+        if (disabled) return;
+        if (longFiredRef.current) {
+          longFiredRef.current = false;
+          return;
+        }
+        onTap?.();
+      }}
       style={({ pressed }) => [
         styles.btnPrimary,
         { backgroundColor: ACCENT, shadowColor: ACCENT },
