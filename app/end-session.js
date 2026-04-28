@@ -4,9 +4,19 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Svg, { Path } from 'react-native-svg';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
+  withSequence,
+  withTiming,
+  cancelAnimation,
+  Easing,
+} from 'react-native-reanimated';
 
 import TickRing from '../components/common/TickRing';
 import GradientBackground from '../components/common/GradientBackground';
+import Confetti from '../components/common/Confetti';
 import { useTimers } from '../contexts/TimersContext';
 import { computeSessionStats } from '../lib/timer-engine';
 import { formatDuration } from '../lib/formatters';
@@ -66,12 +76,54 @@ export default function EndSession() {
   const restValue = stats.restTotal > 0 ? formatDuration(stats.restTotal) : '—';
   const workValue = formatDuration(stats.workTotal);
 
+  const bravoScale = useSharedValue(0.3);
+  const bravoOpacity = useSharedValue(0);
+  useEffect(() => {
+    bravoScale.value = withSequence(
+      withTiming(1.15, { duration: 380, easing: Easing.bezier(0.22, 1.5, 0.36, 1) }),
+      withTiming(1, { duration: 220, easing: Easing.out(Easing.cubic) })
+    );
+    bravoOpacity.value = withTiming(1, { duration: 320 });
+  }, []);
+  const bravoStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: bravoScale.value }],
+    opacity: bravoOpacity.value,
+  }));
+
+  const dotScale = useSharedValue(1);
+  const dotOpacity = useSharedValue(0.6);
+  useEffect(() => {
+    dotScale.value = withRepeat(
+      withSequence(
+        withTiming(1.5, { duration: 1000, easing: Easing.inOut(Easing.ease) }),
+        withTiming(1, { duration: 1000, easing: Easing.inOut(Easing.ease) })
+      ),
+      -1
+    );
+    dotOpacity.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 1000, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0.6, { duration: 1000, easing: Easing.inOut(Easing.ease) })
+      ),
+      -1
+    );
+    return () => {
+      cancelAnimation(dotScale);
+      cancelAnimation(dotOpacity);
+    };
+  }, []);
+  const dotStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: dotScale.value }],
+    opacity: dotOpacity.value,
+  }));
+
   return (
     <GradientBackground
       colors={[timer.color, '#0A0A0A', '#000000']}
       textMode="light"
       ambient
     >
+      <Confetti />
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.statusBar}>
           <Text style={styles.statusText}>SÉANCE TERMINÉE</Text>
@@ -79,16 +131,18 @@ export default function EndSession() {
 
       <View style={styles.body}>
         <View style={styles.badge}>
-          <View style={[styles.badgeDot, { backgroundColor: timer.color }]} />
+          <Animated.View style={[styles.badgeDot, { backgroundColor: timer.color }, dotStyle]} />
           <Text style={[styles.badgeName, { color: timer.color }]}>
             {timer.name}
           </Text>
           <Text style={styles.badgeDate}>· {dateLabel}</Text>
         </View>
 
-        <Text style={[styles.bravo, { textShadowColor: timer.color + '88' }]}>
+        <Animated.Text
+          style={[styles.bravo, { textShadowColor: timer.color + '88' }, bravoStyle]}
+        >
           BRAVO
-        </Text>
+        </Animated.Text>
         <Text style={styles.tagline}>Tu l'as fait jusqu'au bout</Text>
 
         <View style={styles.ringWrap}>
