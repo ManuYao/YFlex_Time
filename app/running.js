@@ -7,7 +7,19 @@ import {
   BackHandler,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { BlurView } from 'expo-blur';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
+  withSequence,
+  withTiming,
+  cancelAnimation,
+  Easing,
+  FadeIn,
+  FadeOut,
+} from 'react-native-reanimated';
 
 import GradientBackground from '../components/common/GradientBackground';
 import TickRing from '../components/common/TickRing';
@@ -112,8 +124,34 @@ export default function Running() {
   const secondsLeftWhole = Math.ceil(state.phaseSecondsLeft);
   const ctaLabel = isPaused ? 'EN PAUSE' : 'EN COURS';
 
+  const pulseOpacity = useSharedValue(0);
+  useEffect(() => {
+    if (isPaused) {
+      cancelAnimation(pulseOpacity);
+      pulseOpacity.value = withTiming(0, { duration: 300 });
+    } else {
+      pulseOpacity.value = withRepeat(
+        withSequence(
+          withTiming(0.15, { duration: 1000, easing: Easing.inOut(Easing.ease) }),
+          withTiming(0, { duration: 1000, easing: Easing.inOut(Easing.ease) })
+        ),
+        -1
+      );
+    }
+    return () => cancelAnimation(pulseOpacity);
+  }, [isPaused]);
+  const pulseStyle = useAnimatedStyle(() => ({ opacity: pulseOpacity.value }));
+
   return (
     <GradientBackground colors={timer.bgColors} textMode={timer.textMode}>
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          StyleSheet.absoluteFillObject,
+          { backgroundColor: timer.color },
+          pulseStyle,
+        ]}
+      />
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <TopBar
           tokens={t}
@@ -122,6 +160,7 @@ export default function Running() {
           roundLabel={state.roundLabel}
           onReturn={handleReturn}
           progress={state.totalProgress}
+          isPaused={isPaused}
         />
 
         <View style={styles.center}>
@@ -164,11 +203,63 @@ export default function Running() {
           onSkip={handleSkip}
         />
       </SafeAreaView>
+
+      {isPaused && (
+        <Animated.View
+          entering={FadeIn.duration(250)}
+          exiting={FadeOut.duration(250)}
+          pointerEvents="none"
+          style={StyleSheet.absoluteFillObject}
+        >
+          <BlurView
+            intensity={20}
+            tint="dark"
+            style={[
+              StyleSheet.absoluteFillObject,
+              { backgroundColor: 'rgba(0,0,0,0.18)' },
+            ]}
+          />
+        </Animated.View>
+      )}
     </GradientBackground>
   );
 }
 
-function TopBar({ tokens, name, tag, roundLabel, onReturn, progress }) {
+function TopBar({ tokens, name, tag, roundLabel, onReturn, progress, isPaused }) {
+  const dotScale = useSharedValue(1);
+  const dotOpacity = useSharedValue(0.6);
+  useEffect(() => {
+    if (isPaused) {
+      cancelAnimation(dotScale);
+      cancelAnimation(dotOpacity);
+      dotScale.value = withTiming(1, { duration: 300 });
+      dotOpacity.value = withTiming(0.5, { duration: 300 });
+    } else {
+      dotScale.value = withRepeat(
+        withSequence(
+          withTiming(1.4, { duration: 500, easing: Easing.inOut(Easing.ease) }),
+          withTiming(1, { duration: 500, easing: Easing.inOut(Easing.ease) })
+        ),
+        -1
+      );
+      dotOpacity.value = withRepeat(
+        withSequence(
+          withTiming(1, { duration: 500, easing: Easing.inOut(Easing.ease) }),
+          withTiming(0.4, { duration: 500, easing: Easing.inOut(Easing.ease) })
+        ),
+        -1
+      );
+    }
+    return () => {
+      cancelAnimation(dotScale);
+      cancelAnimation(dotOpacity);
+    };
+  }, [isPaused]);
+  const dotStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: dotScale.value }],
+    opacity: dotOpacity.value,
+  }));
+
   return (
     <View style={styles.topBar}>
       <View style={styles.topRow}>
@@ -187,7 +278,16 @@ function TopBar({ tokens, name, tag, roundLabel, onReturn, progress }) {
 
         <View style={styles.topCenter}>
           <Text style={[styles.topName, { color: tokens.tertiary }]}>{name}</Text>
-          <Text style={[styles.topTag, { color: tokens.primary }]}>{tag}</Text>
+          <View style={styles.topTagRow}>
+            <Animated.View
+              style={[
+                styles.statusDot,
+                { backgroundColor: tokens.primary },
+                dotStyle,
+              ]}
+            />
+            <Text style={[styles.topTag, { color: tokens.primary }]}>{tag}</Text>
+          </View>
         </View>
 
         <View style={styles.topRight}>
@@ -353,6 +453,16 @@ const styles = StyleSheet.create({
     letterSpacing: 3,
     textTransform: 'uppercase',
     marginBottom: 4,
+  },
+  topTagRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   topTag: {
     fontFamily: fonts.sansExtraBold,
