@@ -80,6 +80,7 @@ export default function SessionDetail() {
               size={240}
               colorActive={session.color || '#FFFFFF'}
               colorInactive="rgba(255,255,255,0.12)"
+              animateIn
             />
             <View style={styles.ringCenter} pointerEvents="none">
               <Text style={styles.durationLabel}>DURÉE TOTALE</Text>

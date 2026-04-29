@@ -4,13 +4,27 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Svg, { Path } from 'react-native-svg';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
+  withSequence,
+  withSpring,
+  withTiming,
+  withDelay,
+  cancelAnimation,
+  Easing,
+} from 'react-native-reanimated';
 
 import TickRing from '../components/common/TickRing';
 import GradientBackground from '../components/common/GradientBackground';
+import Confetti from '../components/common/Confetti';
 import { useTimers } from '../contexts/TimersContext';
 import { computeSessionStats } from '../lib/timer-engine';
 import { formatDuration } from '../lib/formatters';
 import { fonts } from '../lib/fonts';
+
+const springEnergetic = { stiffness: 380, damping: 22, mass: 1 };
 
 const HISTORY_KEY = 'flexTimer_history';
 
@@ -66,37 +80,141 @@ export default function EndSession() {
   const restValue = stats.restTotal > 0 ? formatDuration(stats.restTotal) : '—';
   const workValue = formatDuration(stats.workTotal);
 
+  // SÉANCE TERMINÉE pulse opacity 0.5↔1
+  const statusOpacity = useSharedValue(0.5);
+  useEffect(() => {
+    statusOpacity.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 1000, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0.5, { duration: 1000, easing: Easing.inOut(Easing.ease) })
+      ),
+      -1
+    );
+    return () => cancelAnimation(statusOpacity);
+  }, []);
+  const statusStyle = useAnimatedStyle(() => ({ opacity: statusOpacity.value }));
+
+  // Badge entry y -20→0 + opacity
+  const badgeY = useSharedValue(-20);
+  const badgeOpacity = useSharedValue(0);
+  useEffect(() => {
+    badgeY.value = withTiming(0, { duration: 500, easing: Easing.out(Easing.cubic) });
+    badgeOpacity.value = withTiming(1, { duration: 500 });
+  }, []);
+  const badgeStyle = useAnimatedStyle(() => ({
+    opacity: badgeOpacity.value,
+    transform: [{ translateY: badgeY.value }],
+  }));
+
+  // Badge dot pulse scale 1↔1.5 + opacity 0.6↔1, cycle 2s
+  const dotScale = useSharedValue(1);
+  const dotOpacity = useSharedValue(0.6);
+  useEffect(() => {
+    dotScale.value = withRepeat(
+      withSequence(
+        withTiming(1.5, { duration: 1000, easing: Easing.inOut(Easing.ease) }),
+        withTiming(1, { duration: 1000, easing: Easing.inOut(Easing.ease) })
+      ),
+      -1
+    );
+    dotOpacity.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 1000, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0.6, { duration: 1000, easing: Easing.inOut(Easing.ease) })
+      ),
+      -1
+    );
+    return () => {
+      cancelAnimation(dotScale);
+      cancelAnimation(dotOpacity);
+    };
+  }, []);
+  const dotStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: dotScale.value }],
+    opacity: dotOpacity.value,
+  }));
+
+  // BRAVO scale 0.3 → 1.15 → 1, opacity 0→1, delay 150
+  const bravoScale = useSharedValue(0.3);
+  const bravoOpacity = useSharedValue(0);
+  useEffect(() => {
+    bravoScale.value = withDelay(
+      150,
+      withSequence(
+        withTiming(1.15, { duration: 420, easing: Easing.bezier(0.22, 1.5, 0.36, 1) }),
+        withTiming(1, { duration: 280, easing: Easing.out(Easing.cubic) })
+      )
+    );
+    bravoOpacity.value = withDelay(150, withTiming(1, { duration: 400 }));
+  }, []);
+  const bravoStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: bravoScale.value }],
+    opacity: bravoOpacity.value,
+  }));
+
+  // Tagline entry y 15→0 + opacity, delay 500
+  const tagY = useSharedValue(15);
+  const tagOpacity = useSharedValue(0);
+  useEffect(() => {
+    tagY.value = withDelay(500, withTiming(0, { duration: 400, easing: Easing.out(Easing.cubic) }));
+    tagOpacity.value = withDelay(500, withTiming(1, { duration: 400 }));
+  }, []);
+  const tagStyle = useAnimatedStyle(() => ({
+    opacity: tagOpacity.value,
+    transform: [{ translateY: tagY.value }],
+  }));
+
+  // Ring entry scale 0.7→1, delay 600
+  const ringScale = useSharedValue(0.7);
+  const ringOpacity = useSharedValue(0);
+  useEffect(() => {
+    ringScale.value = withDelay(600, withSpring(1, springEnergetic));
+    ringOpacity.value = withDelay(600, withTiming(1, { duration: 400 }));
+  }, []);
+  const ringStyle = useAnimatedStyle(() => ({
+    opacity: ringOpacity.value,
+    transform: [{ scale: ringScale.value }],
+  }));
+
   return (
     <GradientBackground
       colors={[timer.color, '#0A0A0A', '#000000']}
       textMode="light"
       ambient
     >
+      <Confetti />
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.statusBar}>
-          <Text style={styles.statusText}>SÉANCE TERMINÉE</Text>
+          <Animated.Text style={[styles.statusText, statusStyle]}>
+            SÉANCE TERMINÉE
+          </Animated.Text>
         </View>
 
       <View style={styles.body}>
-        <View style={styles.badge}>
-          <View style={[styles.badgeDot, { backgroundColor: timer.color }]} />
+        <Animated.View style={[styles.badge, badgeStyle]}>
+          <Animated.View style={[styles.badgeDot, { backgroundColor: timer.color }, dotStyle]} />
           <Text style={[styles.badgeName, { color: timer.color }]}>
             {timer.name}
           </Text>
           <Text style={styles.badgeDate}>· {dateLabel}</Text>
-        </View>
+        </Animated.View>
 
-        <Text style={[styles.bravo, { textShadowColor: timer.color + '88' }]}>
+        <Animated.Text
+          style={[styles.bravo, { textShadowColor: timer.color + '88' }, bravoStyle]}
+        >
           BRAVO
-        </Text>
-        <Text style={styles.tagline}>Tu l'as fait jusqu'au bout</Text>
+        </Animated.Text>
+        <Animated.Text style={[styles.tagline, tagStyle]}>
+          Tu l'as fait jusqu'au bout
+        </Animated.Text>
 
-        <View style={styles.ringWrap}>
+        <Animated.View style={[styles.ringWrap, ringStyle]}>
           <TickRing
             progress={1}
             size={260}
             colorActive={timer.color}
             colorInactive="rgba(255,255,255,0.12)"
+            animateIn
           />
           <View style={styles.ringCenter} pointerEvents="none">
             <Text style={styles.durationLabel}>DURÉE TOTALE</Text>
@@ -109,12 +227,12 @@ export default function EndSession() {
               <View style={[styles.intensityBar, { backgroundColor: timer.color }]} />
             </View>
           </View>
-        </View>
+        </Animated.View>
 
         <View style={styles.statsGrid}>
-          <StatCell label="TOURS" value={stats.roundsLabel} color="#FFFFFF" />
-          <StatCell label="TRAVAIL" value={workValue} color="#1FC777" />
-          <StatCell label="REPOS" value={restValue} color="#4A90FF" />
+          <StatCell index={0} label="TOURS" value={stats.roundsLabel} color="#FFFFFF" />
+          <StatCell index={1} label="TRAVAIL" value={workValue} color="#1FC777" />
+          <StatCell index={2} label="REPOS" value={restValue} color="#4A90FF" />
         </View>
       </View>
 
@@ -161,12 +279,25 @@ export default function EndSession() {
   );
 }
 
-function StatCell({ label, value, color }) {
+function StatCell({ index, label, value, color }) {
+  const y = useSharedValue(20);
+  const opacity = useSharedValue(0);
+  const scale = useSharedValue(0.9);
+  useEffect(() => {
+    const d = 900 + index * 60;
+    y.value = withDelay(d, withSpring(0, springEnergetic));
+    opacity.value = withDelay(d, withTiming(1, { duration: 300 }));
+    scale.value = withDelay(d, withSpring(1, springEnergetic));
+  }, []);
+  const animStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ translateY: y.value }, { scale: scale.value }],
+  }));
   return (
-    <View style={styles.statCell}>
+    <Animated.View style={[styles.statCell, animStyle]}>
       <Text style={styles.statCellLabel}>{label}</Text>
       <Text style={[styles.statCellValue, { color }]}>{value}</Text>
-    </View>
+    </Animated.View>
   );
 }
 

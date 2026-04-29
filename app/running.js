@@ -7,7 +7,22 @@ import {
   BackHandler,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
+  withSequence,
+  withSpring,
+  withTiming,
+  withDelay,
+  cancelAnimation,
+  Easing,
+  FadeIn,
+  FadeOut,
+} from 'react-native-reanimated';
 
 import GradientBackground from '../components/common/GradientBackground';
 import TickRing from '../components/common/TickRing';
@@ -21,6 +36,9 @@ import { useTimer } from '../hooks/useTimer';
 import { useHaptic } from '../hooks/useHaptic';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { useSound } from '../hooks/useSound';
+
+const easeImpact = Easing.bezier(0.22, 1, 0.36, 1);
+const springEnergetic = { stiffness: 380, damping: 22, mass: 1 };
 
 export default function Running() {
   const router = useRouter();
@@ -69,10 +87,7 @@ export default function Running() {
       );
       router.replace({
         pathname: '/end-session',
-        params: {
-          timerId: timer.id,
-          elapsed: realElapsed,
-        },
+        params: { timerId: timer.id, elapsed: realElapsed },
       });
     }
   }, [state.isComplete]);
@@ -112,8 +127,88 @@ export default function Running() {
   const secondsLeftWhole = Math.ceil(state.phaseSecondsLeft);
   const ctaLabel = isPaused ? 'EN PAUSE' : 'EN COURS';
 
+  // Pulse ambiant — overlay LinearGradient timer.bgColors, opacity 0→0.15→0 cycle 2s
+  const pulseOpacity = useSharedValue(0);
+  useEffect(() => {
+    if (isPaused) {
+      cancelAnimation(pulseOpacity);
+      pulseOpacity.value = withTiming(0, { duration: 400 });
+    } else {
+      pulseOpacity.value = 0;
+      pulseOpacity.value = withRepeat(
+        withSequence(
+          withTiming(0.15, { duration: 1000, easing: Easing.inOut(Easing.ease) }),
+          withTiming(0, { duration: 1000, easing: Easing.inOut(Easing.ease) })
+        ),
+        -1
+      );
+    }
+    return () => cancelAnimation(pulseOpacity);
+  }, [isPaused]);
+  const pulseStyle = useAnimatedStyle(() => ({ opacity: pulseOpacity.value }));
+
+  // Ring breathing — scale [1, 1.012, 1] cycle 1s quand running
+  const ringScale = useSharedValue(1);
+  useEffect(() => {
+    if (isPaused) {
+      cancelAnimation(ringScale);
+      ringScale.value = withTiming(1, { duration: 300 });
+    } else {
+      ringScale.value = withRepeat(
+        withSequence(
+          withTiming(1.012, { duration: 500, easing: Easing.inOut(Easing.ease) }),
+          withTiming(1, { duration: 500, easing: Easing.inOut(Easing.ease) })
+        ),
+        -1
+      );
+    }
+    return () => cancelAnimation(ringScale);
+  }, [isPaused]);
+  const ringStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: ringScale.value }],
+  }));
+
+  // Phase label + time transition à chaque phase change
+  const phaseY = useSharedValue(0);
+  const phaseOpacity = useSharedValue(1);
+  const timeScale = useSharedValue(1);
+  const timeOpacity = useSharedValue(1);
+  useEffect(() => {
+    phaseY.value = 8;
+    phaseOpacity.value = 0;
+    phaseY.value = withDelay(100, withTiming(0, { duration: 300, easing: easeImpact }));
+    phaseOpacity.value = withDelay(100, withTiming(1, { duration: 300 }));
+
+    timeScale.value = 0.7;
+    timeOpacity.value = 0;
+    timeScale.value = withSpring(1, springEnergetic);
+    timeOpacity.value = withTiming(1, { duration: 300 });
+  }, [state.phaseLabel]);
+  const phaseLabelStyle = useAnimatedStyle(() => ({
+    opacity: phaseOpacity.value,
+    transform: [{ translateY: phaseY.value }],
+  }));
+  const timeStyle = useAnimatedStyle(() => ({
+    opacity: timeOpacity.value,
+    transform: [{ scale: timeScale.value }],
+  }));
+
   return (
     <GradientBackground colors={timer.bgColors} textMode={timer.textMode}>
+      {/* Pulse ambiant */}
+      <Animated.View
+        pointerEvents="none"
+        style={[StyleSheet.absoluteFillObject, pulseStyle]}
+      >
+        <LinearGradient
+          colors={timer.bgColors}
+          locations={[0, 0.45, 1]}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+      </Animated.View>
+
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <TopBar
           tokens={t}
@@ -122,10 +217,11 @@ export default function Running() {
           roundLabel={state.roundLabel}
           onReturn={handleReturn}
           progress={state.totalProgress}
+          isPaused={isPaused}
         />
 
         <View style={styles.center}>
-          <View style={styles.ringWrap}>
+          <Animated.View style={[styles.ringWrap, ringStyle]}>
             <TickRing
               progress={state.ringProgress}
               size={320}
@@ -133,25 +229,24 @@ export default function Running() {
               colorInactive={t.ringInactive}
             />
             <View style={styles.ringCenter} pointerEvents="none">
-              <Text
+              <Animated.Text
                 style={[
                   styles.phaseLabel,
                   { color: t.tertiary },
                   state.phaseLabel.length > 16 && { fontSize: 9, letterSpacing: 2.5 },
+                  phaseLabelStyle,
                 ]}
                 numberOfLines={1}
                 adjustsFontSizeToFit
               >
                 {state.phaseLabel}
-              </Text>
-              <Text style={[styles.bigTime, { color: t.primary }]}>
+              </Animated.Text>
+              <Animated.Text style={[styles.bigTime, { color: t.primary }, timeStyle]}>
                 {formatDuration(secondsLeftWhole)}
-              </Text>
-              <Text style={[styles.restantLabel, { color: t.tertiary }]}>
-                RESTANT
-              </Text>
+              </Animated.Text>
+              <Text style={[styles.restantLabel, { color: t.tertiary }]}>RESTANT</Text>
             </View>
-          </View>
+          </Animated.View>
 
           <PhasesPills phases={state.phasesList} timer={timer} tokens={t} />
         </View>
@@ -164,11 +259,63 @@ export default function Running() {
           onSkip={handleSkip}
         />
       </SafeAreaView>
+
+      {isPaused && (
+        <Animated.View
+          entering={FadeIn.duration(300)}
+          exiting={FadeOut.duration(300)}
+          pointerEvents="none"
+          style={StyleSheet.absoluteFillObject}
+        >
+          <BlurView
+            intensity={8}
+            tint="dark"
+            style={[
+              StyleSheet.absoluteFillObject,
+              { backgroundColor: 'rgba(0,0,0,0.15)' },
+            ]}
+          />
+        </Animated.View>
+      )}
     </GradientBackground>
   );
 }
 
-function TopBar({ tokens, name, tag, roundLabel, onReturn, progress }) {
+function TopBar({ tokens, name, tag, roundLabel, onReturn, progress, isPaused }) {
+  const dotScale = useSharedValue(1);
+  const dotOpacity = useSharedValue(0.6);
+  useEffect(() => {
+    if (isPaused) {
+      cancelAnimation(dotScale);
+      cancelAnimation(dotOpacity);
+      dotScale.value = withTiming(1, { duration: 300 });
+      dotOpacity.value = withTiming(0.5, { duration: 300 });
+    } else {
+      dotScale.value = withRepeat(
+        withSequence(
+          withTiming(1.3, { duration: 500, easing: Easing.inOut(Easing.ease) }),
+          withTiming(1, { duration: 500, easing: Easing.inOut(Easing.ease) })
+        ),
+        -1
+      );
+      dotOpacity.value = withRepeat(
+        withSequence(
+          withTiming(1, { duration: 500, easing: Easing.inOut(Easing.ease) }),
+          withTiming(0.4, { duration: 500, easing: Easing.inOut(Easing.ease) })
+        ),
+        -1
+      );
+    }
+    return () => {
+      cancelAnimation(dotScale);
+      cancelAnimation(dotOpacity);
+    };
+  }, [isPaused]);
+  const dotStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: dotScale.value }],
+    opacity: dotOpacity.value,
+  }));
+
   return (
     <View style={styles.topBar}>
       <View style={styles.topRow}>
@@ -187,16 +334,17 @@ function TopBar({ tokens, name, tag, roundLabel, onReturn, progress }) {
 
         <View style={styles.topCenter}>
           <Text style={[styles.topName, { color: tokens.tertiary }]}>{name}</Text>
-          <Text style={[styles.topTag, { color: tokens.primary }]}>{tag}</Text>
+          <View style={styles.topTagRow}>
+            <Animated.View
+              style={[styles.statusDot, { backgroundColor: tokens.primary }, dotStyle]}
+            />
+            <Text style={[styles.topTag, { color: tokens.primary }]}>{tag}</Text>
+          </View>
         </View>
 
         <View style={styles.topRight}>
-          <Text style={[styles.topRoundLabel, { color: tokens.tertiary }]}>
-            TOUR
-          </Text>
-          <Text style={[styles.topRoundValue, { color: tokens.primary }]}>
-            {roundLabel}
-          </Text>
+          <Text style={[styles.topRoundLabel, { color: tokens.tertiary }]}>TOUR</Text>
+          <Text style={[styles.topRoundValue, { color: tokens.primary }]}>{roundLabel}</Text>
         </View>
       </View>
 
@@ -227,38 +375,96 @@ function PhasesPills({ phases, timer, tokens }) {
         {phases.map((p, i) => {
           const isCurrent = p.status === 'current';
           const isDone = p.status === 'done';
-          const bg = isCurrent
-            ? tokens.primary
-            : isDone
-            ? 'transparent'
-            : tokens.chipBg;
-          const border = isCurrent
-            ? tokens.primary
-            : isDone
-            ? tokens.chipDone
-            : tokens.chipBorder;
-          const color = isCurrent
-            ? currentTextColor
-            : isDone
-            ? tokens.chipDone
-            : tokens.chipText;
+          const bg = isCurrent ? tokens.primary : isDone ? 'transparent' : tokens.chipBg;
+          const border = isCurrent ? tokens.primary : isDone ? tokens.chipDone : tokens.chipBorder;
+          const color = isCurrent ? currentTextColor : isDone ? tokens.chipDone : tokens.chipText;
           return (
-            <View
+            <PhaseChip
               key={i}
-              style={[
-                styles.phaseChip,
-                {
-                  backgroundColor: bg,
-                  borderColor: border,
-                },
-              ]}
-            >
-              <Text style={[styles.phaseText, { color }]}>{p.label}</Text>
-            </View>
+              index={i}
+              isCurrent={isCurrent}
+              bg={bg}
+              border={border}
+              color={color}
+              label={p.label}
+              tokens={tokens}
+            />
           );
         })}
       </View>
     </View>
+  );
+}
+
+function PhaseChip({ index, isCurrent, bg, border, color, label, tokens }) {
+  const entryY = useSharedValue(16);
+  const entryOpacity = useSharedValue(0);
+  const entryScale = useSharedValue(0.85);
+  useEffect(() => {
+    const delay = 350 + index * 50;
+    entryY.value = withDelay(delay, withSpring(0, springEnergetic));
+    entryOpacity.value = withDelay(delay, withTiming(1, { duration: 300 }));
+    entryScale.value = withDelay(delay, withSpring(1, springEnergetic));
+  }, []);
+  const entryStyle = useAnimatedStyle(() => ({
+    opacity: entryOpacity.value,
+    transform: [{ translateY: entryY.value }, { scale: entryScale.value }],
+  }));
+
+  // Pulse ring sur le chip current
+  const pulseScale = useSharedValue(1);
+  const pulseOpacity = useSharedValue(0);
+  useEffect(() => {
+    if (isCurrent) {
+      pulseScale.value = withRepeat(
+        withSequence(
+          withTiming(1.15, { duration: 750, easing: Easing.out(Easing.ease) }),
+          withTiming(1, { duration: 0 })
+        ),
+        -1
+      );
+      pulseOpacity.value = withRepeat(
+        withSequence(
+          withTiming(1, { duration: 0 }),
+          withTiming(0, { duration: 750, easing: Easing.out(Easing.ease) })
+        ),
+        -1
+      );
+    } else {
+      cancelAnimation(pulseScale);
+      cancelAnimation(pulseOpacity);
+      pulseOpacity.value = 0;
+    }
+    return () => {
+      cancelAnimation(pulseScale);
+      cancelAnimation(pulseOpacity);
+    };
+  }, [isCurrent]);
+  const pulseStyle = useAnimatedStyle(() => ({
+    opacity: pulseOpacity.value,
+    transform: [{ scale: pulseScale.value }],
+  }));
+
+  return (
+    <Animated.View
+      style={[
+        styles.phaseChip,
+        { backgroundColor: bg, borderColor: border },
+        entryStyle,
+      ]}
+    >
+      {isCurrent && (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.phaseChipPulse,
+            { borderColor: tokens.primary },
+            pulseStyle,
+          ]}
+        />
+      )}
+      <Text style={[styles.phaseText, { color }]}>{label}</Text>
+    </Animated.View>
   );
 }
 
@@ -354,6 +560,16 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     marginBottom: 4,
   },
+  topTagRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  statusDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+  },
   topTag: {
     fontFamily: fonts.sansExtraBold,
     fontSize: 20,
@@ -447,6 +663,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     minWidth: 40,
     alignItems: 'center',
+    overflow: 'visible',
+  },
+  phaseChipPulse: {
+    position: 'absolute',
+    top: -2,
+    left: -2,
+    right: -2,
+    bottom: -2,
+    borderWidth: 2,
+    borderRadius: 999,
   },
   phaseText: {
     fontFamily: fonts.sansBold,
