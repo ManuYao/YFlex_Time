@@ -13,12 +13,20 @@ const AnimatedLine = Animated.createAnimatedComponent(Line);
 const TOTAL_TICKS = 60;
 const easeImpact = Easing.bezier(0.22, 1, 0.36, 1);
 
+/**
+ * TickRing — cercle à 60 ticks, signature visuelle.
+ *
+ * - animateIn : déclenche l'animation stagger au mount
+ * - triggerKey : si fourni, re-fire l'animation à chaque changement de cette key
+ *   (utilisé pour rejouer la séquence quand l'utilisateur swipe entre timers)
+ */
 export default function TickRing({
   progress = 0.75,
   size = 320,
   colorActive = '#FFFFFF',
   colorInactive = 'rgba(255,255,255,0.22)',
   animateIn = false,
+  triggerKey,
 }) {
   const activeTicks = Math.floor(TOTAL_TICKS * progress);
   const center = size / 2;
@@ -47,6 +55,7 @@ export default function TickRing({
             stroke={isActive ? colorActive : colorInactive}
             strokeWidth={isMajor ? 2.5 : 1.5}
             animateIn={animateIn}
+            triggerKey={triggerKey}
           />
         );
       })}
@@ -54,17 +63,20 @@ export default function TickRing({
   );
 }
 
-function TickLine({ i, x1, y1, x2, y2, stroke, strokeWidth, animateIn }) {
-  const opacity = useSharedValue(animateIn ? 0 : 1);
+function TickLine({ i, x1, y1, x2, y2, stroke, strokeWidth, animateIn, triggerKey }) {
   const lineLength = Math.hypot(x2 - x1, y2 - y1);
-  const dashOffset = useSharedValue(animateIn ? lineLength : 0);
+  const shouldAnimate = animateIn || triggerKey !== undefined;
+  const opacity = useSharedValue(shouldAnimate ? 0 : 1);
+  const dashOffset = useSharedValue(shouldAnimate ? lineLength : 0);
 
   useEffect(() => {
-    if (!animateIn) return;
-    const delay = 100 + (i / TOTAL_TICKS) * 600;
+    if (!shouldAnimate) return;
+    const delay = 150 + (i / TOTAL_TICKS) * 600;
+    opacity.value = 0;
+    dashOffset.value = lineLength;
     opacity.value = withDelay(delay, withTiming(1, { duration: 300, easing: easeImpact }));
     dashOffset.value = withDelay(delay, withTiming(0, { duration: 300, easing: easeImpact }));
-  }, [animateIn]);
+  }, [triggerKey, animateIn]);
 
   const animProps = useAnimatedProps(() => ({
     opacity: opacity.value,

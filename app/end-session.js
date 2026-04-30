@@ -9,9 +9,13 @@ import Animated, {
   useAnimatedStyle,
   withRepeat,
   withSequence,
+<<<<<<< HEAD
   withSpring,
   withTiming,
   withDelay,
+=======
+  withTiming,
+>>>>>>> d99adb3a8deca24501ce4b66a8f381a5a0fb664d
   cancelAnimation,
   Easing,
 } from 'react-native-reanimated';
@@ -80,6 +84,7 @@ export default function EndSession() {
   const restValue = stats.restTotal > 0 ? formatDuration(stats.restTotal) : '—';
   const workValue = formatDuration(stats.workTotal);
 
+<<<<<<< HEAD
   // SÉANCE TERMINÉE pulse opacity 0.5↔1
   const statusOpacity = useSharedValue(0.5);
   useEffect(() => {
@@ -107,6 +112,22 @@ export default function EndSession() {
   }));
 
   // Badge dot pulse scale 1↔1.5 + opacity 0.6↔1, cycle 2s
+=======
+  const bravoScale = useSharedValue(0.3);
+  const bravoOpacity = useSharedValue(0);
+  useEffect(() => {
+    bravoScale.value = withSequence(
+      withTiming(1.15, { duration: 380, easing: Easing.bezier(0.22, 1.5, 0.36, 1) }),
+      withTiming(1, { duration: 220, easing: Easing.out(Easing.cubic) })
+    );
+    bravoOpacity.value = withTiming(1, { duration: 320 });
+  }, []);
+  const bravoStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: bravoScale.value }],
+    opacity: bravoOpacity.value,
+  }));
+
+>>>>>>> d99adb3a8deca24501ce4b66a8f381a5a0fb664d
   const dotScale = useSharedValue(1);
   const dotOpacity = useSharedValue(0.6);
   useEffect(() => {
@@ -134,6 +155,7 @@ export default function EndSession() {
     opacity: dotOpacity.value,
   }));
 
+<<<<<<< HEAD
   // BRAVO scale 0.3 → 1.15 → 1, opacity 0→1, delay 150
   const bravoScale = useSharedValue(0.3);
   const bravoOpacity = useSharedValue(0);
@@ -176,6 +198,8 @@ export default function EndSession() {
     transform: [{ scale: ringScale.value }],
   }));
 
+=======
+>>>>>>> d99adb3a8deca24501ce4b66a8f381a5a0fb664d
   return (
     <GradientBackground
       colors={[timer.color, '#0A0A0A', '#000000']}
@@ -191,7 +215,11 @@ export default function EndSession() {
         </View>
 
       <View style={styles.body}>
+<<<<<<< HEAD
         <Animated.View style={[styles.badge, badgeStyle]}>
+=======
+        <View style={styles.badge}>
+>>>>>>> d99adb3a8deca24501ce4b66a8f381a5a0fb664d
           <Animated.View style={[styles.badgeDot, { backgroundColor: timer.color }, dotStyle]} />
           <Text style={[styles.badgeName, { color: timer.color }]}>
             {timer.name}
@@ -204,9 +232,13 @@ export default function EndSession() {
         >
           BRAVO
         </Animated.Text>
+<<<<<<< HEAD
         <Animated.Text style={[styles.tagline, tagStyle]}>
           Tu l'as fait jusqu'au bout
         </Animated.Text>
+=======
+        <Text style={styles.tagline}>Tu l'as fait jusqu'au bout</Text>
+>>>>>>> d99adb3a8deca24501ce4b66a8f381a5a0fb664d
 
         <Animated.View style={[styles.ringWrap, ringStyle]}>
           <TickRing

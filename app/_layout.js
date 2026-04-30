@@ -15,18 +15,18 @@ import {
   JetBrainsMono_800ExtraBold,
 } from '@expo-google-fonts/jetbrains-mono';
 import { StatusBar } from 'expo-status-bar';
-import { setAudioModeAsync } from 'expo-audio';
+import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
 
 import { TimersProvider } from '../contexts/TimersContext';
 import { SettingsProvider } from '../contexts/SettingsContext';
 
-setAudioModeAsync({
-  playsInSilentMode: true,
-  allowsRecording: false,
-  interruptionMode: 'mixWithOthers',
-  interruptionModeAndroid: 'duckOthers',
-  shouldPlayInBackground: false,
-  shouldRouteThroughEarpiece: false,
+Audio.setAudioModeAsync({
+  playsInSilentModeIOS: true,
+  staysActiveInBackground: false,
+  shouldDuckAndroid: true,
+  playThroughEarpieceAndroid: false,
+  interruptionModeIOS: InterruptionModeIOS.MixWithOthers,
+  interruptionModeAndroid: InterruptionModeAndroid.DuckOthers,
 }).catch(() => {});
 
 export default function RootLayout() {

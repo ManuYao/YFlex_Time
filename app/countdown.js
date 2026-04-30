@@ -21,7 +21,10 @@ import { useSound } from '../hooks/useSound';
 const COUNTDOWN_FROM = 3;
 const TICK_RING_SIZE = 500;
 const TICK_COUNT = 60;
+<<<<<<< HEAD
 const easeOvershoot = Easing.bezier(0.22, 1.5, 0.36, 1);
+=======
+>>>>>>> d99adb3a8deca24501ce4b66a8f381a5a0fb664d
 
 export default function Countdown() {
   const router = useRouter();
@@ -68,12 +71,21 @@ export default function Countdown() {
   const textColor = isDark ? '#0A0A0A' : '#FFFFFF';
   const dimColor = isDark ? 'rgba(10,10,10,0.65)' : 'rgba(255,255,255,0.75)';
   const mutedColor = isDark ? 'rgba(10,10,10,0.45)' : 'rgba(255,255,255,0.55)';
+<<<<<<< HEAD
   const tickColor = isDark ? 'rgba(10,10,10,0.55)' : 'rgba(255,255,255,0.85)';
   const waveColor = isGo ? (isDark ? '#0A0A0A' : '#FFFFFF') : timer.color;
 
   const heroDuration = formatTimerHint(timer);
 
   // Onde radiale par tick (key sur count + isGo)
+=======
+  const waveColor = isGo ? (isDark ? '#0A0A0A' : '#FFFFFF') : timer.color;
+  const tickColor = isDark ? 'rgba(10,10,10,0.55)' : 'rgba(255,255,255,0.55)';
+
+  const heroDuration = formatTimerHint(timer);
+
+  // Onde radiale par tick
+>>>>>>> d99adb3a8deca24501ce4b66a8f381a5a0fb664d
   const waveScale = useSharedValue(0);
   const waveOpacity = useSharedValue(0);
   useEffect(() => {
@@ -87,11 +99,17 @@ export default function Countdown() {
     opacity: waveOpacity.value,
   }));
 
+<<<<<<< HEAD
   // Ticks rotatifs décoratifs (rotation infinie 10s linear, opacity 0→0.4 à mount)
   const rotation = useSharedValue(0);
   const ticksOpacity = useSharedValue(0);
   useEffect(() => {
     ticksOpacity.value = withTiming(0.4, { duration: 1000 });
+=======
+  // Ticks rotatifs décoratifs
+  const rotation = useSharedValue(0);
+  useEffect(() => {
+>>>>>>> d99adb3a8deca24501ce4b66a8f381a5a0fb664d
     rotation.value = withRepeat(
       withTiming(360, { duration: 10000, easing: Easing.linear }),
       -1
@@ -100,20 +118,34 @@ export default function Countdown() {
   }, []);
   const rotStyle = useAnimatedStyle(() => ({
     transform: [{ rotate: `${rotation.value}deg` }],
+<<<<<<< HEAD
     opacity: ticksOpacity.value,
   }));
 
   // Hero number scale 0.3 → 1.3 → 1 (overshoot) + opacity 0→1 à chaque tick
+=======
+    opacity: 0.4,
+  }));
+
+  // Hero number scale overshoot par tick
+>>>>>>> d99adb3a8deca24501ce4b66a8f381a5a0fb664d
   const heroScale = useSharedValue(0.3);
   const heroOpacity = useSharedValue(0);
   useEffect(() => {
     heroScale.value = 0.3;
     heroOpacity.value = 0;
     heroScale.value = withSequence(
+<<<<<<< HEAD
       withTiming(1.3, { duration: 400, easing: easeOvershoot }),
       withTiming(1, { duration: 400, easing: Easing.out(Easing.cubic) })
     );
     heroOpacity.value = withTiming(1, { duration: 400 });
+=======
+      withTiming(1.25, { duration: 280, easing: Easing.bezier(0.22, 1.4, 0.36, 1) }),
+      withTiming(1, { duration: 220, easing: Easing.out(Easing.cubic) })
+    );
+    heroOpacity.value = withTiming(1, { duration: 200 });
+>>>>>>> d99adb3a8deca24501ce4b66a8f381a5a0fb664d
   }, [count, isGo]);
   const heroStyle = useAnimatedStyle(() => ({
     transform: [{ scale: heroScale.value }],
@@ -122,8 +154,16 @@ export default function Countdown() {
 
   return (
     <GradientBackground colors={timer.bgColors} textMode={timer.textMode}>
+<<<<<<< HEAD
       {/* Ticks rotatifs en background */}
       <Animated.View pointerEvents="none" style={[styles.ticksLayer, rotStyle]}>
+=======
+      {/* Ticks rotatifs en arrière-plan */}
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.ticksLayer, rotStyle]}
+      >
+>>>>>>> d99adb3a8deca24501ce4b66a8f381a5a0fb664d
         <Svg width={TICK_RING_SIZE} height={TICK_RING_SIZE} viewBox={`0 0 ${TICK_RING_SIZE} ${TICK_RING_SIZE}`}>
           {Array.from({ length: TICK_COUNT }).map((_, i) => {
             const angle = (i / TICK_COUNT) * Math.PI * 2;
@@ -131,6 +171,7 @@ export default function Countdown() {
             const r2 = TICK_RING_SIZE / 2;
             const cx = TICK_RING_SIZE / 2;
             const cy = TICK_RING_SIZE / 2;
+<<<<<<< HEAD
             return (
               <Line
                 key={i}
@@ -138,6 +179,19 @@ export default function Countdown() {
                 y1={cy + Math.sin(angle) * r1}
                 x2={cx + Math.cos(angle) * r2}
                 y2={cy + Math.sin(angle) * r2}
+=======
+            const x1 = cx + Math.cos(angle) * r1;
+            const y1 = cy + Math.sin(angle) * r1;
+            const x2 = cx + Math.cos(angle) * r2;
+            const y2 = cy + Math.sin(angle) * r2;
+            return (
+              <Line
+                key={i}
+                x1={x1}
+                y1={y1}
+                x2={x2}
+                y2={y2}
+>>>>>>> d99adb3a8deca24501ce4b66a8f381a5a0fb664d
                 stroke={tickColor}
                 strokeWidth={i % 5 === 0 ? 2 : 1}
                 strokeLinecap="round"
@@ -152,7 +206,14 @@ export default function Countdown() {
         pointerEvents="none"
         style={[
           styles.wave,
+<<<<<<< HEAD
           { borderColor: waveColor, shadowColor: waveColor },
+=======
+          {
+            borderColor: waveColor,
+            shadowColor: waveColor,
+          },
+>>>>>>> d99adb3a8deca24501ce4b66a8f381a5a0fb664d
           waveStyle,
         ]}
       />
@@ -171,9 +232,15 @@ export default function Countdown() {
                 color: textColor,
                 fontSize: isGo ? 200 : 240,
                 lineHeight: isGo ? 200 : 240,
+<<<<<<< HEAD
                 textShadowColor: waveColor,
                 textShadowOffset: { width: 0, height: 0 },
                 textShadowRadius: 60,
+=======
+                textShadowColor: waveColor + '88',
+                textShadowOffset: { width: 0, height: 0 },
+                textShadowRadius: 40,
+>>>>>>> d99adb3a8deca24501ce4b66a8f381a5a0fb664d
               },
               heroStyle,
             ]}
@@ -247,8 +314,13 @@ const styles = StyleSheet.create({
     marginLeft: -120,
     borderRadius: 120,
     borderWidth: 3,
+<<<<<<< HEAD
     shadowOpacity: 0.8,
     shadowRadius: 60,
+=======
+    shadowOpacity: 0.7,
+    shadowRadius: 40,
+>>>>>>> d99adb3a8deca24501ce4b66a8f381a5a0fb664d
     shadowOffset: { width: 0, height: 0 },
   },
   topLabel: {
