@@ -176,6 +176,22 @@ export default function EndSession() {
     transform: [{ scale: ringScale.value }],
   }));
 
+  return (
+    <GradientBackground
+      colors={[timer.color, '#0A0A0A', '#000000']}
+      textMode="light"
+      ambient
+    >
+      <Confetti />
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+        <View style={styles.statusBar}>
+          <Animated.Text style={[styles.statusText, statusStyle]}>
+            SÉANCE TERMINÉE
+          </Animated.Text>
+        </View>
+
+        <View style={styles.body}>
+          <Animated.View style={[styles.badge, badgeStyle]}>
           <Animated.View style={[styles.badgeDot, { backgroundColor: timer.color }, dotStyle]} />
           <Text style={[styles.badgeName, { color: timer.color }]}>
             {timer.name}

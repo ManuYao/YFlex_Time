@@ -7,8 +7,17 @@ import {
   BackHandler,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
+  withSequence,
+  withSpring,
+  withTiming,
+  withDelay,
   cancelAnimation,
   Easing,
   FadeIn,
@@ -119,6 +128,12 @@ export default function Running() {
   const ctaLabel = isPaused ? 'EN PAUSE' : 'EN COURS';
 
   // Pulse ambiant — overlay LinearGradient timer.bgColors, opacity 0→0.15→0 cycle 2s
+  const pulseOpacity = useSharedValue(0);
+  useEffect(() => {
+    if (isPaused) {
+      cancelAnimation(pulseOpacity);
+      pulseOpacity.value = withTiming(0, { duration: 300 });
+    } else {
       pulseOpacity.value = withRepeat(
         withSequence(
           withTiming(0.15, { duration: 1000, easing: Easing.inOut(Easing.ease) }),
