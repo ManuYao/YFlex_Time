@@ -8,23 +8,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
-<<<<<<< HEAD
 import { LinearGradient } from 'expo-linear-gradient';
-=======
->>>>>>> d99adb3a8deca24501ce4b66a8f381a5a0fb664d
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withRepeat,
-  withSequence,
-<<<<<<< HEAD
-  withSpring,
-  withTiming,
-  withDelay,
-=======
-  withTiming,
->>>>>>> d99adb3a8deca24501ce4b66a8f381a5a0fb664d
   cancelAnimation,
   Easing,
   FadeIn,
@@ -134,22 +118,7 @@ export default function Running() {
   const secondsLeftWhole = Math.ceil(state.phaseSecondsLeft);
   const ctaLabel = isPaused ? 'EN PAUSE' : 'EN COURS';
 
-<<<<<<< HEAD
   // Pulse ambiant — overlay LinearGradient timer.bgColors, opacity 0→0.15→0 cycle 2s
-=======
->>>>>>> d99adb3a8deca24501ce4b66a8f381a5a0fb664d
-  const pulseOpacity = useSharedValue(0);
-  useEffect(() => {
-    if (isPaused) {
-      cancelAnimation(pulseOpacity);
-<<<<<<< HEAD
-      pulseOpacity.value = withTiming(0, { duration: 400 });
-    } else {
-      pulseOpacity.value = 0;
-=======
-      pulseOpacity.value = withTiming(0, { duration: 300 });
-    } else {
->>>>>>> d99adb3a8deca24501ce4b66a8f381a5a0fb664d
       pulseOpacity.value = withRepeat(
         withSequence(
           withTiming(0.15, { duration: 1000, easing: Easing.inOut(Easing.ease) }),
@@ -162,7 +131,6 @@ export default function Running() {
   }, [isPaused]);
   const pulseStyle = useAnimatedStyle(() => ({ opacity: pulseOpacity.value }));
 
-<<<<<<< HEAD
   // Ring breathing — scale [1, 1.012, 1] cycle 1s quand running
   const ringScale = useSharedValue(1);
   useEffect(() => {
@@ -225,18 +193,6 @@ export default function Running() {
         />
       </Animated.View>
 
-=======
-  return (
-    <GradientBackground colors={timer.bgColors} textMode={timer.textMode}>
-      <Animated.View
-        pointerEvents="none"
-        style={[
-          StyleSheet.absoluteFillObject,
-          { backgroundColor: timer.color },
-          pulseStyle,
-        ]}
-      />
->>>>>>> d99adb3a8deca24501ce4b66a8f381a5a0fb664d
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <TopBar
           tokens={t}
@@ -290,30 +246,17 @@ export default function Running() {
 
       {isPaused && (
         <Animated.View
-<<<<<<< HEAD
           entering={FadeIn.duration(300)}
           exiting={FadeOut.duration(300)}
-=======
-          entering={FadeIn.duration(250)}
-          exiting={FadeOut.duration(250)}
->>>>>>> d99adb3a8deca24501ce4b66a8f381a5a0fb664d
           pointerEvents="none"
           style={StyleSheet.absoluteFillObject}
         >
           <BlurView
-<<<<<<< HEAD
             intensity={8}
             tint="dark"
             style={[
               StyleSheet.absoluteFillObject,
               { backgroundColor: 'rgba(0,0,0,0.15)' },
-=======
-            intensity={20}
-            tint="dark"
-            style={[
-              StyleSheet.absoluteFillObject,
-              { backgroundColor: 'rgba(0,0,0,0.18)' },
->>>>>>> d99adb3a8deca24501ce4b66a8f381a5a0fb664d
             ]}
           />
         </Animated.View>
@@ -334,11 +277,7 @@ function TopBar({ tokens, name, tag, roundLabel, onReturn, progress, isPaused })
     } else {
       dotScale.value = withRepeat(
         withSequence(
-<<<<<<< HEAD
           withTiming(1.3, { duration: 500, easing: Easing.inOut(Easing.ease) }),
-=======
-          withTiming(1.4, { duration: 500, easing: Easing.inOut(Easing.ease) }),
->>>>>>> d99adb3a8deca24501ce4b66a8f381a5a0fb664d
           withTiming(1, { duration: 500, easing: Easing.inOut(Easing.ease) })
         ),
         -1
@@ -381,15 +320,7 @@ function TopBar({ tokens, name, tag, roundLabel, onReturn, progress, isPaused })
           <Text style={[styles.topName, { color: tokens.tertiary }]}>{name}</Text>
           <View style={styles.topTagRow}>
             <Animated.View
-<<<<<<< HEAD
               style={[styles.statusDot, { backgroundColor: tokens.primary }, dotStyle]}
-=======
-              style={[
-                styles.statusDot,
-                { backgroundColor: tokens.primary },
-                dotStyle,
-              ]}
->>>>>>> d99adb3a8deca24501ce4b66a8f381a5a0fb664d
             />
             <Text style={[styles.topTag, { color: tokens.primary }]}>{tag}</Text>
           </View>
@@ -619,15 +550,9 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   statusDot: {
-<<<<<<< HEAD
     width: 4,
     height: 4,
     borderRadius: 2,
-=======
-    width: 6,
-    height: 6,
-    borderRadius: 3,
->>>>>>> d99adb3a8deca24501ce4b66a8f381a5a0fb664d
   },
   topTag: {
     fontFamily: fonts.sansExtraBold,
