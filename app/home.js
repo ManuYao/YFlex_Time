@@ -19,6 +19,7 @@ import Animated, {
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
+  withDelay,
   withRepeat,
   withSequence,
   withSpring,
@@ -78,7 +79,6 @@ export default function Home() {
   })();
   const [activeIndex, setActiveIndex] = useState(initialIndex);
   const [picker, setPicker] = useState(null);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [isLaunching, setIsLaunching] = useState(false);
 
   if (!hydrated) {
@@ -107,8 +107,7 @@ export default function Home() {
   };
 
   const handleMorphComplete = () => {
-    setIsLaunching(false);
-    router.push({ pathname: '/countdown', params: { timerId: active.id } });
+    router.replace({ pathname: '/countdown', params: { timerId: active.id } });
   };
 
   const handleMixEdit = () => {
@@ -149,7 +148,10 @@ export default function Home() {
           tag={active.tag}
           tokens={t}
           onBack={() => router.push('/settings')}
-          onMenu={() => setMenuOpen(true)}
+          onMenu={() => {
+            haptic.light();
+            router.push('/history');
+          }}
           onMenuHaptic={haptic.light}
           isLaunching={isLaunching}
         />
@@ -192,25 +194,33 @@ export default function Home() {
         />
       </SafeAreaView>
 
+      {/* (Q0) Blur backdrop pendant le launch morph */}
+      {isLaunching && (
+        <Animated.View
+          entering={FadeIn.duration(300)}
+          exiting={FadeOut.duration(200)}
+          pointerEvents="none"
+          style={StyleSheet.absoluteFillObject}
+        >
+          <BlurView
+            intensity={60}
+            tint="dark"
+            experimentalBlurMethod="dimezisBlurView"
+            blurReductionFactor={4}
+            style={StyleSheet.absoluteFill}
+          />
+          <View
+            style={[
+              StyleSheet.absoluteFillObject,
+              { backgroundColor: 'rgba(0,0,0,0.65)' },
+            ]}
+          />
+        </Animated.View>
+      )}
+
       {/* (Q) Launch morph overlay */}
       {isLaunching && (
         <LaunchMorph active={active} onComplete={handleMorphComplete} />
-      )}
-
-      {/* (R) Menu sélecteur */}
-      {menuOpen && (
-        <MenuSheet
-          timers={timers}
-          activeIndex={activeIndex}
-          onClose={() => setMenuOpen(false)}
-          onPick={(i) => {
-            setMenuOpen(false);
-            setTimeout(() => {
-              flatListRef.current?.scrollToIndex({ index: i, animated: true });
-            }, 50);
-          }}
-          haptic={haptic}
-        />
       )}
 
       {/* (S) Picker modal */}
@@ -701,6 +711,8 @@ function LaunchMorph({ active, onComplete }) {
   const ctaTextOpacity = useSharedValue(1);
   const haloOpacity = useSharedValue(0);
   const haloScale = useSharedValue(0.8);
+  const fillScale = useSharedValue(1);
+  const contentOpacity = useSharedValue(1);
 
   useEffect(() => {
     // (Q1) Morph keyframes — duration 900, times [0, 0.15, 0.75, 1]
@@ -719,7 +731,24 @@ function LaunchMorph({ active, onComplete }) {
       withTiming(1, { duration: 360, easing: easeImpact })
     );
 
-    // Fin de séquence (~2.4s incluant les delays Q3-Q6) → navigation
+    // (Q8) Remplissage final — le cercle 340x340 grossit jusqu'à couvrir l'écran
+    // Le contenu hero (PRÊT/nom/tag/bar) fade out en parallèle.
+    const FILL_DELAY = 2000;
+    const FILL_DURATION = 400;
+    fillScale.value = withDelay(
+      FILL_DELAY,
+      withTiming(4, { duration: FILL_DURATION, easing: easeImpact })
+    );
+    contentOpacity.value = withDelay(
+      FILL_DELAY,
+      withTiming(0, { duration: 250, easing: easeImpact })
+    );
+    haloOpacity.value = withDelay(
+      FILL_DELAY,
+      withTiming(0, { duration: FILL_DURATION, easing: easeImpact })
+    );
+
+    // Fin de séquence (~2.4s) → navigation par router.replace
     const timer = setTimeout(() => {
       runOnJS(onComplete)();
     }, LAUNCH_TOTAL_MS);
@@ -761,7 +790,7 @@ function LaunchMorph({ active, onComplete }) {
       borderRadius: r,
       top,
       left,
-      transform: [{ scale: sc }],
+      transform: [{ scale: sc * fillScale.value }],
     };
   });
 
@@ -772,6 +801,10 @@ function LaunchMorph({ active, onComplete }) {
   const haloStyle = useAnimatedStyle(() => ({
     opacity: haloOpacity.value,
     transform: [{ scale: haloScale.value }],
+  }));
+
+  const contentStyleAnim = useAnimatedStyle(() => ({
+    opacity: contentOpacity.value,
   }));
 
   return (
@@ -808,8 +841,8 @@ function LaunchMorph({ active, onComplete }) {
         </Animated.Text>
       </Animated.View>
 
-      {/* (Q3-Q6) Contenu hero centré */}
-      <View style={styles.morphContent} pointerEvents="none">
+      {/* (Q3-Q6) Contenu hero centré — fade out pendant Q8 */}
+      <Animated.View style={[styles.morphContent, contentStyleAnim]} pointerEvents="none">
         <Animated.Text
           entering={FadeIn.delay(600).duration(450).easing(easeImpact)}
           style={[
@@ -861,187 +894,8 @@ function LaunchMorph({ active, onComplete }) {
             },
           ]}
         />
-      </View>
-    </View>
-  );
-}
-
-/* ─────────────────────────────────────────────────────────────────
-   (R) Menu sélecteur — bottom sheet + cards stagger
-   ────────────────────────────────────────────────────────────────*/
-function MenuSheet({ timers, activeIndex, onClose, onPick, haptic }) {
-  const translateY = useSharedValue(SCREEN_H);
-  const backdropOpacity = useSharedValue(0);
-
-  useEffect(() => {
-    backdropOpacity.value = withTiming(1, { duration: D.big, easing: easeImpact });
-    translateY.value = withSpring(0, springSheet);
-  }, []);
-
-  const handleClose = () => {
-    backdropOpacity.value = withTiming(0, { duration: D.base });
-    translateY.value = withTiming(SCREEN_H, { duration: D.base, easing: easeImpact }, (done) => {
-      if (done) runOnJS(onClose)();
-    });
-  };
-
-  const sheetStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: translateY.value }],
-  }));
-  const backdropStyle = useAnimatedStyle(() => ({
-    opacity: backdropOpacity.value,
-  }));
-
-  return (
-    <View style={styles.sheetRoot}>
-      <Animated.View style={[StyleSheet.absoluteFill, backdropStyle]}>
-        <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
-        <View style={styles.sheetDim} />
-      </Animated.View>
-      <Pressable style={styles.sheetTap} onPress={handleClose} />
-
-      <Animated.View style={[styles.sheet, sheetStyle]}>
-        <Animated.View
-          entering={FadeIn.delay(100).duration(D.base).easing(easeImpact).withInitialValues({
-            transform: [{ scaleX: 0.3 }],
-          })}
-          style={styles.sheetHandleWrap}
-        >
-          <View style={styles.sheetHandle} />
-        </Animated.View>
-
-        <Animated.View
-          entering={slideInY(20, D.slow, 150)}
-          style={styles.sheetHeader}
-        >
-          <View>
-            <Text style={styles.sheetKicker}>ACCÈS RAPIDE</Text>
-            <Text style={styles.sheetTitle}>Choisis ton format</Text>
-          </View>
-          <PressTap
-            onPress={handleClose}
-            tapScale={0.85}
-            onHapticIn={haptic.light}
-            style={styles.sheetClose}
-          >
-            <Svg width={12} height={12} viewBox="0 0 12 12" fill="none">
-              <Path
-                d="M2 2l8 8M10 2l-8 8"
-                stroke="white"
-                strokeWidth={2}
-                strokeLinecap="round"
-              />
-            </Svg>
-          </PressTap>
-        </Animated.View>
-
-        <View style={styles.sheetGrid}>
-          {timers.map((timer, i) => {
-            const isActive = i === activeIndex;
-            return (
-              <Animated.View
-                key={timer.id}
-                entering={popIn(0.9, D.slow, 200 + i * 50)}
-                style={styles.sheetCardWrap}
-              >
-                <PressTap
-                  onPress={() => {
-                    haptic.light();
-                    onPick(i);
-                  }}
-                  tapScale={0.95}
-                  style={[
-                    styles.sheetCard,
-                    {
-                      backgroundColor: isActive
-                        ? 'rgba(255,255,255,0.15)'
-                        : 'rgba(255,255,255,0.06)',
-                      borderColor: isActive ? timer.color : 'rgba(255,255,255,0.10)',
-                    },
-                  ]}
-                >
-                  <View
-                    style={[
-                      styles.sheetIconBox,
-                      {
-                        backgroundColor: isActive
-                          ? timer.color
-                          : 'rgba(255,255,255,0.08)',
-                      },
-                    ]}
-                  />
-                  <Text style={styles.sheetCardName}>{timer.name}</Text>
-                  <Text style={[styles.sheetCardTag, { color: timer.color }]}>
-                    {timer.tag}
-                  </Text>
-                  <Text style={styles.sheetCardFull} numberOfLines={2}>
-                    {timer.full}
-                  </Text>
-
-                  {isActive && (
-                    <Animated.View
-                      entering={popIn(0, D.medium, 0)}
-                      style={styles.sheetActiveBadge}
-                    >
-                      <PulseDot color={timer.color} />
-                      <Text style={[styles.sheetActiveText, { color: timer.color }]}>
-                        ACTIF
-                      </Text>
-                    </Animated.View>
-                  )}
-                </PressTap>
-              </Animated.View>
-            );
-          })}
-        </View>
-
-        <Animated.Text
-          entering={FadeIn.delay(600).duration(D.base)}
-          style={styles.sheetFooter}
-        >
-          Tape en dehors pour fermer
-        </Animated.Text>
       </Animated.View>
     </View>
-  );
-}
-
-function PulseDot({ color }) {
-  const opacity = useSharedValue(0.4);
-  const scale = useSharedValue(1);
-  useEffect(() => {
-    opacity.value = withRepeat(
-      withSequence(
-        withTiming(1, { duration: 750, easing: easeInOut }),
-        withTiming(0.4, { duration: 750, easing: easeInOut })
-      ),
-      -1,
-      false
-    );
-    scale.value = withRepeat(
-      withSequence(
-        withTiming(1.3, { duration: 750, easing: easeInOut }),
-        withTiming(1, { duration: 750, easing: easeInOut })
-      ),
-      -1,
-      false
-    );
-    return () => {
-      cancelAnimation(opacity);
-      cancelAnimation(scale);
-    };
-  }, []);
-  const animStyle = useAnimatedStyle(() => ({
-    opacity: opacity.value,
-    transform: [{ scale: scale.value }],
-  }));
-  return (
-    <Animated.View
-      style={[
-        { width: 6, height: 6, borderRadius: 3, backgroundColor: color },
-        animStyle,
-      ]}
-    />
   );
 }
 

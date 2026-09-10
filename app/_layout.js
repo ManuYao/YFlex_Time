@@ -1,3 +1,4 @@
+import { View } from 'react-native';
 import { Stack } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -17,6 +18,7 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
 
+import GrainOverlay from '../components/common/GrainOverlay';
 import { TimersProvider } from '../contexts/TimersContext';
 import { SettingsProvider } from '../contexts/SettingsContext';
 
@@ -48,14 +50,41 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <SettingsProvider>
           <TimersProvider>
-            <StatusBar style="light" />
-            <Stack
-              screenOptions={{
-                headerShown: false,
-                animation: 'none',
-                contentStyle: { backgroundColor: '#000000' },
-              }}
-            />
+            <View style={{ flex: 1 }}>
+              <StatusBar style="light" />
+              <Stack
+                screenOptions={{
+                  headerShown: false,
+                  animation: 'fade',
+                  animationDuration: 250,
+                  contentStyle: { backgroundColor: '#0A0A0A' },
+                }}
+              >
+                <Stack.Screen name="index" options={{ animation: 'fade' }} />
+                <Stack.Screen name="home" options={{ animation: 'fade' }} />
+                <Stack.Screen name="onboarding" options={{ animation: 'fade' }} />
+                <Stack.Screen
+                  name="countdown"
+                  options={{ animation: 'fade', animationDuration: 300 }}
+                />
+                <Stack.Screen
+                  name="running"
+                  options={{ animation: 'fade', animationDuration: 350 }}
+                />
+                <Stack.Screen
+                  name="end-session"
+                  options={{ animation: 'fade', animationDuration: 400 }}
+                />
+                <Stack.Screen name="settings" options={{ animation: 'fade' }} />
+                <Stack.Screen name="history" options={{ animation: 'fade' }} />
+                <Stack.Screen name="mix-builder" options={{ animation: 'fade' }} />
+                <Stack.Screen
+                  name="session-detail"
+                  options={{ animation: 'fade' }}
+                />
+              </Stack>
+              <GrainOverlay opacity={0.06} tint="#FFFFFF" />
+            </View>
           </TimersProvider>
         </SettingsProvider>
       </SafeAreaProvider>

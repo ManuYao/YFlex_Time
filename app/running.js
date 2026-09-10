@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -60,7 +60,12 @@ export default function Running() {
 
   useWakeLock(true);
 
-  const state = computeState(timer, secondsElapsed) ?? fallbackState();
+  const [restTriggers, setRestTriggers] = useState([]);
+  const isManualBasic = timer.id === 'basic';
+  const ctx = isManualBasic ? { restTriggers } : undefined;
+
+  const state = computeState(timer, secondsElapsed, ctx) ?? fallbackState();
+  const isWorkInfinite = state.countDirection === 'up';
   const lastPhaseRef = useRef(state.phaseLabel);
   const navigatedRef = useRef(false);
   const skippedRef = useRef(0);
@@ -99,6 +104,17 @@ export default function Running() {
 
   const handleReturn = () => {
     haptic.warning();
+    if (isManualBasic) {
+      router.replace({
+        pathname: '/end-session',
+        params: {
+          timerId: timer.id,
+          elapsed: Math.floor(secondsElapsed),
+          ctx: JSON.stringify({ restTriggers }),
+        },
+      });
+      return;
+    }
     router.replace({ pathname: '/home', params: { lastTimerId: timer.id } });
   };
 
@@ -107,6 +123,7 @@ export default function Running() {
     navigatedRef.current = false;
     lastPhaseRef.current = '';
     skippedRef.current = 0;
+    if (isManualBasic) setRestTriggers([]);
     if (isPaused) resume();
     seek(0);
   };
@@ -118,13 +135,26 @@ export default function Running() {
   };
 
   const handleSkip = () => {
+    if (isManualBasic && isWorkInfinite) {
+      // No skip during infinite work — use "Fin du travail" instead.
+      return;
+    }
     skippedRef.current += state.phaseSecondsLeft;
-    const next = skipToNextPhaseElapsed(timer, secondsElapsed);
+    const next = skipToNextPhaseElapsed(timer, secondsElapsed, ctx);
     seek(next);
     haptic.medium();
   };
 
-  const secondsLeftWhole = Math.ceil(state.phaseSecondsLeft);
+  const handleEndWork = () => {
+    if (!isManualBasic || !isWorkInfinite) return;
+    // haptic + phase sound are emitted by the phase-change effect on re-render.
+    setRestTriggers((prev) => [...prev, secondsElapsed]);
+  };
+
+  const displaySeconds = isWorkInfinite
+    ? Math.floor(state.phaseSecondsLeft)
+    : Math.ceil(state.phaseSecondsLeft);
+  const centerLabel = isWorkInfinite ? 'ÉCOULÉ' : 'RESTANT';
   const ctaLabel = isPaused ? 'EN PAUSE' : 'EN COURS';
 
   // Pulse ambiant — overlay LinearGradient timer.bgColors, opacity 0→0.15→0 cycle 2s
@@ -241,9 +271,9 @@ export default function Running() {
                 {state.phaseLabel}
               </Animated.Text>
               <Animated.Text style={[styles.bigTime, { color: t.primary }, timeStyle]}>
-                {formatDuration(secondsLeftWhole)}
+                {formatDuration(displaySeconds)}
               </Animated.Text>
-              <Text style={[styles.restantLabel, { color: t.tertiary }]}>RESTANT</Text>
+              <Text style={[styles.restantLabel, { color: t.tertiary }]}>{centerLabel}</Text>
             </View>
           </Animated.View>
 
@@ -256,6 +286,9 @@ export default function Running() {
           onReset={handleReset}
           onPauseToggle={handlePauseToggle}
           onSkip={handleSkip}
+          showEndWork={isManualBasic && isWorkInfinite}
+          onEndWork={handleEndWork}
+          hideSkip={isManualBasic && isWorkInfinite}
         />
       </SafeAreaView>
 
@@ -467,7 +500,16 @@ function PhaseChip({ index, isCurrent, bg, border, color, label, tokens }) {
   );
 }
 
-function BottomControls({ tokens, isPaused, onReset, onPauseToggle, onSkip }) {
+function BottomControls({
+  tokens,
+  isPaused,
+  onReset,
+  onPauseToggle,
+  onSkip,
+  showEndWork,
+  onEndWork,
+  hideSkip,
+}) {
   return (
     <View style={styles.bottom}>
       <View style={styles.bottomRow}>
@@ -483,33 +525,53 @@ function BottomControls({ tokens, isPaused, onReset, onPauseToggle, onSkip }) {
           <Text style={[styles.bottomIcon, { color: tokens.primary }]}>↺</Text>
         </LongPressButton>
 
-        <Pressable
-          onPress={onPauseToggle}
-          style={({ pressed }) => [
-            styles.pauseBtn,
-            {
-              backgroundColor: tokens.ctaBg,
-              opacity: pressed ? 0.92 : 1,
-              transform: [{ scale: pressed ? 0.95 : 1 }],
-            },
-          ]}
-        >
-          <Text style={[styles.pauseIcon, { color: tokens.ctaText }]}>
-            {isPaused ? '▶' : '❚❚'}
-          </Text>
-        </Pressable>
+        {showEndWork ? (
+          <Pressable
+            onPress={onEndWork}
+            style={({ pressed }) => [
+              styles.endWorkBtn,
+              {
+                backgroundColor: tokens.ctaBg,
+                opacity: pressed ? 0.92 : 1,
+                transform: [{ scale: pressed ? 0.96 : 1 }],
+              },
+            ]}
+          >
+            <Text style={[styles.endWorkText, { color: tokens.ctaText }]}>FIN</Text>
+          </Pressable>
+        ) : (
+          <Pressable
+            onPress={onPauseToggle}
+            style={({ pressed }) => [
+              styles.pauseBtn,
+              {
+                backgroundColor: tokens.ctaBg,
+                opacity: pressed ? 0.92 : 1,
+                transform: [{ scale: pressed ? 0.95 : 1 }],
+              },
+            ]}
+          >
+            <Text style={[styles.pauseIcon, { color: tokens.ctaText }]}>
+              {isPaused ? '▶' : '❚❚'}
+            </Text>
+          </Pressable>
+        )}
 
-        <LongPressButton
-          label="Skip"
-          size={64}
-          borderColor={tokens.btnBorder}
-          ringColor={tokens.primary}
-          labelColor={tokens.muted}
-          pressedBg={tokens.chipBg}
-          onComplete={onSkip}
-        >
-          <Text style={[styles.bottomIcon, { color: tokens.primary }]}>▶▶</Text>
-        </LongPressButton>
+        {hideSkip ? (
+          <View style={{ width: 64, height: 64 }} />
+        ) : (
+          <LongPressButton
+            label="Skip"
+            size={64}
+            borderColor={tokens.btnBorder}
+            ringColor={tokens.primary}
+            labelColor={tokens.muted}
+            pressedBg={tokens.chipBg}
+            onComplete={onSkip}
+          >
+            <Text style={[styles.bottomIcon, { color: tokens.primary }]}>▶▶</Text>
+          </LongPressButton>
+        )}
       </View>
     </View>
   );
@@ -710,5 +772,23 @@ const styles = StyleSheet.create({
   pauseIcon: {
     fontSize: 28,
     fontFamily: fonts.sansExtraBold,
+  },
+  endWorkBtn: {
+    width: 92,
+    height: 92,
+    borderRadius: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 12,
+  },
+  endWorkText: {
+    fontFamily: fonts.sansExtraBold,
+    fontSize: 18,
+    letterSpacing: 1.7,
+    includeFontPadding: false,
   },
 });

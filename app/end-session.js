@@ -30,14 +30,21 @@ const HISTORY_KEY = 'flexTimer_history';
 
 export default function EndSession() {
   const router = useRouter();
-  const { timerId, elapsed } = useLocalSearchParams();
+  const { timerId, elapsed, ctx: ctxParam } = useLocalSearchParams();
   const { timers } = useTimers();
   const timer = timers.find((t) => t.id === timerId);
   const elapsedNum = Number(elapsed) || 0;
   const savedRef = useRef(false);
 
+  let ctx;
+  if (ctxParam) {
+    try {
+      ctx = JSON.parse(ctxParam);
+    } catch {}
+  }
+
   const stats = timer
-    ? computeSessionStats(timer, elapsedNum)
+    ? computeSessionStats(timer, elapsedNum, ctx)
     : { roundsLabel: '—', workTotal: 0, restTotal: 0, completedRounds: 0, totalRounds: 0 };
 
   useEffect(() => {
@@ -65,14 +72,21 @@ export default function EndSession() {
     })();
   }, []);
 
+  useEffect(() => {
+    if (!timer) {
+      router.replace('/home');
+    }
+  }, [timer]);
+
   if (!timer) {
     return (
-      <SafeAreaView style={styles.safe}>
-        <View style={styles.body}>
-          <Text style={styles.bravo}>?</Text>
-          <Text style={styles.subtitle}>Timer introuvable</Text>
-        </View>
-      </SafeAreaView>
+      <GradientBackground
+        colors={['#3A3A3A', '#0A0A0A', '#000000']}
+        textMode="light"
+        ambient
+      >
+        <SafeAreaView style={styles.safe} />
+      </GradientBackground>
     );
   }
 

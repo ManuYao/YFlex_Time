@@ -105,17 +105,6 @@ export default function Settings() {
 
           <Section title="Timers">
             <Row
-              label="Démarrage auto après config"
-              sub="Lance la séance dès validation"
-              control={
-                <Toggle
-                  value={settings.autoStart}
-                  onChange={(v) => update('autoStart', v)}
-                  color="#FF5454"
-                />
-              }
-            />
-            <Row
               label="Écran toujours allumé"
               sub="Garde ton téléphone éveillé pendant la séance"
               control={
@@ -137,16 +126,6 @@ export default function Settings() {
                 <Toggle
                   value={settings.notifications}
                   onChange={(v) => update('notifications', v)}
-                />
-              }
-            />
-            <Row
-              label="Bilan hebdomadaire"
-              sub="Tous les dimanches soirs"
-              control={
-                <Toggle
-                  value={settings.weeklyReport}
-                  onChange={(v) => update('weeklyReport', v)}
                 />
               }
               isLast
