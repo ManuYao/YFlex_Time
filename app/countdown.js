@@ -148,20 +148,21 @@ function HeroDigit({ value, color, isGo }) {
   }));
 
   return (
-    <Animated.Text
-      exiting={FadeOut.duration(280)}
-      style={[
-        styles.heroNumber,
-        {
-          color,
-          fontSize: isGo ? 200 : 240,
-          lineHeight: isGo ? 200 : 240,
-        },
-        aStyle,
-      ]}
-    >
-      {value}
-    </Animated.Text>
+    <Animated.View exiting={FadeOut.duration(280)}>
+      <Animated.Text
+        style={[
+          styles.heroNumber,
+          {
+            color,
+            fontSize: isGo ? 200 : 240,
+            lineHeight: isGo ? 200 : 240,
+          },
+          aStyle,
+        ]}
+      >
+        {value}
+      </Animated.Text>
+    </Animated.View>
   );
 }
 

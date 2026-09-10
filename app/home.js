@@ -59,14 +59,15 @@ const MORPH_W_FINAL = 340;
 const MORPH_H_FINAL = 340;
 const MORPH_R_FINAL = 170;
 const MORPH_BOTTOM_OFFSET = 100;
-const MORPH_INIT_TOP = SCREEN_H - MORPH_BOTTOM_OFFSET - MORPH_H_INIT;
 const MORPH_INIT_LEFT = 24;
-const MORPH_FINAL_TOP = SCREEN_H / 2 - MORPH_H_FINAL / 2;
 const MORPH_FINAL_LEFT = SCREEN_W / 2 - MORPH_W_FINAL / 2;
 
 const LAUNCH_TOTAL_MS = 2400;
 
 export default function Home() {
+  // Hauteur reelle de la racine : SCREEN_H (Dimensions window) ne correspond
+  // pas a la zone qu'occupe l'app (barres systeme, overlay Expo Go...).
+  const [rootH, setRootH] = useState(SCREEN_H);
   const router = useRouter();
   const haptic = useHaptic();
   const flatListRef = useRef(null);
@@ -135,7 +136,13 @@ export default function Home() {
   const pickerStat = pickerTimer ? pickerTimer.stats.find((s) => s.key === picker.statKey) : null;
 
   return (
-    <View style={styles.root}>
+    <View
+      style={[styles.root, { backgroundColor: active.bgColors[1] }]}
+      onLayout={(e) => {
+        const h = e.nativeEvent.layout.height;
+        setRootH((prev) => (prev === h ? prev : h));
+      }}
+    >
       {/* (A) Background dynamique avec crossfade */}
       <CrossfadeBackground
         colors={active.bgColors}
@@ -200,18 +207,18 @@ export default function Home() {
           entering={FadeIn.duration(300)}
           exiting={FadeOut.duration(200)}
           pointerEvents="none"
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
         >
           <BlurView
             intensity={60}
             tint="dark"
-            experimentalBlurMethod="dimezisBlurView"
+            blurMethod="dimezisBlurView"
             blurReductionFactor={4}
             style={StyleSheet.absoluteFill}
           />
           <View
             style={[
-              StyleSheet.absoluteFillObject,
+              StyleSheet.absoluteFill,
               { backgroundColor: 'rgba(0,0,0,0.65)' },
             ]}
           />
@@ -220,12 +227,13 @@ export default function Home() {
 
       {/* (Q) Launch morph overlay */}
       {isLaunching && (
-        <LaunchMorph active={active} onComplete={handleMorphComplete} />
+        <LaunchMorph active={active} onComplete={handleMorphComplete} screenH={rootH} />
       )}
 
       {/* (S) Picker modal */}
       {picker && pickerStat && (
         <PickerSheet
+          screenH={rootH}
           stat={pickerStat}
           accentColor={pickerTimer.color}
           textMode={pickerTimer.textMode}
@@ -631,9 +639,9 @@ function BottomBar({ timers, activeIndex, active, tokens, onDotPress, onLaunch, 
   return (
     <Animated.View
       entering={slideInY(80, D.slow, 300)}
-      style={[styles.bottomBar, fadeStyle]}
       pointerEvents={isLaunching ? 'none' : 'auto'}
     >
+      <Animated.View style={[styles.bottomBar, fadeStyle]}>
       {/* (N) Indicators dots */}
       <View style={styles.indicatorRow}>
         {timers.map((timer, i) => (
@@ -670,6 +678,7 @@ function BottomBar({ timers, activeIndex, active, tokens, onDotPress, onLaunch, 
       <Text style={[styles.hint, { color: tokens.muted }]}>
         ← Glisse ou tape les points →
       </Text>
+      </Animated.View>
     </Animated.View>
   );
 }
@@ -703,7 +712,11 @@ function IndicatorDot({ isActive, tokens, onPress }) {
 /* ─────────────────────────────────────────────────────────────────
    (Q) Launch morph — bouton qui devient cercle + bond + texte hero
    ────────────────────────────────────────────────────────────────*/
-function LaunchMorph({ active, onComplete }) {
+function LaunchMorph({ active, onComplete, screenH }) {
+  const morphInitTop = screenH - MORPH_BOTTOM_OFFSET - MORPH_H_INIT;
+  const morphFinalTop = screenH / 2 - MORPH_H_FINAL / 2;
+  const haloTop = screenH / 2 - 300;
+
   const isDark = active.textMode === 'dark';
   const fgColor = isDark ? '#0A0A0A' : '#FFFFFF';
 
@@ -776,7 +789,7 @@ function LaunchMorph({ active, onComplete }) {
     const top = interpolate(
       p,
       [0, 0.15, 0.75, 1],
-      [MORPH_INIT_TOP, MORPH_INIT_TOP - 10, MORPH_FINAL_TOP, MORPH_FINAL_TOP]
+      [morphInitTop, morphInitTop - 10, morphFinalTop, morphFinalTop]
     );
     const left = interpolate(
       p,
@@ -813,7 +826,7 @@ function LaunchMorph({ active, onComplete }) {
       <Animated.View
         style={[
           styles.halo,
-          { backgroundColor: active.color + '33' },
+          { top: haloTop, backgroundColor: active.color + '33' },
           haloStyle,
         ]}
       />
@@ -902,14 +915,14 @@ function LaunchMorph({ active, onComplete }) {
 /* ─────────────────────────────────────────────────────────────────
    (S) Picker modal — wheel picker pour stat éditable
    ────────────────────────────────────────────────────────────────*/
-function PickerSheet({ stat, accentColor, textMode, onClose, onValidate }) {
+function PickerSheet({ stat, accentColor, textMode, onClose, onValidate, screenH }) {
   const [draft, setDraft] = useState(stat.value);
   const ctaText = textMode === 'dark' ? '#0A0A0A' : '#FFFFFF';
 
   const values = [];
   for (let i = stat.range[0]; i <= stat.range[1]; i++) values.push(i);
 
-  const translateY = useSharedValue(SCREEN_H);
+  const translateY = useSharedValue(screenH);
   const backdropOpacity = useSharedValue(0);
 
   useEffect(() => {
@@ -919,14 +932,14 @@ function PickerSheet({ stat, accentColor, textMode, onClose, onValidate }) {
 
   const handleClose = () => {
     backdropOpacity.value = withTiming(0, { duration: D.base });
-    translateY.value = withTiming(SCREEN_H, { duration: D.base, easing: easeImpact }, (done) => {
+    translateY.value = withTiming(screenH, { duration: D.base, easing: easeImpact }, (done) => {
       if (done) runOnJS(onClose)();
     });
   };
 
   const handleValidate = () => {
     backdropOpacity.value = withTiming(0, { duration: D.base });
-    translateY.value = withTiming(SCREEN_H, { duration: D.base, easing: easeImpact }, (done) => {
+    translateY.value = withTiming(screenH, { duration: D.base, easing: easeImpact }, (done) => {
       if (done) runOnJS(onValidate)(draft);
     });
   };
@@ -1011,7 +1024,7 @@ function PickerSheet({ stat, accentColor, textMode, onClose, onValidate }) {
    Styles
    ────────────────────────────────────────────────────────────────*/
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#000' },
+  root: { flex: 1 },
   safe: { flex: 1 },
   list: { flex: 1 },
 
@@ -1093,7 +1106,7 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   ringCenter: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1235,7 +1248,7 @@ const styles = StyleSheet.create({
 
   // Morph layer (Q)
   morphLayer: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     zIndex: 60,
   },
   morphBox: {
@@ -1257,8 +1270,7 @@ const styles = StyleSheet.create({
     width: 600,
     height: 600,
     borderRadius: 300,
-    top: SCREEN_H / 2 - 300,
-    left: SCREEN_W / 2 - 300,
+      left: SCREEN_W / 2 - 300,
   },
   morphContent: {
     position: 'absolute',
@@ -1300,12 +1312,12 @@ const styles = StyleSheet.create({
 
   // Sheet (R + S)
   sheetRoot: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     zIndex: 80,
     justifyContent: 'flex-end',
   },
   sheetDim: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(0,0,0,0.45)',
   },
   sheetTap: {

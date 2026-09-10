@@ -227,7 +227,7 @@ export default function Running() {
       {/* Pulse ambiant */}
       <Animated.View
         pointerEvents="none"
-        style={[StyleSheet.absoluteFillObject, pulseStyle]}
+        style={[StyleSheet.absoluteFill, pulseStyle]}
       >
         <LinearGradient
           colors={timer.bgColors}
@@ -297,13 +297,13 @@ export default function Running() {
           entering={FadeIn.duration(300)}
           exiting={FadeOut.duration(300)}
           pointerEvents="none"
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
         >
           <BlurView
             intensity={8}
             tint="dark"
             style={[
-              StyleSheet.absoluteFillObject,
+              StyleSheet.absoluteFill,
               { backgroundColor: 'rgba(0,0,0,0.15)' },
             ]}
           />
@@ -673,7 +673,7 @@ const styles = StyleSheet.create({
     marginBottom: 32,
   },
   ringCenter: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
   },

@@ -1097,7 +1097,7 @@ const sheetStyles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   dim: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(0,0,0,0.45)',
   },
   tap: {

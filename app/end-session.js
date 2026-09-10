@@ -394,7 +394,7 @@ const styles = StyleSheet.create({
     marginBottom: 28,
   },
   ringCenter: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
   },

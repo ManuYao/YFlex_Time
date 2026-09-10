@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { Audio } from 'expo-av';
+import { createAudioPlayer } from 'expo-audio';
 import { useSettings } from '../contexts/SettingsContext';
 
 const TICK_SRC = require('../assets/sounds/tick.mp3');
@@ -16,47 +16,37 @@ export function useSound() {
   enabledRef.current = settings.sound;
   const volume = (settings.volume ?? 75) / 100;
 
+  const volumeRef = useRef(volume);
+  volumeRef.current = volume;
+
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const [tick, phase, complete] = await Promise.all([
-          Audio.Sound.createAsync(TICK_SRC, { volume, shouldPlay: false }),
-          Audio.Sound.createAsync(PHASE_SRC, { volume, shouldPlay: false }),
-          Audio.Sound.createAsync(COMPLETE_SRC, { volume, shouldPlay: false }),
-        ]);
-        if (cancelled) {
-          tick.sound.unloadAsync();
-          phase.sound.unloadAsync();
-          complete.sound.unloadAsync();
-          return;
-        }
-        tickRef.current = tick.sound;
-        phaseRef.current = phase.sound;
-        completeRef.current = complete.sound;
-      } catch {}
-    })();
+    try {
+      tickRef.current = createAudioPlayer(TICK_SRC);
+      phaseRef.current = createAudioPlayer(PHASE_SRC);
+      completeRef.current = createAudioPlayer(COMPLETE_SRC);
+      [tickRef, phaseRef, completeRef].forEach((r) => {
+        if (r.current) r.current.volume = volumeRef.current;
+      });
+    } catch {}
     return () => {
-      cancelled = true;
-      tickRef.current?.unloadAsync().catch(() => {});
-      phaseRef.current?.unloadAsync().catch(() => {});
-      completeRef.current?.unloadAsync().catch(() => {});
-      tickRef.current = null;
-      phaseRef.current = null;
-      completeRef.current = null;
+      [tickRef, phaseRef, completeRef].forEach((r) => {
+        try { r.current?.remove(); } catch {}
+        r.current = null;
+      });
     };
   }, []);
 
   useEffect(() => {
-    [tickRef.current, phaseRef.current, completeRef.current].forEach((s) => {
-      try { s?.setVolumeAsync(volume); } catch {}
+    [tickRef.current, phaseRef.current, completeRef.current].forEach((p) => {
+      try { if (p) p.volume = volume; } catch {}
     });
   }, [volume]);
 
   const play = (ref) => {
     if (!enabledRef.current || !ref.current) return;
     try {
-      ref.current.replayAsync();
+      ref.current.seekTo(0);
+      ref.current.play();
     } catch {}
   };
 

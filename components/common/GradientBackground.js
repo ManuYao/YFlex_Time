@@ -1,10 +1,14 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, StyleSheet, Dimensions } from 'react-native';
 import Svg, { Defs, RadialGradient, Stop, Rect } from 'react-native-svg';
 
 import GrainOverlay from './GrainOverlay';
 
-const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
+// Valeur de départ seulement : évite un frame noir avant le premier onLayout.
+// La taille réelle la remplace aussitôt — en edge-to-edge (imposé depuis le
+// SDK 57) la racine est plus haute que Dimensions.get('window'), et un Svg
+// dimensionné sur cette dernière laissait une bande noire en bas.
+const INITIAL = Dimensions.get('window');
 
 export default function GradientBackground({
   colors,
@@ -16,11 +20,26 @@ export default function GradientBackground({
   const isDark = textMode === 'dark';
   const grainTint = isDark ? '#000000' : '#FFFFFF';
 
+  // Le <Svg> ne peut se dimensionner qu'apres le premier onLayout, et avec les
+  // transitions de la Stack cette mesure arrive tard. On peint donc le
+  // conteneur avec la teinte mediane du degrade : pendant ce laps de temps on
+  // voit cette couleur au lieu d'un aplat noir.
+  const fallbackBg = ambient ? '#0A0A0A' : colors[1];
+
+  const [size, setSize] = useState({ width: INITIAL.width, height: INITIAL.height });
+
+  const handleLayout = (e) => {
+    const { width, height } = e.nativeEvent.layout;
+    setSize((prev) =>
+      prev.width === width && prev.height === height ? prev : { width, height }
+    );
+  };
+
   return (
-    <View style={styles.root}>
+    <View style={[styles.root, { backgroundColor: fallbackBg }]} onLayout={handleLayout}>
       <Svg
-        width={SCREEN_W}
-        height={SCREEN_H}
+        width={size.width}
+        height={size.height}
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       >
@@ -52,6 +71,5 @@ export default function GradientBackground({
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#000000',
   },
 });
