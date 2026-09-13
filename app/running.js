@@ -5,6 +5,7 @@ import {
   Pressable,
   StyleSheet,
   BackHandler,
+  AppState,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -69,16 +70,35 @@ export default function Running() {
   const lastPhaseRef = useRef(state.phaseLabel);
   const navigatedRef = useRef(false);
   const skippedRef = useRef(0);
+  const appStateRef = useRef(AppState.currentState);
+  const pendingPhaseBeepRef = useRef(false);
 
   useEffect(() => {
     if (state.phaseLabel !== lastPhaseRef.current) {
       lastPhaseRef.current = state.phaseLabel;
       if (!state.isComplete) {
         haptic.medium();
-        sound.playPhase();
+        // Le son échoue silencieusement en arrière-plan (shouldPlayInBackground: false) :
+        // on rattrape avec un seul bip au retour au premier plan plutôt que rien du tout.
+        if (appStateRef.current === 'active') {
+          sound.playPhase();
+        } else {
+          pendingPhaseBeepRef.current = true;
+        }
       }
     }
   }, [state.phaseLabel, state.isComplete]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      if (appStateRef.current !== 'active' && next === 'active' && pendingPhaseBeepRef.current) {
+        pendingPhaseBeepRef.current = false;
+        sound.playPhase();
+      }
+      appStateRef.current = next;
+    });
+    return () => sub.remove();
+  }, []);
 
   useEffect(() => {
     if (state.isComplete && !navigatedRef.current) {
@@ -123,6 +143,7 @@ export default function Running() {
     navigatedRef.current = false;
     lastPhaseRef.current = '';
     skippedRef.current = 0;
+    pendingPhaseBeepRef.current = false;
     if (isManualBasic) setRestTriggers([]);
     if (isPaused) resume();
     seek(0);
@@ -526,35 +547,39 @@ function BottomControls({
         </LongPressButton>
 
         {showEndWork ? (
-          <Pressable
-            onPress={onEndWork}
-            style={({ pressed }) => [
-              styles.endWorkBtn,
-              {
-                backgroundColor: tokens.ctaBg,
-                opacity: pressed ? 0.92 : 1,
-                transform: [{ scale: pressed ? 0.96 : 1 }],
-              },
-            ]}
-          >
-            <Text style={[styles.endWorkText, { color: tokens.ctaText }]}>FIN</Text>
-          </Pressable>
+          <View style={[styles.roundBtnShadowWrap, { backgroundColor: tokens.ctaBg }]}>
+            <Pressable
+              onPress={onEndWork}
+              style={({ pressed }) => [
+                styles.endWorkBtn,
+                {
+                  backgroundColor: tokens.ctaBg,
+                  opacity: pressed ? 0.92 : 1,
+                  transform: [{ scale: pressed ? 0.96 : 1 }],
+                },
+              ]}
+            >
+              <Text style={[styles.endWorkText, { color: tokens.ctaText }]}>FIN</Text>
+            </Pressable>
+          </View>
         ) : (
-          <Pressable
-            onPress={onPauseToggle}
-            style={({ pressed }) => [
-              styles.pauseBtn,
-              {
-                backgroundColor: tokens.ctaBg,
-                opacity: pressed ? 0.92 : 1,
-                transform: [{ scale: pressed ? 0.95 : 1 }],
-              },
-            ]}
-          >
-            <Text style={[styles.pauseIcon, { color: tokens.ctaText }]}>
-              {isPaused ? '▶' : '❚❚'}
-            </Text>
-          </Pressable>
+          <View style={[styles.roundBtnShadowWrap, { backgroundColor: tokens.ctaBg }]}>
+            <Pressable
+              onPress={onPauseToggle}
+              style={({ pressed }) => [
+                styles.pauseBtn,
+                {
+                  backgroundColor: tokens.ctaBg,
+                  opacity: pressed ? 0.92 : 1,
+                  transform: [{ scale: pressed ? 0.95 : 1 }],
+                },
+              ]}
+            >
+              <Text style={[styles.pauseIcon, { color: tokens.ctaText }]}>
+                {isPaused ? '▶' : '❚❚'}
+              </Text>
+            </Pressable>
+          </View>
         )}
 
         {hideSkip ? (
@@ -763,6 +788,11 @@ const styles = StyleSheet.create({
     borderRadius: 46,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  roundBtnShadowWrap: {
+    width: 92,
+    height: 92,
+    borderRadius: 46,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.3,
@@ -779,11 +809,6 @@ const styles = StyleSheet.create({
     borderRadius: 46,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    elevation: 12,
   },
   endWorkText: {
     fontFamily: fonts.sansExtraBold,

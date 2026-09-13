@@ -2,7 +2,7 @@
   "expo": {
     "name": "Flex Timer",
     "slug": "flex-timer",
-    "version": "1.0.0",
+    "version": "8.0.5",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -16,7 +16,13 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#000000"
       },
-      "package": "com.flextimer.app"
+      "package": "com.flextimer.app",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
+      ]
     },
     "plugins": [
       "expo-router",
@@ -34,6 +40,13 @@
     ],
     "experiments": {
       "typedRoutes": false
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "85fc0368-09be-4ae2-86da-fb93de5bac8d"
+      }
+    },
+    "owner": "yao225"
   }
 }

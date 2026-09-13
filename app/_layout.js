@@ -27,7 +27,6 @@ setAudioModeAsync({
   shouldPlayInBackground: false,
   shouldRouteThroughEarpiece: false,
   interruptionMode: 'mixWithOthers',
-  interruptionModeAndroid: 'duckOthers',
 }).catch(() => {});
 
 export default function RootLayout() {

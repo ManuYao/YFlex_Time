@@ -262,6 +262,7 @@ export default function EndSession() {
         >
           <Text style={styles.btnSecondaryText}>Accueil</Text>
         </Pressable>
+        <View style={[styles.btnPrimaryShadowWrap, { backgroundColor: timer.color, shadowColor: timer.color }]}>
         <Pressable
           onPress={() =>
             router.replace({ pathname: '/countdown', params: { timerId: timer.id } })
@@ -287,6 +288,7 @@ export default function EndSession() {
             Refaire la séance
           </Text>
         </Pressable>
+        </View>
       </View>
       </SafeAreaView>
     </GradientBackground>
@@ -492,6 +494,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
+  },
+  btnPrimaryShadowWrap: {
+    flex: 1.4,
+    borderRadius: 18,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.4,
     shadowRadius: 16,

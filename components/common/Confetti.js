@@ -31,7 +31,7 @@ export default function Confetti({ enabled = true }) {
         const angle = (i / PARTICLE_COUNT) * Math.PI * 2;
         const distance = 300 + Math.random() * 200;
         return {
-          key: i,
+          id: i,
           color: COLORS[i % COLORS.length],
           dx: Math.cos(angle) * distance,
           dy: Math.sin(angle) * distance + 200,
@@ -46,8 +46,8 @@ export default function Confetti({ enabled = true }) {
 
   return (
     <View pointerEvents="none" style={styles.layer}>
-      {particles.map((p) => (
-        <Particle key={p.key} {...p} />
+      {particles.map(({ id, ...p }) => (
+        <Particle key={id} {...p} />
       ))}
     </View>
   );

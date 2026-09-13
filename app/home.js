@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -9,8 +9,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { BlurView } from 'expo-blur';
-import Svg, { Path } from 'react-native-svg';
+import { BlurView, BlurTargetView } from 'expo-blur';
+import Svg, { Path, Circle } from 'react-native-svg';
 import Animated, {
   FadeIn,
   FadeOut,
@@ -30,11 +30,14 @@ import GradientBackground from '../components/common/GradientBackground';
 import TickRing from '../components/common/TickRing';
 import WheelPicker from '../components/common/WheelPicker';
 import PressTap from '../components/common/PressTap';
+import ModeStatsSheet from '../components/common/ModeStatsSheet';
 import { getTimerHero } from '../lib/timers-config';
 import { getTokens } from '../lib/tokens';
 import { fonts } from '../lib/fonts';
 import { useTimers } from '../contexts/TimersContext';
 import { useHaptic } from '../hooks/useHaptic';
+import { useTimerHeat } from '../hooks/useTimerHeat';
+import { useLongPress } from '../hooks/useLongPress';
 import {
   D,
   easeImpact,
@@ -50,28 +53,47 @@ import {
   springSheet,
 } from '../lib/animations';
 
+// Dimensions.get n'est lu qu'une fois, comme valeur de depart pour rootW/rootH
+// ci-dessous : la source de verite reactive est l'onLayout de la racine (Q9).
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
-const MORPH_W_INIT = SCREEN_W - 48;
-const MORPH_H_INIT = 56;
 const MORPH_R_INIT = 18;
 const MORPH_W_FINAL = 340;
 const MORPH_H_FINAL = 340;
 const MORPH_R_FINAL = 170;
-const MORPH_BOTTOM_OFFSET = 100;
-const MORPH_INIT_LEFT = 24;
-const MORPH_FINAL_LEFT = SCREEN_W / 2 - MORPH_W_FINAL / 2;
 
 const LAUNCH_TOTAL_MS = 2400;
 
+// Badge streak (F) — à partir de ce nombre de lancements sur 7 jours
+// glissants, la carte affiche 🔥 + compteur. Voir lib/history.js.
+const STREAK_THRESHOLD = 3;
+
+// Appui long sur le cercle central — ouvre le panneau stats/badges (T).
+const STATS_HOLD_MS = 1500;
+const HOLD_RING_RADIUS = 156;
+const HOLD_RING_STROKE = 4;
+const HOLD_RING_CIRCUMFERENCE = 2 * Math.PI * HOLD_RING_RADIUS;
+
+// Hoisté hors du composant : identité stable, évite de faire recalculer
+// keyExtractor par le FlatList à chaque render de Home. getItemLayout dépend
+// de rootW (largeur réellement mesurée) donc reste dans le composant (Q9).
+const keyExtractor = (item) => item.id;
+
 export default function Home() {
-  // Hauteur reelle de la racine : SCREEN_H (Dimensions window) ne correspond
-  // pas a la zone qu'occupe l'app (barres systeme, overlay Expo Go...).
+  // Taille reelle de la racine : SCREEN_W/H (Dimensions window) ne correspond
+  // pas forcement a la zone qu'occupe l'app (barres systeme, overlay Expo Go,
+  // fenetre redimensionnee en split-screen/tablette pliable...). onLayout se
+  // redeclenche a chaque resize, donc rootW/rootH restent justes en continu.
   const [rootH, setRootH] = useState(SCREEN_H);
+  const [rootW, setRootW] = useState(SCREEN_W);
   const router = useRouter();
   const haptic = useHaptic();
   const flatListRef = useRef(null);
+  const blurTargetRef = useRef(null);
+  const ctaRef = useRef(null);
+  const [ctaRect, setCtaRect] = useState(null);
   const { timers, updateStat, hydrated } = useTimers();
+  const { heatMap, statsMap } = useTimerHeat();
   const { lastTimerId } = useLocalSearchParams();
   const initialIndex = (() => {
     if (!lastTimerId) return 0;
@@ -80,126 +102,184 @@ export default function Home() {
   })();
   const [activeIndex, setActiveIndex] = useState(initialIndex);
   const [picker, setPicker] = useState(null);
+  const [statsOpen, setStatsOpen] = useState(false);
   const [isLaunching, setIsLaunching] = useState(false);
-
-  if (!hydrated) {
-    return <View style={{ flex: 1, backgroundColor: '#000' }} />;
-  }
+  const activeIndexRef = useRef(initialIndex);
 
   const active = timers[activeIndex];
   const t = getTokens(active.textMode);
+  // TopBar/BottomBar doivent s'effacer aussi bien pendant le morph de
+  // lancement que pendant que le panneau stats/badges est ouvert — sinon le
+  // CTA "Lancer X" de la BottomBar reste visible en double sous le panneau.
+  const hideChrome = isLaunching || statsOpen;
 
-  const handleMomentumEnd = (e) => {
-    const index = Math.round(e.nativeEvent.contentOffset.x / SCREEN_W);
-    if (index !== activeIndex) {
-      setActiveIndex(index);
-      haptic.selection();
-    }
-  };
+  // Effet de bord (haptique) dans le corps de la fonction, pas dans
+  // l'updater passé à setActiveIndex : un setState appelé depuis l'intérieur
+  // d'un autre updater peut être ignoré par React sans avertissement
+  // visible. La ref remplace la comparaison "prev" pour garder ce callback
+  // stable (pas de dépendance sur activeIndex).
+  const handleMomentumEnd = useCallback((e) => {
+    const index = Math.round(e.nativeEvent.contentOffset.x / rootW);
+    if (index === activeIndexRef.current) return;
+    activeIndexRef.current = index;
+    haptic.selection();
+    setActiveIndex(index);
+  }, [haptic, rootW]);
 
-  const handleLaunch = () => {
+  // getItemLayout doit annoncer au FlatList la meme largeur que celle
+  // reellement rendue par chaque carte (styles.card, override par rootW plus
+  // bas) — sinon le paging desynchronise des que l'ecran ne fait pas la
+  // largeur devinee au chargement du module.
+  const getItemLayout = useCallback((_, i) => ({
+    length: rootW,
+    offset: rootW * i,
+    index: i,
+  }), [rootW]);
+
+  const handleLaunch = useCallback((sourceRect) => {
     if (active.id === 'mix' && (!active._mix || active._mix.blocks.length === 0)) {
       haptic.light();
       router.push('/mix-builder');
       return;
     }
     haptic.medium();
-    setIsLaunching(true);
-  };
+    // sourceRect : fourni quand le lancement vient d'un autre bouton que le
+    // CTA du bas (ex. le panneau stats/badges) — évite que le morph parte
+    // toujours du bouton de la BottomBar alors que l'utilisateur a tapé
+    // ailleurs à l'écran.
+    if (sourceRect) {
+      setCtaRect(sourceRect);
+      setIsLaunching(true);
+      return;
+    }
+    // Mesure la position ecran reelle du bouton CTA au moment du tap, plutot
+    // que de deviner un offset fixe (ex-MORPH_BOTTOM_OFFSET) : reste juste
+    // quelle que soit la taille d'ecran ou la mise en page du bouton.
+    ctaRef.current?.measureInWindow((x, y, width, height) => {
+      setCtaRect({ x, y, width, height });
+      setIsLaunching(true);
+    });
+  }, [active, haptic, router]);
 
-  const handleMorphComplete = () => {
+  const handleMorphComplete = useCallback(() => {
     router.replace({ pathname: '/countdown', params: { timerId: active.id } });
-  };
+  }, [router, active]);
 
-  const handleMixEdit = () => {
+  const handleMixEdit = useCallback(() => {
     haptic.light();
     router.push('/mix-builder');
-  };
+  }, [haptic, router]);
 
-  const handleDotPress = (index) => {
+  const handleDotPress = useCallback((index) => {
     flatListRef.current?.scrollToIndex({ index, animated: true });
-  };
+  }, []);
 
-  const handleStatPress = (timerId, statKey) => {
+  const handleStatPress = useCallback((timerId, statKey) => {
     haptic.light();
     setPicker({ timerId, statKey });
-  };
+  }, [haptic]);
 
-  const handleValidate = (newValue) => {
-    if (!picker) return;
-    haptic.medium();
-    updateStat(picker.timerId, picker.statKey, newValue);
-    setPicker(null);
-  };
+  const handleOpenStats = useCallback(() => {
+    setStatsOpen(true);
+  }, []);
+
+  const handleValidate = useCallback((newValue) => {
+    setPicker((prevPicker) => {
+      if (!prevPicker) return prevPicker;
+      haptic.medium();
+      updateStat(prevPicker.timerId, prevPicker.statKey, newValue);
+      return null;
+    });
+  }, [haptic, updateStat]);
 
   const pickerTimer = picker ? timers.find((tt) => tt.id === picker.timerId) : null;
   const pickerStat = pickerTimer ? pickerTimer.stats.find((s) => s.key === picker.statKey) : null;
+
+  // Identité stable sauf quand activeIndex (ou la largeur reelle rootW)
+  // change réellement : évite qu'un tap qui touche isLaunching/picker/rootH
+  // force les 5 TimerCard (60 lignes SVG chacune) à se re-render en plein
+  // milieu du geste de l'utilisateur. rootW est inclus car il determine la
+  // largeur reelle de chaque carte (paging FlatList) — contrairement a
+  // rootH, il ne varie qu'sur un vrai resize (rotation/split-screen), jamais
+  // par jitter des barres systeme.
+  const renderItem = useCallback(
+    ({ item, index }) => (
+      <TimerCard
+        timer={item}
+        isActive={index === activeIndex}
+        cardWidth={rootW}
+        heatCount={heatMap[item.id] || 0}
+        onStatPress={handleStatPress}
+        onMixEdit={handleMixEdit}
+        onStatHaptic={haptic.light}
+        onOpenStats={handleOpenStats}
+      />
+    ),
+    [activeIndex, rootW, heatMap, handleStatPress, handleMixEdit, haptic, handleOpenStats]
+  );
+
+  if (!hydrated) {
+    return <View style={{ flex: 1, backgroundColor: '#000' }} />;
+  }
 
   return (
     <View
       style={[styles.root, { backgroundColor: active.bgColors[1] }]}
       onLayout={(e) => {
-        const h = e.nativeEvent.layout.height;
+        const { width: w, height: h } = e.nativeEvent.layout;
         setRootH((prev) => (prev === h ? prev : h));
+        setRootW((prev) => (prev === w ? prev : w));
       }}
     >
-      {/* (A) Background dynamique avec crossfade */}
-      <CrossfadeBackground
-        colors={active.bgColors}
-        textMode={active.textMode}
-        timerId={active.id}
-      />
-
-      <SafeAreaView style={styles.safe} edges={['top', 'bottom']} pointerEvents={isLaunching ? 'none' : 'auto'}>
-        <TopBar
-          tag={active.tag}
-          tokens={t}
-          onBack={() => router.push('/settings')}
-          onMenu={() => {
-            haptic.light();
-            router.push('/history');
-          }}
-          onMenuHaptic={haptic.light}
-          isLaunching={isLaunching}
+      {/* (A) Fond + contenu — regroupés dans une BlurTargetView pour que le
+          BlurView Android (dimezisBlurView) ait quelque chose à flouter */}
+      <BlurTargetView ref={blurTargetRef} style={styles.root}>
+        <CrossfadeBackground
+          colors={active.bgColors}
+          textMode={active.textMode}
+          timerId={active.id}
         />
 
-        <FlatList
-          ref={flatListRef}
-          data={timers}
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          onMomentumScrollEnd={handleMomentumEnd}
-          keyExtractor={(item) => item.id}
-          initialScrollIndex={initialIndex}
-          renderItem={({ item, index }) => (
-            <TimerCard
-              timer={item}
-              isActive={index === activeIndex}
-              onStatPress={handleStatPress}
-              onMixEdit={handleMixEdit}
-              onStatHaptic={haptic.light}
-            />
-          )}
-          getItemLayout={(_, i) => ({
-            length: SCREEN_W,
-            offset: SCREEN_W * i,
-            index: i,
-          })}
-          style={styles.list}
-          scrollEnabled={!isLaunching}
-        />
+        <SafeAreaView style={styles.safe} edges={['top', 'bottom']} pointerEvents={hideChrome ? 'none' : 'auto'}>
+          <TopBar
+            tag={active.tag}
+            tokens={t}
+            onBack={() => router.push('/settings')}
+            onMenu={() => {
+              haptic.light();
+              router.push('/history');
+            }}
+            onMenuHaptic={haptic.light}
+            isLaunching={hideChrome}
+          />
 
-        <BottomBar
-          timers={timers}
-          activeIndex={activeIndex}
-          active={active}
-          tokens={t}
-          onDotPress={handleDotPress}
-          onLaunch={handleLaunch}
-          isLaunching={isLaunching}
-        />
-      </SafeAreaView>
+          <FlatList
+            ref={flatListRef}
+            data={timers}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={handleMomentumEnd}
+            keyExtractor={keyExtractor}
+            initialScrollIndex={initialIndex}
+            renderItem={renderItem}
+            getItemLayout={getItemLayout}
+            style={styles.list}
+            scrollEnabled={!hideChrome}
+          />
+
+          <BottomBar
+            ctaRef={ctaRef}
+            timers={timers}
+            activeIndex={activeIndex}
+            active={active}
+            tokens={t}
+            onDotPress={handleDotPress}
+            onLaunch={handleLaunch}
+            isLaunching={hideChrome}
+          />
+        </SafeAreaView>
+      </BlurTargetView>
 
       {/* (Q0) Blur backdrop pendant le launch morph */}
       {isLaunching && (
@@ -210,6 +290,7 @@ export default function Home() {
           style={StyleSheet.absoluteFill}
         >
           <BlurView
+            blurTarget={blurTargetRef}
             intensity={60}
             tint="dark"
             blurMethod="dimezisBlurView"
@@ -219,15 +300,23 @@ export default function Home() {
           <View
             style={[
               StyleSheet.absoluteFill,
-              { backgroundColor: 'rgba(0,0,0,0.65)' },
+              { backgroundColor: 'rgba(0,0,0,0.45)' },
             ]}
           />
         </Animated.View>
       )}
 
-      {/* (Q) Launch morph overlay */}
-      {isLaunching && (
-        <LaunchMorph active={active} onComplete={handleMorphComplete} screenH={rootH} />
+      {/* (Q) Launch morph overlay — ctaRect vient de la mesure reelle du
+          bouton au tap (handleLaunch) ; tant qu'elle n'est pas prete on
+          n'affiche rien plutot que de deviner une position. */}
+      {isLaunching && ctaRect && (
+        <LaunchMorph
+          active={active}
+          onComplete={handleMorphComplete}
+          screenH={rootH}
+          screenW={rootW}
+          ctaRect={ctaRect}
+        />
       )}
 
       {/* (S) Picker modal */}
@@ -239,6 +328,21 @@ export default function Home() {
           textMode={pickerTimer.textMode}
           onClose={() => setPicker(null)}
           onValidate={handleValidate}
+        />
+      )}
+
+      {/* (T) Panneau stats/badges — ⋮ de la TopBar */}
+      {statsOpen && (
+        <ModeStatsSheet
+          timer={active}
+          stats={statsMap[active.id] || { count: 0, totalSeconds: 0, timeLabel: '0min' }}
+          screenH={rootH}
+          blurTargetRef={blurTargetRef}
+          onClose={() => setStatsOpen(false)}
+          onLaunch={(sourceRect) => {
+            setStatsOpen(false);
+            handleLaunch(sourceRect);
+          }}
         />
       )}
     </View>
@@ -291,7 +395,6 @@ function TopBar({ tag, tokens, onBack, onMenu, onMenuHaptic, isLaunching }) {
         entering={slideInY(-20, D.slow, 0)}
         style={styles.statusBar}
       >
-        <Text style={[styles.statusText, { color: tokens.tertiary }]}>09:41</Text>
         <View style={styles.statusRight}>
           <Animated.View
             style={[styles.statusDot, { backgroundColor: tokens.secondary }, dotStyle]}
@@ -355,14 +458,15 @@ function TopBar({ tag, tokens, onBack, onMenu, onMenuHaptic, isLaunching }) {
 /* ─────────────────────────────────────────────────────────────────
    TimerCard — orchestration des animations sur isActive
    ────────────────────────────────────────────────────────────────*/
-function TimerCard({ timer, isActive, onStatPress, onMixEdit, onStatHaptic }) {
+const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, heatCount, onStatPress, onMixEdit, onStatHaptic, onOpenStats }) {
   const t = getTokens(timer.textMode);
   const hero = getTimerHero(timer);
   const heroFontSize = hero.number.length > 3 ? 110 : 140;
   const isMix = timer.id === 'mix';
+  const { isPressing, progress, start, cancel } = useLongPress(onOpenStats, STATS_HOLD_MS);
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, { width: cardWidth }]}>
       {/* (E) Description */}
       {isActive ? (
         <Animated.Text
@@ -377,7 +481,14 @@ function TimerCard({ timer, isActive, onStatPress, onMixEdit, onStatHaptic }) {
         <Text style={[styles.description, { color: t.tertiary }]}>{timer.full}</Text>
       )}
 
-      {/* (F+G) TickRing breathing + draw stagger */}
+      {/* (F+G) TickRing breathing + draw stagger + (T) appui long → stats */}
+      <View style={styles.ringOuter}>
+      <Pressable
+        onPressIn={isActive ? start : undefined}
+        onPressOut={isActive ? cancel : undefined}
+        disabled={!isActive}
+        hitSlop={4}
+      >
       <BreathingRing isActive={isActive} t={t} timerId={timer.id}>
         <View style={styles.ringCenter} pointerEvents="none">
           {/* (H) Hero unit */}
@@ -436,6 +547,30 @@ function TimerCard({ timer, isActive, onStatPress, onMixEdit, onStatHaptic }) {
           )}
         </View>
       </BreathingRing>
+      </Pressable>
+      {isActive && isPressing && (
+        <View style={styles.holdOverlay} pointerEvents="none">
+          <Svg width={320} height={320} viewBox="0 0 320 320">
+            <Circle
+              cx={160}
+              cy={160}
+              r={HOLD_RING_RADIUS}
+              stroke={t.ringActive}
+              strokeWidth={HOLD_RING_STROKE}
+              opacity={0.9}
+              fill="none"
+              strokeDasharray={HOLD_RING_CIRCUMFERENCE}
+              strokeDashoffset={HOLD_RING_CIRCUMFERENCE * (1 - progress)}
+              strokeLinecap="round"
+              transform="rotate(-90 160 160)"
+            />
+          </Svg>
+        </View>
+      )}
+      {heatCount >= STREAK_THRESHOLD && (
+        <StreakBadge heatCount={heatCount} isActive={isActive} t={t} timerId={timer.id} />
+      )}
+      </View>
 
       {/* (K) Stats chips avec stagger */}
       <View style={styles.statsRow}>
@@ -535,6 +670,37 @@ function TimerCard({ timer, isActive, onStatPress, onMixEdit, onStatHaptic }) {
       )}
     </View>
   );
+});
+
+/* ─────────────────────────────────────────────────────────────────
+   StreakBadge — 🔥 + compteur, visible dès STREAK_THRESHOLD lancements
+   du timer sur 7 jours glissants (lib/history.js computeHeatCounts)
+   ────────────────────────────────────────────────────────────────*/
+function StreakBadge({ heatCount, isActive, t, timerId }) {
+  const content = (
+    <>
+      <Text style={styles.streakEmoji}>🔥</Text>
+      <Text style={[styles.streakCount, { color: t.chipText }]}>{heatCount}</Text>
+    </>
+  );
+
+  if (isActive) {
+    return (
+      <Animated.View
+        key={`streak-${timerId}`}
+        entering={popIn(0.3, D.slow, 500)}
+        exiting={popOut(1.2, D.base)}
+        style={[styles.streakBadge, { backgroundColor: t.chipBg, borderColor: t.chipBorder }]}
+      >
+        {content}
+      </Animated.View>
+    );
+  }
+  return (
+    <View style={[styles.streakBadge, { backgroundColor: t.chipBg, borderColor: t.chipBorder }]}>
+      {content}
+    </View>
+  );
 }
 
 function StatChipContent({ stat, t, editable }) {
@@ -609,7 +775,7 @@ function BreathingRing({ isActive, t, timerId, children }) {
 /* ─────────────────────────────────────────────────────────────────
    (M+N+O) Bottom bar — indicators + CTA + hint
    ────────────────────────────────────────────────────────────────*/
-function BottomBar({ timers, activeIndex, active, tokens, onDotPress, onLaunch, isLaunching }) {
+function BottomBar({ ctaRef, timers, activeIndex, active, tokens, onDotPress, onLaunch, isLaunching }) {
   const ctaTextColor = active.textMode === 'dark' ? '#0A0A0A' : '#FFFFFF';
 
   // (O) Icône ▶ pulse horizontale
@@ -655,25 +821,31 @@ function BottomBar({ timers, activeIndex, active, tokens, onDotPress, onLaunch, 
       </View>
 
       {/* (O) CTA Lancer */}
-      <PressTap
-        onPress={onLaunch}
-        tapScale={0.96}
-        style={[styles.cta, { backgroundColor: active.color }]}
-      >
-        <Animated.View style={arrowStyle}>
-          <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
-            <Path d="M3 2l8 5-8 5V2z" fill={ctaTextColor} />
-          </Svg>
-        </Animated.View>
-        <Animated.Text
-          key={`cta-${active.name}`}
-          entering={slideInY(10, 250, 0)}
-          exiting={slideOutY(-10, 200)}
-          style={[styles.ctaText, { color: ctaTextColor }]}
+      {/* L'ombre (elevation) est portee par ce View statique plutot que par
+          la vue animee de PressTap : sur Android, une elevation combinee a
+          un transform pilote par Reanimated peut se rendre en rectangle
+          plein au lieu de suivre borderRadius. */}
+      <View ref={ctaRef} style={[styles.ctaShadowWrap, { backgroundColor: active.color }]}>
+        <PressTap
+          onPress={onLaunch}
+          tapScale={0.96}
+          style={[styles.cta, { backgroundColor: active.color }]}
         >
-          Lancer {active.name}
-        </Animated.Text>
-      </PressTap>
+          <Animated.View style={arrowStyle}>
+            <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
+              <Path d="M3 2l8 5-8 5V2z" fill={ctaTextColor} />
+            </Svg>
+          </Animated.View>
+          <Animated.Text
+            key={`cta-${active.name}`}
+            entering={slideInY(10, 250, 0)}
+            exiting={slideOutY(-10, 200)}
+            style={[styles.ctaText, { color: ctaTextColor }]}
+          >
+            Lancer {active.name}
+          </Animated.Text>
+        </PressTap>
+      </View>
 
       <Text style={[styles.hint, { color: tokens.muted }]}>
         ← Glisse ou tape les points →
@@ -712,10 +884,18 @@ function IndicatorDot({ isActive, tokens, onPress }) {
 /* ─────────────────────────────────────────────────────────────────
    (Q) Launch morph — bouton qui devient cercle + bond + texte hero
    ────────────────────────────────────────────────────────────────*/
-function LaunchMorph({ active, onComplete, screenH }) {
-  const morphInitTop = screenH - MORPH_BOTTOM_OFFSET - MORPH_H_INIT;
+function LaunchMorph({ active, onComplete, screenH, screenW, ctaRect }) {
+  // Position/taille de depart = mesure reelle du bouton CTA (measureInWindow
+  // dans handleLaunch), pas une estimation figee : reste juste quel que soit
+  // l'ecran, la densite ou la mise en page du bouton.
+  const morphInitTop = ctaRect.y;
+  const morphInitLeft = ctaRect.x;
+  const morphInitWidth = ctaRect.width;
+  const morphInitHeight = ctaRect.height;
   const morphFinalTop = screenH / 2 - MORPH_H_FINAL / 2;
+  const morphFinalLeft = screenW / 2 - MORPH_W_FINAL / 2;
   const haloTop = screenH / 2 - 300;
+  const haloLeft = screenW / 2 - 300;
 
   const isDark = active.textMode === 'dark';
   const fgColor = isDark ? '#0A0A0A' : '#FFFFFF';
@@ -774,12 +954,12 @@ function LaunchMorph({ active, onComplete, screenH }) {
     const w = interpolate(
       p,
       [0, 0.15, 0.75, 1],
-      [MORPH_W_INIT, MORPH_W_INIT, MORPH_W_FINAL, MORPH_W_FINAL]
+      [morphInitWidth, morphInitWidth, MORPH_W_FINAL, MORPH_W_FINAL]
     );
     const h = interpolate(
       p,
       [0, 0.15, 0.75, 1],
-      [MORPH_H_INIT, MORPH_H_INIT, MORPH_H_FINAL, MORPH_H_FINAL]
+      [morphInitHeight, morphInitHeight, MORPH_H_FINAL, MORPH_H_FINAL]
     );
     const r = interpolate(
       p,
@@ -794,7 +974,7 @@ function LaunchMorph({ active, onComplete, screenH }) {
     const left = interpolate(
       p,
       [0, 0.15, 0.75, 1],
-      [MORPH_INIT_LEFT, MORPH_INIT_LEFT, MORPH_FINAL_LEFT, MORPH_FINAL_LEFT]
+      [morphInitLeft, morphInitLeft, morphFinalLeft, morphFinalLeft]
     );
     const sc = interpolate(p, [0, 0.15, 0.75, 1], [1, 0.96, 1.12, 1]);
     return {
@@ -826,7 +1006,7 @@ function LaunchMorph({ active, onComplete, screenH }) {
       <Animated.View
         style={[
           styles.halo,
-          { top: haloTop, backgroundColor: active.color + '33' },
+          { top: haloTop, left: haloLeft, backgroundColor: active.color + '33' },
           haloStyle,
         ]}
       />
@@ -991,6 +1171,7 @@ function PickerSheet({ stat, accentColor, textMode, onClose, onValidate, screenH
         </Animated.View>
 
         <Animated.View entering={slideInY(20, D.slow, 300)}>
+          <View style={[styles.pickerCtaShadowWrap, { backgroundColor: accentColor || '#FFFFFF' }]}>
           <PressTap
             onPress={handleValidate}
             tapScale={0.97}
@@ -1007,6 +1188,7 @@ function PickerSheet({ stat, accentColor, textMode, onClose, onValidate, screenH
             </Svg>
             <Text style={[styles.pickerCtaText, { color: ctaText }]}>Valider</Text>
           </PressTap>
+          </View>
         </Animated.View>
 
         <Animated.Text
@@ -1032,7 +1214,7 @@ const styles = StyleSheet.create({
   statusBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     paddingHorizontal: 24,
     paddingTop: 4,
     paddingBottom: 4,
@@ -1085,7 +1267,7 @@ const styles = StyleSheet.create({
 
   // Card
   card: {
-    width: SCREEN_W,
+    // width fourni en inline par TimerCard (prop cardWidth = rootW mesuré).
     alignItems: 'center',
     paddingHorizontal: 24,
     paddingTop: 16,
@@ -1100,10 +1282,39 @@ const styles = StyleSheet.create({
   },
 
   // Ring + hero
+  ringOuter: {
+    position: 'relative',
+  },
   ringWrap: {
     width: 320,
     height: 320,
     marginBottom: 24,
+  },
+  holdOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: 320,
+    height: 320,
+  },
+  streakBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  streakEmoji: {
+    fontSize: 12,
+  },
+  streakCount: {
+    fontFamily: fonts.monoBold,
+    fontSize: 12,
   },
   ringCenter: {
     ...StyleSheet.absoluteFill,
@@ -1226,6 +1437,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
+  },
+  ctaShadowWrap: {
+    borderRadius: MORPH_R_INIT,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.25,
@@ -1266,11 +1480,12 @@ const styles = StyleSheet.create({
     letterSpacing: -0.15,
   },
   halo: {
+    // top/left fournis en inline par LaunchMorph (haloTop/haloLeft, calculés
+    // depuis rootH/rootW mesurés — voir Q2).
     position: 'absolute',
     width: 600,
     height: 600,
     borderRadius: 300,
-      left: SCREEN_W / 2 - 300,
   },
   morphContent: {
     position: 'absolute',
@@ -1464,6 +1679,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
+  },
+  pickerCtaShadowWrap: {
+    borderRadius: 18,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.3,

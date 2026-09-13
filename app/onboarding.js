@@ -200,6 +200,7 @@ export default function Onboarding() {
             ))}
           </View>
 
+          <View style={[styles.ctaShadowWrap, { backgroundColor: textColor }]}>
           <Pressable
             onPress={goNext}
             style={({ pressed }) => [
@@ -230,6 +231,7 @@ export default function Onboarding() {
               </Svg>
             )}
           </Pressable>
+          </View>
         </View>
       </SafeAreaView>
     </GradientBackground>
@@ -323,6 +325,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
+  },
+  ctaShadowWrap: {
+    borderRadius: 18,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.25,

@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import Svg, { Line } from 'react-native-svg';
 import Animated, {
   useSharedValue,
@@ -29,41 +29,60 @@ export default function TickRing({
   triggerKey,
 }) {
   const activeTicks = Math.floor(TOTAL_TICKS * progress);
-  const center = size / 2;
-  const outerRadius = size / 2 - 4;
-  const innerRadius = outerRadius - 18;
+
+  // La géométrie (positions, longueurs) ne dépend que de `size` — inutile de
+  // refaire 60x du trig à chaque tick du chrono (toutes les 100ms). Seule la
+  // couleur active/inactive change avec `progress`.
+  const geometry = useMemo(() => {
+    const center = size / 2;
+    const outerRadius = size / 2 - 4;
+    const innerRadius = outerRadius - 18;
+    return Array.from({ length: TOTAL_TICKS }).map((_, i) => {
+      const angle = (i / TOTAL_TICKS) * Math.PI * 2 - Math.PI / 2;
+      const isMajor = i % 5 === 0;
+      const r1 = isMajor ? innerRadius - 4 : innerRadius;
+      const x1 = center + Math.cos(angle) * r1;
+      const y1 = center + Math.sin(angle) * r1;
+      const x2 = center + Math.cos(angle) * outerRadius;
+      const y2 = center + Math.sin(angle) * outerRadius;
+      return { x1, y1, x2, y2, isMajor };
+    });
+  }, [size]);
 
   return (
     <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-      {Array.from({ length: TOTAL_TICKS }).map((_, i) => {
-        const angle = (i / TOTAL_TICKS) * Math.PI * 2 - Math.PI / 2;
-        const isActive = i < activeTicks;
-        const isMajor = i % 5 === 0;
-        const r1 = isMajor ? innerRadius - 4 : innerRadius;
-        const x1 = center + Math.cos(angle) * r1;
-        const y1 = center + Math.sin(angle) * r1;
-        const x2 = center + Math.cos(angle) * outerRadius;
-        const y2 = center + Math.sin(angle) * outerRadius;
-        return (
-          <TickLine
-            key={i}
-            i={i}
-            x1={x1}
-            y1={y1}
-            x2={x2}
-            y2={y2}
-            stroke={isActive ? colorActive : colorInactive}
-            strokeWidth={isMajor ? 2.5 : 1.5}
-            animateIn={animateIn}
-            triggerKey={triggerKey}
-          />
-        );
-      })}
+      {geometry.map((g, i) => (
+        <TickLine
+          key={i}
+          i={i}
+          x1={g.x1}
+          y1={g.y1}
+          x2={g.x2}
+          y2={g.y2}
+          stroke={i < activeTicks ? colorActive : colorInactive}
+          strokeWidth={g.isMajor ? 2.5 : 1.5}
+          animateIn={animateIn}
+          triggerKey={triggerKey}
+        />
+      ))}
     </Svg>
   );
 }
 
-function TickLine({ i, x1, y1, x2, y2, stroke, strokeWidth, animateIn, triggerKey }) {
+// Mémoïsé : sur l'écran Running, le progrès du chrono ne fait basculer
+// qu'un seul tick de inactif à actif à la fois — les 59 autres doivent
+// pouvoir bail out au lieu de se re-render 10x/seconde.
+const TickLine = React.memo(function TickLine({
+  i,
+  x1,
+  y1,
+  x2,
+  y2,
+  stroke,
+  strokeWidth,
+  animateIn,
+  triggerKey,
+}) {
   const lineLength = Math.hypot(x2 - x1, y2 - y1);
   const shouldAnimate = animateIn || triggerKey !== undefined;
   const opacity = useSharedValue(shouldAnimate ? 0 : 1);
@@ -96,4 +115,4 @@ function TickLine({ i, x1, y1, x2, y2, stroke, strokeWidth, animateIn, triggerKe
       animatedProps={animProps}
     />
   );
-}
+});

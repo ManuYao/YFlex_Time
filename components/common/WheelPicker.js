@@ -145,7 +145,8 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   itemRow: {
-    alignItems: 'center',
+    flexDirection: 'row',
+    alignItems: 'flex-end',
     justifyContent: 'center',
   },
   mainText: {
@@ -159,10 +160,8 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansBold,
     letterSpacing: 1.3,
     textTransform: 'uppercase',
-    position: 'absolute',
-    left: '100%',
-    bottom: 4,
     marginLeft: 8,
+    marginBottom: 4,
   },
   fadeTop: {
     position: 'absolute',

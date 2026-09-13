@@ -81,8 +81,8 @@ export default function Settings() {
           <Section title="Audio et haptique">
             <Row
               label="Sons"
-              sub="Bips de phases et d'alertes"
-              control={<Toggle value={settings.sound} onChange={(v) => update('sound', v)} />}
+              sub="Bips de phases et d'alertes · fichiers audio à venir"
+              control={<Toggle value={false} onChange={() => {}} disabled />}
             />
             <Row
               label="Vibrations"
@@ -133,7 +133,7 @@ export default function Settings() {
           </Section>
 
           <Section title="À propos">
-            <Row label="Version" sub="Flex Timer 1.0.0" control={<Text style={styles.metaText}>build 42</Text>} />
+            <Row label="Version" sub="Flex Timer 8.0.5" control={<Text style={styles.metaText}>build 42</Text>} />
             <Row label="Conditions d'utilisation" control={<Soon />} />
             <Row label="Politique de confidentialité" control={<Soon />} />
             <Row label="Contact" sub="yaomanuit@gmail.com" control={<Soon />} isLast />

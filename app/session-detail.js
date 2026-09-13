@@ -114,6 +114,7 @@ export default function SessionDetail() {
           >
             <Text style={styles.btnSecondaryText}>Historique</Text>
           </Pressable>
+          <View style={[styles.btnPrimaryShadowWrap, { backgroundColor: session.color, shadowColor: session.color }]}>
           <Pressable
             onPress={() =>
               router.replace({
@@ -132,6 +133,7 @@ export default function SessionDetail() {
             </Svg>
             <Text style={styles.btnPrimaryText}>Refaire la séance</Text>
           </Pressable>
+          </View>
         </View>
       </SafeAreaView>
     </GradientBackground>
@@ -318,6 +320,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
+  },
+  btnPrimaryShadowWrap: {
+    flex: 1.4,
+    borderRadius: 18,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.4,
     shadowRadius: 16,

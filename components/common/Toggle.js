@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Pressable, Animated } from 'react-native';
 
-export default function Toggle({ value, onChange, color = '#1FC777' }) {
+export default function Toggle({ value, onChange, color = '#1FC777', disabled = false }) {
   const anim = useRef(new Animated.Value(value ? 1 : 0)).current;
 
   useEffect(() => {
@@ -27,7 +27,11 @@ export default function Toggle({ value, onChange, color = '#1FC777' }) {
   });
 
   return (
-    <Pressable onPress={() => onChange(!value)} hitSlop={8}>
+    <Pressable
+      onPress={disabled ? undefined : () => onChange(!value)}
+      hitSlop={8}
+      style={disabled && { opacity: 0.35 }}
+    >
       <Animated.View
         style={{
           width: 44,
