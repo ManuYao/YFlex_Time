@@ -174,6 +174,12 @@ export default function Onboarding() {
                 <Text style={[styles.description, { color: slideBody }]}>
                   {item.description}
                 </Text>
+
+                {item.id === 'welcome' && (
+                  <View style={[styles.betaBadge, { borderColor: slideDim }]}>
+                    <Text style={[styles.betaBadgeText, { color: slideMuted }]}>VERSION BÊTA</Text>
+                  </View>
+                )}
               </View>
             );
           }}
@@ -299,6 +305,18 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     textAlign: 'center',
     maxWidth: 320,
+  },
+  betaBadge: {
+    marginTop: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  betaBadgeText: {
+    fontFamily: fonts.sansBold,
+    fontSize: 10,
+    letterSpacing: 2.2,
   },
 
   bottom: {
