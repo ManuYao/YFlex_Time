@@ -15,11 +15,26 @@ import Svg, { Path } from 'react-native-svg';
 import GradientBackground from '../components/common/GradientBackground';
 import Toggle from '../components/common/Toggle';
 import { useSettings } from '../contexts/SettingsContext';
+import { usePremium } from '../hooks/usePremium';
+import { haptic } from '../hooks/useHaptic';
 import { fonts } from '../lib/fonts';
+
+const GOLD = '#F0C954';
+const DENY_RED = '#FF5454';
 
 export default function Settings() {
   const router = useRouter();
   const { settings, update, reset } = useSettings();
+  const { isPremium } = usePremium();
+  const [premiumDenied, setPremiumDenied] = useState(false);
+
+  // Achat Premium désactivé pendant la bêta — pas de navigation vers
+  // /premium, juste un refus visuel + haptique clair.
+  const handlePremiumPress = () => {
+    haptic.error();
+    setPremiumDenied(true);
+    setTimeout(() => setPremiumDenied(false), 350);
+  };
 
   const handleResetAll = () => {
     Alert.alert(
@@ -78,6 +93,25 @@ export default function Settings() {
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
         >
+          <Pressable
+            onPress={handlePremiumPress}
+            style={({ pressed }) => [
+              styles.premiumBanner,
+              premiumDenied && styles.premiumBannerDenied,
+              pressed && !premiumDenied && { opacity: 0.85 },
+            ]}
+          >
+            <Text style={styles.premiumEmoji}>👑</Text>
+            <View style={styles.rowText}>
+              <Text style={[styles.premiumTitle, premiumDenied && styles.premiumTitleDenied]}>
+                {isPremium ? 'Tu es Pro' : 'Passer Pro'}
+              </Text>
+              <Text style={styles.premiumSub}>
+                Version bêta test — désactivé pour l'instant, disponible dans une prochaine mise à jour.
+              </Text>
+            </View>
+          </Pressable>
+
           <Section title="Audio et haptique">
             <Row
               label="Sons"
@@ -256,6 +290,40 @@ const styles = StyleSheet.create({
   listContent: {
     paddingHorizontal: 20,
     paddingBottom: 32,
+  },
+
+  premiumBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: 'rgba(240,201,84,0.12)',
+    borderColor: 'rgba(240,201,84,0.35)',
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 24,
+  },
+  premiumBannerDenied: {
+    backgroundColor: 'rgba(255,84,84,0.16)',
+    borderColor: 'rgba(255,84,84,0.5)',
+  },
+  premiumTitleDenied: {
+    color: DENY_RED,
+  },
+  premiumEmoji: {
+    fontSize: 26,
+  },
+  premiumTitle: {
+    fontFamily: fonts.sansBold,
+    fontSize: 14,
+    color: GOLD,
+    letterSpacing: -0.2,
+  },
+  premiumSub: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.55)',
+    marginTop: 2,
   },
 
   section: {

@@ -45,7 +45,7 @@ const TIER_COLORS = {
  * (anti-banding du dégradé de fond) est un stub désactivé dans ce projet,
  * flouter par-dessus exposerait le banding au lieu de l'adoucir.
  */
-export default function ModeStatsSheet({ timer, stats, screenH, blurTargetRef, onClose, onLaunch }) {
+export default function ModeStatsSheet({ timer, stats, cooldown, screenH, blurTargetRef, onClose, onLaunch }) {
   const translateY = useSharedValue(screenH);
   const backdropOpacity = useSharedValue(0);
   const ctaRef = useRef(null);
@@ -70,7 +70,10 @@ export default function ModeStatsSheet({ timer, stats, screenH, blurTargetRef, o
 
   // Mesure le bouton du panneau avant de lancer le morph (pas celui de la
   // BottomBar, masqué derrière), sinon le cercle de lancement démarre du
-  // mauvais endroit à l'écran.
+  // mauvais endroit à l'écran. Si verrouillé (cooldown), onLaunch (géré par
+  // Home) redirige vers /premium au lieu de lancer — pas besoin de le
+  // court-circuiter ici, la fermeture du panneau avant de naviguer est
+  // normale.
   const handleLaunchPress = () => {
     ctaRef.current?.measureInWindow((x, y, width, height) => {
       backdropOpacity.value = withTiming(0, { duration: D.base });
@@ -174,11 +177,26 @@ export default function ModeStatsSheet({ timer, stats, screenH, blurTargetRef, o
         )}
 
         <View style={styles.ctaShadowWrap} ref={ctaRef}>
-          <PressTap onPress={handleLaunchPress} tapScale={0.97} style={styles.cta}>
-            <Svg width={13} height={13} viewBox="0 0 14 14" fill="none">
-              <Path d="M3 2l8 5-8 5V2z" fill={timer.color} />
-            </Svg>
-            <Text style={[styles.ctaText, { color: timer.color }]}>Lancer {timer.name}</Text>
+          <PressTap
+            onPress={handleLaunchPress}
+            tapScale={0.97}
+            style={[styles.cta, cooldown?.isLocked && styles.ctaLocked]}
+          >
+            {cooldown?.isLocked ? (
+              <Text style={styles.ctaLockEmoji}>👑</Text>
+            ) : (
+              <Svg width={13} height={13} viewBox="0 0 14 14" fill="none">
+                <Path d="M3 2l8 5-8 5V2z" fill={timer.color} />
+              </Svg>
+            )}
+            <Text
+              style={[
+                styles.ctaText,
+                { color: cooldown?.isLocked ? 'rgba(255,255,255,0.6)' : timer.color },
+              ]}
+            >
+              {cooldown?.isLocked ? 'Débloque avec Premium' : `Lancer ${timer.name}`}
+            </Text>
           </PressTap>
         </View>
       </Animated.View>
@@ -388,6 +406,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
+  },
+  ctaLocked: {
+    backgroundColor: 'rgba(255,255,255,0.16)',
+  },
+  ctaLockEmoji: {
+    fontSize: 14,
   },
   ctaText: {
     fontFamily: fonts.sansBold,

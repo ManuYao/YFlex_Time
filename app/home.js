@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -10,7 +10,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { BlurView, BlurTargetView } from 'expo-blur';
-import Svg, { Path, Circle } from 'react-native-svg';
+import Svg, { Path, Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
 import Animated, {
   FadeIn,
   FadeOut,
@@ -31,13 +31,16 @@ import TickRing from '../components/common/TickRing';
 import WheelPicker from '../components/common/WheelPicker';
 import PressTap from '../components/common/PressTap';
 import ModeStatsSheet from '../components/common/ModeStatsSheet';
-import { getTimerHero } from '../lib/timers-config';
+import { getTimerHero, getTimerDescription } from '../lib/timers-config';
 import { getTokens } from '../lib/tokens';
 import { fonts } from '../lib/fonts';
 import { useTimers } from '../contexts/TimersContext';
 import { useHaptic } from '../hooks/useHaptic';
 import { useTimerHeat } from '../hooks/useTimerHeat';
 import { useLongPress } from '../hooks/useLongPress';
+import { useCooldown } from '../hooks/useCooldown';
+import { usePremium } from '../hooks/usePremium';
+import { FREE_USES_PER_DAY } from '../lib/cooldown';
 import {
   D,
   easeImpact,
@@ -94,6 +97,20 @@ export default function Home() {
   const [ctaRect, setCtaRect] = useState(null);
   const { timers, updateStat, hydrated } = useTimers();
   const { heatMap, statsMap } = useTimerHeat();
+  const { getStatus: getCooldownStatusRaw, registerLaunch } = useCooldown();
+  const { isPremium } = usePremium();
+  // Premium débloque tout, sans jamais toucher au calcul de quota/lockout
+  // lui-même (lib/cooldown.js reste ignorant de Premium) — le bypass se fait
+  // uniquement ici, au point d'usage.
+  const getCooldownStatus = useCallback(
+    (timerId) => {
+      if (isPremium) {
+        return { limited: false, isLocked: false, remaining: Infinity, usesToday: 0, lockoutLevel: 0, lockedUntil: null };
+      }
+      return getCooldownStatusRaw(timerId);
+    },
+    [isPremium, getCooldownStatusRaw]
+  );
   const { lastTimerId } = useLocalSearchParams();
   const initialIndex = (() => {
     if (!lastTimerId) return 0;
@@ -107,7 +124,9 @@ export default function Home() {
   const activeIndexRef = useRef(initialIndex);
 
   const active = timers[activeIndex];
+  const activeHeat = heatMap[active.id] || 0;
   const t = getTokens(active.textMode);
+  const activeCooldown = getCooldownStatus(active.id);
   // TopBar/BottomBar doivent s'effacer aussi bien pendant le morph de
   // lancement que pendant que le panneau stats/badges est ouvert — sinon le
   // CTA "Lancer X" de la BottomBar reste visible en double sous le panneau.
@@ -137,12 +156,27 @@ export default function Home() {
   }), [rootW]);
 
   const handleLaunch = useCallback((sourceRect) => {
+    // Éditer un mix vide n'est pas un "lancement" — toujours autorisé même
+    // si MIX est en cooldown, sinon l'utilisateur ne pourrait plus du tout
+    // construire son circuit pendant le verrou.
     if (active.id === 'mix' && (!active._mix || active._mix.blocks.length === 0)) {
       haptic.light();
       router.push('/mix-builder');
       return;
     }
+    // Verrou cooldown (TABATA/MIX uniquement, voir lib/cooldown.js).
+    if (getCooldownStatus(active.id).isLocked) {
+      haptic.warning();
+      router.push('/premium');
+      return;
+    }
     haptic.medium();
+    // Le lancement est autorisé : on consomme un usage du quota du jour
+    // maintenant (pas à la fin de la séance) — c'est la tentative de lancer
+    // qui compte comme "utilisation", pas la complétion. Si Premium, on ne
+    // touche même pas au compteur : pas de rattrapage surprise si l'usager
+    // désactive Premium plus tard (mode test).
+    if (!isPremium) registerLaunch(active.id);
     // sourceRect : fourni quand le lancement vient d'un autre bouton que le
     // CTA du bas (ex. le panneau stats/badges) — évite que le morph parte
     // toujours du bouton de la BottomBar alors que l'utilisateur a tapé
@@ -159,7 +193,7 @@ export default function Home() {
       setCtaRect({ x, y, width, height });
       setIsLaunching(true);
     });
-  }, [active, haptic, router]);
+  }, [active, haptic, router, getCooldownStatus, registerLaunch, isPremium]);
 
   const handleMorphComplete = useCallback(() => {
     router.replace({ pathname: '/countdown', params: { timerId: active.id } });
@@ -182,6 +216,11 @@ export default function Home() {
   const handleOpenStats = useCallback(() => {
     setStatsOpen(true);
   }, []);
+
+  const handleGoPremium = useCallback(() => {
+    haptic.light();
+    router.push('/premium');
+  }, [haptic, router]);
 
   const handleValidate = useCallback((newValue) => {
     setPicker((prevPicker) => {
@@ -209,13 +248,15 @@ export default function Home() {
         isActive={index === activeIndex}
         cardWidth={rootW}
         heatCount={heatMap[item.id] || 0}
+        cooldown={getCooldownStatus(item.id)}
         onStatPress={handleStatPress}
         onMixEdit={handleMixEdit}
         onStatHaptic={haptic.light}
         onOpenStats={handleOpenStats}
+        onGoPremium={handleGoPremium}
       />
     ),
-    [activeIndex, rootW, heatMap, handleStatPress, handleMixEdit, haptic, handleOpenStats]
+    [activeIndex, rootW, heatMap, getCooldownStatus, handleStatPress, handleMixEdit, haptic, handleOpenStats, handleGoPremium]
   );
 
   if (!hydrated) {
@@ -239,6 +280,10 @@ export default function Home() {
           textMode={active.textMode}
           timerId={active.id}
         />
+
+        {activeHeat >= STREAK_THRESHOLD && (
+          <EmberField key={active.id} color={active.color} heatCount={activeHeat} />
+        )}
 
         <SafeAreaView style={styles.safe} edges={['top', 'bottom']} pointerEvents={hideChrome ? 'none' : 'auto'}>
           <TopBar
@@ -274,6 +319,7 @@ export default function Home() {
             activeIndex={activeIndex}
             active={active}
             tokens={t}
+            cooldown={activeCooldown}
             onDotPress={handleDotPress}
             onLaunch={handleLaunch}
             isLaunching={hideChrome}
@@ -336,6 +382,7 @@ export default function Home() {
         <ModeStatsSheet
           timer={active}
           stats={statsMap[active.id] || { count: 0, totalSeconds: 0, timeLabel: '0min' }}
+          cooldown={activeCooldown}
           screenH={rootH}
           blurTargetRef={blurTargetRef}
           onClose={() => setStatsOpen(false)}
@@ -365,6 +412,140 @@ function CrossfadeBackground({ colors, textMode, timerId }) {
         </GradientBackground>
       </Animated.View>
     </View>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   EmberField/Ember — braises ambiantes sur tout le fond, dès
+   STREAK_THRESHOLD lancements sur 7 jours glissants (remplace
+   StreakHalo, disque plat sans falloff). Chaque braise est un vrai
+   dégradé radial SVG (opaque au centre → transparent au bord) porté
+   par une Animated.View qui anime translateY/opacity/scale — seule
+   la View wrapper anime à chaque frame, le contenu SVG reste statique
+   (pas de useAnimatedProps), donc le coût est du même ordre que
+   Confetti.js. Densité + vitesse croissent avec heatCount, plafonnées
+   à EMBER_MAX_HEAT (comme l'ancien HALO_MAX_HEAT). Monté une seule
+   fois au niveau écran (pas par carte) : pas besoin de gymnastique
+   isActive, monter = démarrer, démonter = cancelAnimation partout.
+   ────────────────────────────────────────────────────────────────*/
+const EMBER_MAX_HEAT = 9;
+const EMBER_COUNT_MIN = 6;
+const EMBER_COUNT_MAX = 16;
+const EMBER_SIZE_MIN = 22;
+const EMBER_SIZE_MAX = 58;
+const EMBER_DRIFT_MIN = 50;
+const EMBER_DRIFT_MAX = 130;
+const EMBER_DURATION_MAX = 7000;
+const EMBER_DURATION_MIN = 3600;
+const EMBER_OPACITY_MIN = 0.28;
+const EMBER_OPACITY_MAX = 0.6;
+
+function EmberField({ color, heatCount }) {
+  const intensity = Math.min(
+    Math.max(heatCount - STREAK_THRESHOLD, 0) / (EMBER_MAX_HEAT - STREAK_THRESHOLD),
+    1
+  );
+  const count = Math.round(EMBER_COUNT_MIN + intensity * (EMBER_COUNT_MAX - EMBER_COUNT_MIN));
+  const baseDuration = EMBER_DURATION_MAX - intensity * (EMBER_DURATION_MAX - EMBER_DURATION_MIN);
+
+  const embers = useMemo(
+    () =>
+      Array.from({ length: count }).map((_, i) => {
+        const duration = baseDuration * (0.82 + Math.random() * 0.36);
+        return {
+          id: i,
+          xPct: Math.random() * 100,
+          yPct: Math.random() * 100,
+          size: EMBER_SIZE_MIN + Math.random() * (EMBER_SIZE_MAX - EMBER_SIZE_MIN),
+          drift: EMBER_DRIFT_MIN + Math.random() * (EMBER_DRIFT_MAX - EMBER_DRIFT_MIN),
+          duration,
+          delay: Math.random() * duration,
+          peakOpacity: EMBER_OPACITY_MIN + Math.random() * (EMBER_OPACITY_MAX - EMBER_OPACITY_MIN),
+        };
+      }),
+    [count, baseDuration]
+  );
+
+  return (
+    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+      {embers.map((e) => (
+        <Ember key={e.id} {...e} color={color} />
+      ))}
+    </View>
+  );
+}
+
+function Ember({ id, xPct, yPct, size, drift, duration, delay, peakOpacity, color }) {
+  const translateY = useSharedValue(0);
+  const opacity = useSharedValue(0);
+  const scale = useSharedValue(1);
+
+  useEffect(() => {
+    translateY.value = withDelay(
+      delay,
+      withRepeat(withTiming(-drift, { duration, easing: easeInOut }), -1, false)
+    );
+    opacity.value = withDelay(
+      delay,
+      withRepeat(
+        withSequence(
+          withTiming(peakOpacity, { duration: duration * 0.35, easing: easeInOut }),
+          withTiming(peakOpacity, { duration: duration * 0.3, easing: easeInOut }),
+          withTiming(0, { duration: duration * 0.35, easing: easeInOut })
+        ),
+        -1,
+        false
+      )
+    );
+    scale.value = withDelay(
+      delay,
+      withRepeat(
+        withSequence(
+          withTiming(1, { duration: duration * 0.35, easing: easeInOut }),
+          withTiming(1, { duration: duration * 0.3, easing: easeInOut }),
+          withTiming(0.82, { duration: duration * 0.35, easing: easeInOut })
+        ),
+        -1,
+        false
+      )
+    );
+    return () => {
+      cancelAnimation(translateY);
+      cancelAnimation(opacity);
+      cancelAnimation(scale);
+    };
+  }, [delay, duration, drift, peakOpacity]);
+
+  const animStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ translateY: translateY.value }, { scale: scale.value }],
+  }));
+
+  return (
+    <Animated.View
+      style={[
+        styles.ember,
+        {
+          left: `${xPct}%`,
+          top: `${yPct}%`,
+          width: size,
+          height: size,
+          marginLeft: -size / 2,
+          marginTop: -size / 2,
+        },
+        animStyle,
+      ]}
+    >
+      <Svg width={size} height={size}>
+        <Defs>
+          <RadialGradient id={`ember-glow-${id}`} cx="50%" cy="50%" r="50%">
+            <Stop offset="0" stopColor={color} stopOpacity="0.85" />
+            <Stop offset="1" stopColor={color} stopOpacity="0" />
+          </RadialGradient>
+        </Defs>
+        <Circle cx={size / 2} cy={size / 2} r={size / 2} fill={`url(#ember-glow-${id})`} />
+      </Svg>
+    </Animated.View>
   );
 }
 
@@ -458,9 +639,10 @@ function TopBar({ tag, tokens, onBack, onMenu, onMenuHaptic, isLaunching }) {
 /* ─────────────────────────────────────────────────────────────────
    TimerCard — orchestration des animations sur isActive
    ────────────────────────────────────────────────────────────────*/
-const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, heatCount, onStatPress, onMixEdit, onStatHaptic, onOpenStats }) {
+const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, heatCount, cooldown, onStatPress, onMixEdit, onStatHaptic, onOpenStats, onGoPremium }) {
   const t = getTokens(timer.textMode);
   const hero = getTimerHero(timer);
+  const description = getTimerDescription(timer);
   const heroFontSize = hero.number.length > 3 ? 110 : 140;
   const isMix = timer.id === 'mix';
   const { isPressing, progress, start, cancel } = useLongPress(onOpenStats, STATS_HOLD_MS);
@@ -475,17 +657,18 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
           exiting={slideOutY(-10, D.base)}
           style={[styles.description, { color: t.tertiary }]}
         >
-          {timer.full}
+          {description}
         </Animated.Text>
       ) : (
-        <Text style={[styles.description, { color: t.tertiary }]}>{timer.full}</Text>
+        <Text style={[styles.description, { color: t.tertiary }]}>{description}</Text>
       )}
 
       {/* (F+G) TickRing breathing + draw stagger + (T) appui long → stats */}
-      <View style={styles.ringOuter}>
+      <View style={[styles.ringOuter, cooldown?.isLocked && styles.ringOuterLocked]}>
       <Pressable
         onPressIn={isActive ? start : undefined}
         onPressOut={isActive ? cancel : undefined}
+        onPress={isActive && cooldown?.isLocked ? onGoPremium : undefined}
         disabled={!isActive}
         hitSlop={4}
       >
@@ -570,7 +753,21 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
       {heatCount >= STREAK_THRESHOLD && (
         <StreakBadge heatCount={heatCount} isActive={isActive} t={t} timerId={timer.id} />
       )}
+      {cooldown?.isLocked && (
+        <View style={styles.lockOverlay} pointerEvents="none">
+          <Text style={styles.lockEmoji}>👑</Text>
+        </View>
+      )}
+      {cooldown?.isLocked && (
+        <Pressable onPress={onGoPremium} style={styles.proBadge} hitSlop={6}>
+          <Text style={styles.proBadgeText}>PRO</Text>
+        </Pressable>
+      )}
       </View>
+
+      {/* (U) Cooldown — pips = usages du jour restants + aperçu du verrou,
+          ou bandeau "Premium requis" une fois verrouillé */}
+      <CooldownPips cooldown={cooldown} t={t} onGoPremium={onGoPremium} />
 
       {/* (K) Stats chips avec stagger */}
       <View style={styles.statsRow}>
@@ -671,6 +868,44 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
     </View>
   );
 });
+
+/* ─────────────────────────────────────────────────────────────────
+   CooldownPips (U) — usages du jour restants pour les modes limités
+   (TABATA/MIX, voir lib/cooldown.js). Purement visuel, aucun texte : une
+   rangée de pastilles qui se remplissent, plus un cadenas simple une fois
+   verrouillé (déjà affiché sur le cadran par lockOverlay).
+   ────────────────────────────────────────────────────────────────*/
+function CooldownPips({ cooldown, t, onGoPremium }) {
+  if (!cooldown?.limited) return null;
+
+  if (cooldown.isLocked) {
+    return (
+      <PressTap onPress={onGoPremium} tapScale={0.96} style={styles.premiumHint}>
+        <Text style={styles.premiumHintEmoji}>👑</Text>
+        <Text style={styles.premiumHintText}>DÉBLOQUE AVEC PREMIUM</Text>
+      </PressTap>
+    );
+  }
+
+  return (
+    <View style={styles.cooldownRow}>
+      {Array.from({ length: FREE_USES_PER_DAY }).map((_, i) => (
+        <View
+          key={i}
+          style={[
+            styles.cooldownPip,
+            {
+              borderColor: t.ringInactive,
+              backgroundColor: i < cooldown.usesToday ? t.primary : 'transparent',
+            },
+          ]}
+        />
+      ))}
+      {/* Aperçu de la conséquence : après ces pastilles, ça se verrouille. */}
+      <Text style={styles.cooldownHintEmoji}>👑</Text>
+    </View>
+  );
+}
 
 /* ─────────────────────────────────────────────────────────────────
    StreakBadge — 🔥 + compteur, visible dès STREAK_THRESHOLD lancements
@@ -775,8 +1010,10 @@ function BreathingRing({ isActive, t, timerId, children }) {
 /* ─────────────────────────────────────────────────────────────────
    (M+N+O) Bottom bar — indicators + CTA + hint
    ────────────────────────────────────────────────────────────────*/
-function BottomBar({ ctaRef, timers, activeIndex, active, tokens, onDotPress, onLaunch, isLaunching }) {
-  const ctaTextColor = active.textMode === 'dark' ? '#0A0A0A' : '#FFFFFF';
+function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onDotPress, onLaunch, isLaunching }) {
+  const isLocked = !!cooldown?.isLocked;
+  const ctaBg = isLocked ? 'rgba(255,255,255,0.14)' : active.color;
+  const ctaTextColor = isLocked ? 'rgba(255,255,255,0.6)' : active.textMode === 'dark' ? '#0A0A0A' : '#FFFFFF';
 
   // (O) Icône ▶ pulse horizontale
   const arrowX = useSharedValue(0);
@@ -825,17 +1062,21 @@ function BottomBar({ ctaRef, timers, activeIndex, active, tokens, onDotPress, on
           la vue animee de PressTap : sur Android, une elevation combinee a
           un transform pilote par Reanimated peut se rendre en rectangle
           plein au lieu de suivre borderRadius. */}
-      <View ref={ctaRef} style={[styles.ctaShadowWrap, { backgroundColor: active.color }]}>
+      <View ref={ctaRef} style={[styles.ctaShadowWrap, { backgroundColor: ctaBg }, isLocked && styles.ctaShadowWrapLocked]}>
         <PressTap
           onPress={onLaunch}
           tapScale={0.96}
-          style={[styles.cta, { backgroundColor: active.color }]}
+          style={[styles.cta, { backgroundColor: ctaBg }]}
         >
-          <Animated.View style={arrowStyle}>
-            <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
-              <Path d="M3 2l8 5-8 5V2z" fill={ctaTextColor} />
-            </Svg>
-          </Animated.View>
+          {isLocked ? (
+            <Text style={styles.ctaLockEmoji}>👑</Text>
+          ) : (
+            <Animated.View style={arrowStyle}>
+              <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
+                <Path d="M3 2l8 5-8 5V2z" fill={ctaTextColor} />
+              </Svg>
+            </Animated.View>
+          )}
           <Animated.Text
             key={`cta-${active.name}`}
             entering={slideInY(10, 250, 0)}
@@ -1285,6 +1526,82 @@ const styles = StyleSheet.create({
   ringOuter: {
     position: 'relative',
   },
+  ringOuterLocked: {
+    opacity: 0.35,
+  },
+  lockOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: 320,
+    height: 320,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lockEmoji: {
+    fontSize: 40,
+  },
+  proBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 4,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.28)',
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  proBadgeText: {
+    fontFamily: fonts.sansExtraBold,
+    fontSize: 10,
+    letterSpacing: 1.5,
+    color: 'rgba(255,255,255,0.75)',
+  },
+  cooldownRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 16,
+  },
+  cooldownPip: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    borderWidth: 1.5,
+  },
+  cooldownHintEmoji: {
+    fontSize: 12,
+    marginLeft: 4,
+    opacity: 0.7,
+  },
+  premiumHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.24)',
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    marginBottom: 16,
+  },
+  premiumHintEmoji: {
+    fontSize: 13,
+  },
+  premiumHintText: {
+    fontFamily: fonts.sansExtraBold,
+    fontSize: 10,
+    letterSpacing: 1.2,
+    color: 'rgba(255,255,255,0.85)',
+  },
+  ember: {
+    position: 'absolute',
+  },
   ringWrap: {
     width: 320,
     height: 320,
@@ -1445,6 +1762,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 16,
     elevation: 8,
+  },
+  ctaShadowWrapLocked: {
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  ctaLockEmoji: {
+    fontSize: 15,
   },
   ctaText: {
     fontFamily: fonts.sansBold,

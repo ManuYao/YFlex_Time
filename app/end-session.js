@@ -23,6 +23,9 @@ import { useTimers } from '../contexts/TimersContext';
 import { computeSessionStats } from '../lib/timer-engine';
 import { formatDuration } from '../lib/formatters';
 import { fonts } from '../lib/fonts';
+import { haptic } from '../hooks/useHaptic';
+import { loadCooldownMap, saveCooldownMap, getCooldownStatus, consumeLaunch } from '../lib/cooldown';
+import { loadIsPremium } from '../lib/premium';
 
 const springEnergetic = { stiffness: 380, damping: 22, mass: 1 };
 
@@ -77,6 +80,24 @@ export default function EndSession() {
       router.replace('/home');
     }
   }, [timer]);
+
+  // "Refaire la séance" contournait le cooldown (TABATA/MIX) : ce bouton
+  // renvoyait direct vers /countdown sans jamais passer par handleLaunch de
+  // Home, là où sont normalement vérifiés/consommés les quotas.
+  const handleReplay = async () => {
+    const isPremium = await loadIsPremium();
+    if (!isPremium) {
+      const map = await loadCooldownMap();
+      const status = getCooldownStatus(map, timer.id);
+      if (status.isLocked) {
+        haptic.warning();
+        router.replace('/premium');
+        return;
+      }
+      await saveCooldownMap(consumeLaunch(map, timer.id));
+    }
+    router.replace({ pathname: '/countdown', params: { timerId: timer.id } });
+  };
 
   if (!timer) {
     return (
@@ -264,9 +285,7 @@ export default function EndSession() {
         </Pressable>
         <View style={[styles.btnPrimaryShadowWrap, { backgroundColor: timer.color, shadowColor: timer.color }]}>
         <Pressable
-          onPress={() =>
-            router.replace({ pathname: '/countdown', params: { timerId: timer.id } })
-          }
+          onPress={handleReplay}
           style={({ pressed }) => [
             styles.btnPrimary,
             { backgroundColor: timer.color, shadowColor: timer.color },

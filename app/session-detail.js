@@ -9,11 +9,31 @@ import TickRing from '../components/common/TickRing';
 import { loadHistory } from '../lib/history';
 import { formatDuration } from '../lib/formatters';
 import { fonts } from '../lib/fonts';
+import { haptic } from '../hooks/useHaptic';
+import { loadCooldownMap, saveCooldownMap, getCooldownStatus, consumeLaunch } from '../lib/cooldown';
+import { loadIsPremium } from '../lib/premium';
 
 export default function SessionDetail() {
   const router = useRouter();
   const { id } = useLocalSearchParams();
   const [session, setSession] = useState(null);
+
+  // Même contournement que end-session.js : ce bouton renvoyait direct vers
+  // /countdown sans jamais passer par handleLaunch de Home.
+  const handleReplay = async () => {
+    const isPremium = await loadIsPremium();
+    if (!isPremium) {
+      const map = await loadCooldownMap();
+      const status = getCooldownStatus(map, session.timerId);
+      if (status.isLocked) {
+        haptic.warning();
+        router.replace('/premium');
+        return;
+      }
+      await saveCooldownMap(consumeLaunch(map, session.timerId));
+    }
+    router.replace({ pathname: '/countdown', params: { timerId: session.timerId } });
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -116,12 +136,7 @@ export default function SessionDetail() {
           </Pressable>
           <View style={[styles.btnPrimaryShadowWrap, { backgroundColor: session.color, shadowColor: session.color }]}>
           <Pressable
-            onPress={() =>
-              router.replace({
-                pathname: '/countdown',
-                params: { timerId: session.timerId },
-              })
-            }
+            onPress={handleReplay}
             style={({ pressed }) => [
               styles.btnPrimary,
               { backgroundColor: session.color, shadowColor: session.color },
