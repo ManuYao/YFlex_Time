@@ -5,11 +5,13 @@ import {
   Pressable,
   ScrollView,
   Alert,
+  Linking,
   StyleSheet,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as MailComposer from 'expo-mail-composer';
 import Svg, { Path } from 'react-native-svg';
 
 import GradientBackground from '../components/common/GradientBackground';
@@ -18,6 +20,9 @@ import { useSettings } from '../contexts/SettingsContext';
 import { usePremium } from '../hooks/usePremium';
 import { haptic } from '../hooks/useHaptic';
 import { fonts } from '../lib/fonts';
+import { LIBRARY_KEY, CURRENT_KEY, LEGACY_ACTIVE_KEY, LIBRARY_MIGRATION_KEY } from '../lib/mixes';
+
+const CONTACT_EMAIL = 'yaomanuit@gmail.com';
 
 const GOLD = '#F0C954';
 const DENY_RED = '#FF5454';
@@ -47,10 +52,18 @@ export default function Settings() {
           style: 'destructive',
           onPress: async () => {
             try {
+              // Ne jamais ajouter flexTimer_cooldown ou flexTimer_premium à cette
+              // liste : un reset complet ne doit pas devenir un moyen de
+              // contourner la limite quotidienne TABATA/MIX, ni de perdre le
+              // statut Pro par erreur.
               await AsyncStorage.multiRemove([
                 'flexTimer_settings',
                 'flexTimer_timerOverrides',
                 'flexTimer_history',
+                LIBRARY_KEY,
+                CURRENT_KEY,
+                LEGACY_ACTIVE_KEY,
+                LIBRARY_MIGRATION_KEY,
               ]);
             } catch {}
             reset();
@@ -59,6 +72,21 @@ export default function Settings() {
         },
       ]
     );
+  };
+
+  const handleContact = async () => {
+    haptic.light();
+    try {
+      const available = await MailComposer.isAvailableAsync();
+      if (available) {
+        await MailComposer.composeAsync({
+          recipients: [CONTACT_EMAIL],
+          subject: 'Flex Timer — contact',
+        });
+        return;
+      }
+    } catch {}
+    Linking.openURL(`mailto:${CONTACT_EMAIL}`).catch(() => {});
   };
 
   return (
@@ -125,12 +153,13 @@ export default function Settings() {
             />
             <Row
               label="Volume"
-              sub="Niveau sonore des alertes"
+              sub="Désactivé tant que les sons ne sont pas disponibles"
               control={
                 <Slider
                   value={settings.volume}
                   onChange={(v) => update('volume', v)}
                   color="#1FC777"
+                  disabled
                 />
               }
               isLast
@@ -168,9 +197,9 @@ export default function Settings() {
 
           <Section title="À propos">
             <Row label="Version" sub="Flex Timer 8.0.5" control={<Text style={styles.metaText}>build 42</Text>} />
-            <Row label="Conditions d'utilisation" control={<Soon />} />
-            <Row label="Politique de confidentialité" control={<Soon />} />
-            <Row label="Contact" sub="yaomanuit@gmail.com" control={<Soon />} isLast />
+            <LinkRow label="Conditions d'utilisation" onPress={() => router.push('/terms')} />
+            <LinkRow label="Politique de confidentialité" onPress={() => router.push('/privacy')} />
+            <LinkRow label="Contact" sub={CONTACT_EMAIL} onPress={handleContact} isLast />
           </Section>
 
           <Pressable
@@ -209,15 +238,30 @@ function Row({ label, sub, control, isLast }) {
   );
 }
 
-function Soon() {
-  return <Text style={styles.soon}>À venir</Text>;
+function LinkRow({ label, sub, onPress, isLast }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.row,
+        !isLast && styles.rowBorder,
+        pressed && { opacity: 0.6 },
+      ]}
+    >
+      <View style={styles.rowText}>
+        <Text style={styles.rowLabel}>{label}</Text>
+        {!!sub && <Text style={styles.rowSub}>{sub}</Text>}
+      </View>
+      <Text style={styles.chevron}>›</Text>
+    </Pressable>
+  );
 }
 
-function Slider({ value, onChange, color = '#FFFFFF', min = 0, max = 100 }) {
+function Slider({ value, onChange, color = '#FFFFFF', min = 0, max = 100, disabled = false }) {
   const [width, setWidth] = useState(0);
 
   const handlePress = (e) => {
-    if (!width) return;
+    if (disabled || !width) return;
     const x = e.nativeEvent.locationX;
     const ratio = Math.max(0, Math.min(1, x / width));
     const newValue = Math.round(min + ratio * (max - min));
@@ -227,12 +271,13 @@ function Slider({ value, onChange, color = '#FFFFFF', min = 0, max = 100 }) {
   const percent = ((value - min) / (max - min)) * 100;
 
   return (
-    <View style={styles.sliderWrap}>
+    <View style={[styles.sliderWrap, disabled && styles.sliderWrapDisabled]}>
       <Pressable
         onPress={handlePress}
         onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
         style={styles.sliderTrack}
         hitSlop={8}
+        disabled={disabled}
       >
         <View
           style={[
@@ -378,12 +423,10 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: 'rgba(255,255,255,0.40)',
   },
-  soon: {
+  chevron: {
     fontFamily: fonts.sansBold,
-    fontSize: 9,
-    letterSpacing: 1.8,
+    fontSize: 18,
     color: 'rgba(255,255,255,0.30)',
-    textTransform: 'uppercase',
   },
 
   sliderWrap: {
@@ -391,6 +434,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     width: 130,
+  },
+  sliderWrapDisabled: {
+    opacity: 0.35,
   },
   sliderTrack: {
     flex: 1,

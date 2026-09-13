@@ -36,7 +36,8 @@
           "resizeMode": "cover",
           "backgroundColor": "#000000"
         }
-      ]
+      ],
+      "expo-mail-composer"
     ],
     "experiments": {
       "typedRoutes": false

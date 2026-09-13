@@ -74,6 +74,8 @@ export default function RootLayout() {
                   options={{ animation: 'fade', animationDuration: 400 }}
                 />
                 <Stack.Screen name="settings" options={{ animation: 'fade' }} />
+                <Stack.Screen name="terms" options={{ animation: 'fade' }} />
+                <Stack.Screen name="privacy" options={{ animation: 'fade' }} />
                 <Stack.Screen name="history" options={{ animation: 'fade' }} />
                 <Stack.Screen name="mix-builder" options={{ animation: 'fade' }} />
                 <Stack.Screen
