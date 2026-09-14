@@ -7,6 +7,10 @@ import {
   removeFromLibrary as persistRemoveFromLibrary,
   saveCurrentMix as persistCurrentMix,
   hydrateMixState,
+  LIBRARY_KEY,
+  CURRENT_KEY,
+  LEGACY_ACTIVE_KEY,
+  LIBRARY_MIGRATION_KEY,
 } from '../lib/mixes';
 import { getMixTotalDuration } from '../lib/mix-blocks';
 
@@ -134,6 +138,28 @@ export function TimersProvider({ children }) {
     return target;
   }, [library]);
 
+  // Réinitialisation complète (écran Settings) : efface les overrides de
+  // stats et l'état MIX à la fois en stockage ET en mémoire. Sans ça, les
+  // écrans restent affichés avec les anciennes valeurs jusqu'au prochain
+  // vrai redémarrage de l'app (le state du Provider ne se relit pas tout
+  // seul quand AsyncStorage est vidé par un autre écran). Réutilise
+  // hydrateMixState pour reproduire exactement l'état d'une install neuve
+  // (mix par défaut recréé, bibliothèque vide, migration re-marquée faite).
+  const resetAll = useCallback(async () => {
+    try {
+      await AsyncStorage.multiRemove([STORAGE_KEY, LIBRARY_KEY, CURRENT_KEY, LEGACY_ACTIVE_KEY, LIBRARY_MIGRATION_KEY]);
+    } catch {}
+    setOverrides({});
+    try {
+      const { currentMix: cur, library: lib } = await hydrateMixState();
+      setLibrary(lib);
+      setCurrentMixState(cur);
+    } catch {
+      setLibrary([]);
+      setCurrentMixState(null);
+    }
+  }, []);
+
   const timers = useMemo(
     () => applyOverrides(TIMERS, overrides, currentMix),
     [overrides, currentMix]
@@ -144,6 +170,7 @@ export function TimersProvider({ children }) {
       timers,
       updateStat,
       resetTimer,
+      resetAll,
       hydrated,
       library,
       currentMix,
@@ -152,7 +179,7 @@ export function TimersProvider({ children }) {
       removeFromLibrary,
       loadFromLibrary,
     }),
-    [timers, updateStat, resetTimer, hydrated, library, currentMix, saveCurrentMix, saveAsLibraryEntry, removeFromLibrary, loadFromLibrary]
+    [timers, updateStat, resetTimer, resetAll, hydrated, library, currentMix, saveCurrentMix, saveAsLibraryEntry, removeFromLibrary, loadFromLibrary]
   );
 
   return <TimersContext.Provider value={value}>{children}</TimersContext.Provider>;

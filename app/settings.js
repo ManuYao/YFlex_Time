@@ -17,10 +17,10 @@ import Svg, { Path } from 'react-native-svg';
 import GradientBackground from '../components/common/GradientBackground';
 import Toggle from '../components/common/Toggle';
 import { useSettings } from '../contexts/SettingsContext';
+import { useTimers } from '../contexts/TimersContext';
 import { usePremium } from '../hooks/usePremium';
 import { haptic } from '../hooks/useHaptic';
 import { fonts } from '../lib/fonts';
-import { LIBRARY_KEY, CURRENT_KEY, LEGACY_ACTIVE_KEY, LIBRARY_MIGRATION_KEY } from '../lib/mixes';
 
 const CONTACT_EMAIL = 'yaomanuit@gmail.com';
 
@@ -30,6 +30,7 @@ const DENY_RED = '#FF5454';
 export default function Settings() {
   const router = useRouter();
   const { settings, update, reset } = useSettings();
+  const { resetAll: resetAllTimers } = useTimers();
   const { isPremium } = usePremium();
   const [premiumDenied, setPremiumDenied] = useState(false);
 
@@ -58,16 +59,13 @@ export default function Settings() {
               // statut Pro par erreur.
               await AsyncStorage.multiRemove([
                 'flexTimer_settings',
-                'flexTimer_timerOverrides',
                 'flexTimer_history',
-                LIBRARY_KEY,
-                CURRENT_KEY,
-                LEGACY_ACTIVE_KEY,
-                LIBRARY_MIGRATION_KEY,
+                'flexTimer_onboarded',
               ]);
             } catch {}
+            await resetAllTimers();
             reset();
-            router.replace('/home');
+            router.replace('/onboarding');
           },
         },
       ]

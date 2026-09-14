@@ -86,9 +86,6 @@ export default function History() {
 
           <View style={styles.topCenter}>
             <Text style={styles.topTitle}>Mon historique</Text>
-            <Text style={styles.topSubtitle}>
-              {totals.count} séance{totals.count > 1 ? 's' : ''}
-            </Text>
           </View>
 
           <Pressable
@@ -96,12 +93,20 @@ export default function History() {
             style={styles.iconBtn}
             hitSlop={8}
           >
-            <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
+            <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
               <Path
-                d="M2 4h10M4 7h6M6 10h2"
+                d="M12 15a3 3 0 100-6 3 3 0 000 6z"
                 stroke="#FFFFFF"
-                strokeWidth={1.8}
+                strokeWidth={2}
                 strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <Path
+                d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"
+                stroke="#FFFFFF"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
               />
             </Svg>
           </Pressable>
@@ -355,15 +360,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     letterSpacing: -0.4,
   },
-  topSubtitle: {
-    fontFamily: fonts.sansSemibold,
-    fontSize: 10,
-    letterSpacing: 2.5,
-    color: 'rgba(255,255,255,0.5)',
-    textTransform: 'uppercase',
-    marginTop: 4,
-  },
-
   heroRow: {
     flexDirection: 'row',
     paddingHorizontal: 24,

@@ -10,7 +10,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { BlurView, BlurTargetView } from 'expo-blur';
-import Svg, { Path, Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
+import Svg, { Path, Circle, Polyline, Defs, RadialGradient, Stop } from 'react-native-svg';
 import Animated, {
   FadeIn,
   FadeOut,
@@ -32,6 +32,7 @@ import WheelPicker from '../components/common/WheelPicker';
 import PressTap from '../components/common/PressTap';
 import ModeStatsSheet from '../components/common/ModeStatsSheet';
 import { getTimerHero, getTimerDescription } from '../lib/timers-config';
+import { formatValue } from '../lib/formatters';
 import { getTokens } from '../lib/tokens';
 import { fonts } from '../lib/fonts';
 import { useTimers } from '../contexts/TimersContext';
@@ -382,14 +383,9 @@ export default function Home() {
         <ModeStatsSheet
           timer={active}
           stats={statsMap[active.id] || { count: 0, totalSeconds: 0, timeLabel: '0min' }}
-          cooldown={activeCooldown}
           screenH={rootH}
           blurTargetRef={blurTargetRef}
           onClose={() => setStatsOpen(false)}
-          onLaunch={(sourceRect) => {
-            setStatsOpen(false);
-            handleLaunch(sourceRect);
-          }}
         />
       )}
     </View>
@@ -590,16 +586,17 @@ function TopBar({ tag, tokens, onBack, onMenu, onMenuHaptic, isLaunching }) {
         style={styles.topBar}
       >
         <PressTap
-          onPress={onBack}
+          onPress={onMenu}
           tapScale={0.88}
           onHapticIn={onMenuHaptic}
           style={[styles.iconBtn, { borderColor: tokens.btnBorder }]}
           hitSlop={8}
-          accessibilityLabel="Réglages"
+          accessibilityLabel="Historique"
         >
-          <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
-            <Path
-              d="M9 2L3 7l6 5"
+          <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+            <Circle cx={12} cy={12} r={10} stroke={tokens.primary} strokeWidth={2} />
+            <Polyline
+              points="12 6 12 12 16 14"
               stroke={tokens.primary}
               strokeWidth={2}
               strokeLinecap="round"
@@ -618,18 +615,29 @@ function TopBar({ tag, tokens, onBack, onMenu, onMenuHaptic, isLaunching }) {
         </Animated.Text>
 
         <PressTap
-          onPress={onMenu}
+          onPress={onBack}
           tapScale={0.88}
           onHapticIn={onMenuHaptic}
           style={[styles.iconBtn, { borderColor: tokens.btnBorder }]}
           hitSlop={8}
-          accessibilityLabel="Menu"
+          accessibilityLabel="Réglages"
         >
-          <View style={styles.dotsCol}>
-            <View style={[styles.smallDot, { backgroundColor: tokens.primary }]} />
-            <View style={[styles.smallDot, { backgroundColor: tokens.primary }]} />
-            <View style={[styles.smallDot, { backgroundColor: tokens.primary }]} />
-          </View>
+          <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+            <Path
+              d="M12 15a3 3 0 100-6 3 3 0 000 6z"
+              stroke={tokens.primary}
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <Path
+              d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"
+              stroke={tokens.primary}
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </Svg>
         </PressTap>
       </Animated.View>
     </>
@@ -939,6 +947,15 @@ function StreakBadge({ heatCount, isActive, t, timerId }) {
 }
 
 function StatChipContent({ stat, t, editable }) {
+  // Les stats de type 'seconds' (REPOS/INTERV./TRAVAIL) passent par
+  // formatValue pour rester cohérentes avec la roue de sélection : au-delà
+  // de 60, "67" + "s" devient "1 min 07" (voir lib/formatters.js). Les
+  // autres types (minutes, rounds, infinite, none, computed) gardent
+  // l'affichage brut existant, inchangé.
+  const fmt = stat.type === 'seconds' ? formatValue(stat.value, stat.type) : null;
+  const displayValue = fmt ? fmt.main : stat.value;
+  const displayUnit = fmt ? fmt.unit : stat.unit;
+
   return (
     <>
       <View style={styles.statLabelRow}>
@@ -957,10 +974,10 @@ function StatChipContent({ stat, t, editable }) {
       </View>
       <View style={styles.statValueRow}>
         <Text style={[styles.statValue, { color: t.primary }]} numberOfLines={1}>
-          {stat.value}
+          {displayValue}
         </Text>
-        {!!stat.unit && (
-          <Text style={[styles.statUnit, { color: t.tertiary }]}>{stat.unit}</Text>
+        {!!displayUnit && (
+          <Text style={[styles.statUnit, { color: t.tertiary }]}>{displayUnit}</Text>
         )}
       </View>
     </>
@@ -1498,12 +1515,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     letterSpacing: 3.3,
     textTransform: 'uppercase',
-  },
-  dotsCol: { gap: 3 },
-  smallDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
   },
 
   // Card
