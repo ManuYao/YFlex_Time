@@ -45,7 +45,7 @@ export default function Settings() {
   const handleResetAll = () => {
     Alert.alert(
       'Réinitialiser l\'application',
-      'Tous tes réglages, timers personnalisés et l\'historique seront supprimés. Cette action est irréversible.',
+      'Tous tes réglages, timers personnalisés, ton planning et l\'historique seront supprimés. Cette action est irréversible.',
       [
         { text: 'Annuler', style: 'cancel' },
         {
@@ -61,6 +61,9 @@ export default function Settings() {
                 'flexTimer_settings',
                 'flexTimer_history',
                 'flexTimer_onboarded',
+                'flexTimer_planning',
+                'flexTimer_planningArchives',
+                'flexTimer_customExercises',
               ]);
             } catch {}
             await resetAllTimers();

@@ -82,6 +82,8 @@ export default function RootLayout() {
                   name="session-detail"
                   options={{ animation: 'fade' }}
                 />
+                <Stack.Screen name="day-archives" options={{ animation: 'fade' }} />
+                <Stack.Screen name="archive-detail" options={{ animation: 'fade' }} />
               </Stack>
               <GrainOverlay opacity={0.06} tint="#FFFFFF" />
             </View>

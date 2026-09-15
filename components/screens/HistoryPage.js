@@ -1,0 +1,554 @@
+import { useCallback, useState, useRef } from 'react';
+import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { Swipeable } from 'react-native-gesture-handler';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter, useFocusEffect } from 'expo-router';
+import Svg, { Path } from 'react-native-svg';
+
+import PageDots from '../common/PageDots';
+import { TIMERS } from '../../lib/timers-config';
+import {
+  loadHistory,
+  removeSession,
+  groupByPeriod,
+  computeStreak,
+  computeTotals,
+  formatSessionTime,
+} from '../../lib/history';
+import { formatDuration } from '../../lib/formatters';
+import { fonts } from '../../lib/fonts';
+import { useHaptic } from '../../hooks/useHaptic';
+
+const FILTERS = ['TOUS', 'AMRAP', 'BASIC', 'EMOM', 'TABATA', 'MIX'];
+
+export default function HistoryPage({ width, height, pageIndex, onSelectPage }) {
+  const router = useRouter();
+  const haptic = useHaptic();
+  const insets = useSafeAreaInsets();
+  const [sessions, setSessions] = useState([]);
+  const [filter, setFilter] = useState('TOUS');
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      loadHistory().then((list) => {
+        if (!cancelled) setSessions(list);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [])
+  );
+
+  const handleDelete = async (id) => {
+    haptic.warning();
+    const next = await removeSession(id);
+    setSessions(next ?? sessions.filter((s) => s.id !== id));
+  };
+
+  const filtered =
+    filter === 'TOUS' ? sessions : sessions.filter((s) => s.name === filter);
+
+  const grouped = groupByPeriod(filtered);
+  const totals = computeTotals(sessions);
+  const streak = computeStreak(sessions);
+
+  return (
+    <View style={[styles.page, { width, height }]}>
+      <View style={styles.statusBar}>
+        <Text style={styles.statusText}>HISTORIQUE</Text>
+      </View>
+
+      <View style={styles.topBar}>
+        <Pressable onPress={() => router.back()} style={styles.iconBtn} hitSlop={8}>
+          <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
+            <Path
+              d="M9 2L3 7l6 5"
+              stroke="#FFFFFF"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </Svg>
+        </Pressable>
+
+        <View style={styles.topCenter}>
+          <Text style={styles.topTitle}>Mon historique</Text>
+        </View>
+
+        <Pressable onPress={() => router.push('/settings')} style={styles.iconBtn} hitSlop={8}>
+          <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+            <Path
+              d="M12 15a3 3 0 100-6 3 3 0 000 6z"
+              stroke="#FFFFFF"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <Path
+              d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"
+              stroke="#FFFFFF"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </Svg>
+        </Pressable>
+      </View>
+
+      <View style={styles.heroRow}>
+        <HeroStat label="SÉANCES" value={String(totals.count)} color="#FFFFFF" />
+        <HeroStat label="TEMPS" value={totals.timeLabel} color="#1FC777" />
+        <HeroStat label="STREAK" value={String(streak)} unit="j" color="#FFC933" />
+      </View>
+
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.filtersRow}
+        contentContainerStyle={styles.filtersContent}
+      >
+        {FILTERS.map((f) => {
+          const isActive = f === filter;
+          const color = f === 'TOUS' ? '#FFFFFF' : findColor(f);
+          return (
+            <Pressable
+              key={f}
+              onPress={() => setFilter(f)}
+              style={({ pressed }) => [
+                styles.filterChip,
+                {
+                  backgroundColor: isActive ? color : 'rgba(255,255,255,0.06)',
+                  borderColor: isActive ? color : 'rgba(255,255,255,0.12)',
+                  transform: [{ scale: pressed ? 0.94 : 1 }],
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.filterText,
+                  { color: isActive ? '#0A0A0A' : 'rgba(255,255,255,0.8)' },
+                ]}
+              >
+                {f}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
+      <ScrollView
+        style={styles.list}
+        contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {grouped.length === 0 ? (
+          <View style={styles.empty}>
+            <Text style={styles.emptyTitle}>Aucune séance</Text>
+            <Text style={styles.emptyHint}>
+              {sessions.length === 0
+                ? 'Lance ta première séance depuis le Home'
+                : 'Aucune séance dans cette catégorie'}
+            </Text>
+          </View>
+        ) : (
+          grouped.map((group) => (
+            <View key={group.date} style={styles.group}>
+              <Text style={styles.groupLabel}>{group.date}</Text>
+              {group.items.map((s) => (
+                <SessionRow
+                  key={s.id}
+                  session={s}
+                  onPress={() =>
+                    router.push({ pathname: '/session-detail', params: { id: s.id } })
+                  }
+                  onDelete={() => handleDelete(s.id)}
+                />
+              ))}
+            </View>
+          ))
+        )}
+      </ScrollView>
+
+      <View style={[styles.bottom, { paddingBottom: 8 + insets.bottom }]}>
+        <PageDots count={2} activeIndex={pageIndex} onSelect={onSelectPage} />
+      </View>
+    </View>
+  );
+}
+
+function HeroStat({ label, value, unit, color }) {
+  return (
+    <View style={styles.heroCard}>
+      <View
+        style={[styles.heroBlob, { backgroundColor: color, opacity: 0.18 }]}
+        pointerEvents="none"
+      />
+      <Text style={styles.heroLabel}>{label}</Text>
+      <View style={styles.heroValueRow}>
+        <Text style={[styles.heroValue, { color }]}>{value}</Text>
+        {unit && <Text style={styles.heroUnit}>{unit}</Text>}
+      </View>
+    </View>
+  );
+}
+
+function SessionRow({ session, onPress, onDelete }) {
+  const color = session.color || '#FFFFFF';
+  const tag = session.intensity || '—';
+  const roundsLabel =
+    session.totalRounds && session.completedRounds != null
+      ? `${session.completedRounds} tours`
+      : '∞';
+  const swipeRef = useRef(null);
+
+  const renderRightActions = () => (
+    <Pressable
+      onPress={() => {
+        swipeRef.current?.close();
+        onDelete?.();
+      }}
+      style={({ pressed }) => [
+        styles.deleteAction,
+        pressed && { opacity: 0.85, transform: [{ scale: 0.96 }] },
+      ]}
+    >
+      <Svg width={18} height={18} viewBox="0 0 18 18" fill="none">
+        <Path
+          d="M3 5h12M7 5V3h4v2M5 5l1 10h6l1-10M8 8v5M10 8v5"
+          stroke="#FFFFFF"
+          strokeWidth={1.6}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </Svg>
+      <Text style={styles.deleteLabel}>Supprimer</Text>
+    </Pressable>
+  );
+
+  return (
+    <Swipeable
+      ref={swipeRef}
+      renderRightActions={renderRightActions}
+      overshootRight={false}
+      friction={2}
+      rightThreshold={40}
+      containerStyle={styles.swipeContainer}
+    >
+      <Pressable
+        onPress={onPress}
+        style={({ pressed }) => [
+          styles.row,
+          pressed && { opacity: 0.7, transform: [{ scale: 0.98 }] },
+        ]}
+      >
+        <View style={[styles.rowBlob, { backgroundColor: color }]} pointerEvents="none" />
+        <View
+          style={[
+            styles.rowBadge,
+            { backgroundColor: `${color}22`, borderColor: `${color}44` },
+          ]}
+        >
+          <Text style={[styles.rowBadgeText, { color }]}>{session.name.slice(0, 4)}</Text>
+        </View>
+
+        <View style={styles.rowInfo}>
+          <Text style={styles.rowName}>{session.name}</Text>
+          <View style={styles.rowMeta}>
+            <Text style={styles.rowMetaText}>{formatSessionTime(session.date)}</Text>
+            <Dot />
+            <Text style={styles.rowMetaText}>{roundsLabel}</Text>
+            <Dot />
+            <Text style={styles.rowMetaText}>{tag}</Text>
+          </View>
+        </View>
+
+        <View style={styles.rowDuration}>
+          <Text style={styles.rowDurationValue}>
+            {formatDuration(session.durationSeconds || 0)}
+          </Text>
+          <Text style={styles.rowDurationLabel}>min</Text>
+        </View>
+
+        <Svg width={8} height={12} viewBox="0 0 8 12" fill="none">
+          <Path
+            d="M2 2l4 4-4 4"
+            stroke="rgba(255,255,255,0.4)"
+            strokeWidth={1.8}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </Svg>
+      </Pressable>
+    </Swipeable>
+  );
+}
+
+function Dot() {
+  return <View style={styles.metaDot} />;
+}
+
+const findColor = (name) => {
+  const t = TIMERS.find((x) => x.name === name);
+  return t ? t.color : '#FFFFFF';
+};
+
+const styles = StyleSheet.create({
+  // Pas de `flex: 1` : dans une FlatList horizontale le conteneur est en
+  // flexDirection row, donc flex:1 écraserait la largeur (flexBasis 0) et
+  // laisserait la hauteur se faire dicter par le contenu. Largeur et hauteur
+  // sont passées explicitement par le pager.
+  page: {},
+
+  statusBar: {
+    paddingHorizontal: 24,
+    paddingTop: 4,
+    alignItems: 'center',
+  },
+  statusText: {
+    fontFamily: fonts.sansBold,
+    fontSize: 11,
+    letterSpacing: 4,
+    color: 'rgba(255,255,255,0.55)',
+  },
+
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 16,
+  },
+  iconBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.20)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  topCenter: {
+    alignItems: 'center',
+  },
+  topTitle: {
+    fontFamily: fonts.sansExtraBold,
+    fontSize: 20,
+    color: '#FFFFFF',
+    letterSpacing: -0.4,
+  },
+
+  heroRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 24,
+    gap: 8,
+    marginBottom: 20,
+  },
+  heroCard: {
+    flex: 1,
+    paddingVertical: 16,
+    paddingHorizontal: 8,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  heroBlob: {
+    position: 'absolute',
+    top: -24,
+    right: -24,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+  },
+  heroLabel: {
+    fontFamily: fonts.sansBold,
+    fontSize: 9,
+    letterSpacing: 1.8,
+    color: 'rgba(255,255,255,0.50)',
+    textTransform: 'uppercase',
+    marginBottom: 6,
+  },
+  heroValueRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+  },
+  heroValue: {
+    fontFamily: fonts.display,
+    fontSize: 36,
+    letterSpacing: -1,
+    lineHeight: 36,
+    includeFontPadding: false,
+  },
+  heroUnit: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 16,
+    color: 'rgba(255,255,255,0.5)',
+    marginLeft: 2,
+  },
+
+  filtersRow: {
+    flexGrow: 0,
+    marginBottom: 16,
+  },
+  filtersContent: {
+    paddingHorizontal: 24,
+    gap: 8,
+  },
+  filterChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  filterText: {
+    fontFamily: fonts.sansBold,
+    fontSize: 11,
+    letterSpacing: 1.7,
+    textTransform: 'uppercase',
+  },
+
+  list: {
+    flex: 1,
+  },
+  listContent: {
+    paddingHorizontal: 24,
+    paddingBottom: 24,
+  },
+
+  bottom: {
+    paddingTop: 10,
+    paddingBottom: 8,
+  },
+
+  empty: {
+    paddingVertical: 64,
+    alignItems: 'center',
+  },
+  emptyTitle: {
+    fontFamily: fonts.sansBold,
+    fontSize: 16,
+    color: 'rgba(255,255,255,0.8)',
+    marginBottom: 6,
+  },
+  emptyHint: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.4)',
+  },
+
+  group: {
+    marginBottom: 24,
+  },
+  groupLabel: {
+    fontFamily: fonts.sansBold,
+    fontSize: 10,
+    letterSpacing: 3,
+    color: 'rgba(255,255,255,0.50)',
+    textTransform: 'uppercase',
+    marginBottom: 10,
+    paddingHorizontal: 4,
+  },
+
+  swipeContainer: {
+    marginBottom: 8,
+    borderRadius: 18,
+    overflow: 'hidden',
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderColor: 'rgba(255,255,255,0.10)',
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 14,
+    overflow: 'hidden',
+  },
+  deleteAction: {
+    width: 96,
+    backgroundColor: '#FF5454',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderTopRightRadius: 18,
+    borderBottomRightRadius: 18,
+    gap: 4,
+  },
+  deleteLabel: {
+    color: '#FFFFFF',
+    fontFamily: fonts.sansBold,
+    fontSize: 10,
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+  },
+  rowBlob: {
+    position: 'absolute',
+    top: -16,
+    left: -16,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    opacity: 0.2,
+  },
+  rowBadge: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rowBadgeText: {
+    fontFamily: fonts.sansBold,
+    fontSize: 10,
+    letterSpacing: 1.3,
+  },
+  rowInfo: {
+    flex: 1,
+    minWidth: 0,
+  },
+  rowName: {
+    fontFamily: fonts.sansBold,
+    fontSize: 14,
+    color: '#FFFFFF',
+    letterSpacing: -0.2,
+  },
+  rowMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 2,
+  },
+  rowMetaText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.50)',
+  },
+  metaDot: {
+    width: 2,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: 'rgba(255,255,255,0.30)',
+  },
+  rowDuration: {
+    alignItems: 'flex-end',
+  },
+  rowDurationValue: {
+    fontFamily: fonts.monoExtraBold,
+    fontSize: 16,
+    color: '#FFFFFF',
+    letterSpacing: -0.3,
+  },
+  rowDurationLabel: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 9,
+    letterSpacing: 1.8,
+    color: 'rgba(255,255,255,0.40)',
+    textTransform: 'uppercase',
+    marginTop: 2,
+  },
+});
