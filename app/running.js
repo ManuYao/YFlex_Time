@@ -67,6 +67,11 @@ export default function Running() {
 
   const state = computeState(timer, secondsElapsed, ctx) ?? fallbackState();
   const isWorkInfinite = state.countDirection === 'up';
+  // Dernier tour BASIC : le bouton central ne lance plus un repos, il
+  // termine direct la séance (voir basic() dans timer-engine.js) — le
+  // libellé doit le dire, sinon on retombe dans la confusion "pourquoi ça
+  // me met en repos alors que je viens de finir".
+  const isLastBasicWork = isManualBasic && isWorkInfinite && state.currentRound === state.totalRounds;
   const lastPhaseRef = useRef(state.phaseLabel);
   const navigatedRef = useRef(false);
   const skippedRef = useRef(0);
@@ -112,7 +117,14 @@ export default function Running() {
       );
       router.replace({
         pathname: '/end-session',
-        params: { timerId: timer.id, elapsed: realElapsed },
+        params: {
+          timerId: timer.id,
+          elapsed: realElapsed,
+          // BASIC calcule ses stats (tours faits, travail/repos) à partir des
+          // restTriggers : sans ça, une séance qui se termine naturellement
+          // (pas via "Retour") arrive sur l'écran de fin avec 0 tour compté.
+          ...(isManualBasic ? { ctx: JSON.stringify({ restTriggers }) } : {}),
+        },
       });
     }
   }, [state.isComplete]);
@@ -308,6 +320,7 @@ export default function Running() {
           onPauseToggle={handlePauseToggle}
           onSkip={handleSkip}
           showEndWork={isManualBasic && isWorkInfinite}
+          endWorkLabel={isLastBasicWork ? 'FINI' : 'REPOS'}
           onEndWork={handleEndWork}
           hideSkip={isManualBasic && isWorkInfinite}
         />
@@ -528,6 +541,7 @@ function BottomControls({
   onPauseToggle,
   onSkip,
   showEndWork,
+  endWorkLabel,
   onEndWork,
   hideSkip,
 }) {
@@ -559,7 +573,13 @@ function BottomControls({
                 },
               ]}
             >
-              <Text style={[styles.endWorkText, { color: tokens.ctaText }]}>FIN</Text>
+              <Text
+                style={[styles.endWorkText, { color: tokens.ctaText }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+              >
+                {endWorkLabel}
+              </Text>
             </Pressable>
           </View>
         ) : (
@@ -588,6 +608,7 @@ function BottomControls({
           <LongPressButton
             label="Skip"
             size={64}
+            duration={1000}
             borderColor={tokens.btnBorder}
             ringColor={tokens.primary}
             labelColor={tokens.muted}

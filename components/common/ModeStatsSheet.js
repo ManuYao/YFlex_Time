@@ -1,7 +1,6 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, BackHandler } from 'react-native';
 import { BlurView } from 'expo-blur';
-import Svg, { Path } from 'react-native-svg';
 import Animated, {
   runOnJS,
   useAnimatedStyle,
@@ -11,6 +10,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import PressTap from './PressTap';
+import HowToSheet from './HowToSheet';
 import { fonts } from '../../lib/fonts';
 import { getBadgeProgress } from '../../lib/badges';
 import { D, easeImpact, springSheet } from '../../lib/animations';
@@ -24,6 +24,11 @@ const MODE_TAGLINE = {
   tabata: 'Intervalles courts, intensité max',
   mix: 'Constructeur de circuits',
 };
+
+// Couleur fixe (pas timer.color) pour rester reconnaissable pareil sur les 5
+// modes — un ton neutre, pas de rouge (jugé "pas beau" par l'utilisateur sur
+// le fond blanc du bouton).
+const HOWTO_COLOR = '#0A0A0A';
 
 // Intensité du flou de fond (0-100). Monte-la si tu veux plus de flou —
 // au-delà de ~35-40 le dégradé (sans dithering, voir GrainOverlay.js) peut
@@ -45,10 +50,10 @@ const TIER_COLORS = {
  * (anti-banding du dégradé de fond) est un stub désactivé dans ce projet,
  * flouter par-dessus exposerait le banding au lieu de l'adoucir.
  */
-export default function ModeStatsSheet({ timer, stats, cooldown, screenH, blurTargetRef, onClose, onLaunch }) {
+export default function ModeStatsSheet({ timer, stats, screenH, blurTargetRef, onClose }) {
   const translateY = useSharedValue(screenH);
   const backdropOpacity = useSharedValue(0);
-  const ctaRef = useRef(null);
+  const [showHowTo, setShowHowTo] = useState(false);
 
   useEffect(() => {
     backdropOpacity.value = withTiming(1, { duration: D.big, easing: easeImpact });
@@ -65,21 +70,6 @@ export default function ModeStatsSheet({ timer, stats, cooldown, screenH, blurTa
     backdropOpacity.value = withTiming(0, { duration: D.base });
     translateY.value = withTiming(screenH, { duration: D.base, easing: easeImpact }, (done) => {
       if (done) runOnJS(onClose)();
-    });
-  };
-
-  // Mesure le bouton du panneau avant de lancer le morph (pas celui de la
-  // BottomBar, masqué derrière), sinon le cercle de lancement démarre du
-  // mauvais endroit à l'écran. Si verrouillé (cooldown), onLaunch (géré par
-  // Home) redirige vers /premium au lieu de lancer — pas besoin de le
-  // court-circuiter ici, la fermeture du panneau avant de naviguer est
-  // normale.
-  const handleLaunchPress = () => {
-    ctaRef.current?.measureInWindow((x, y, width, height) => {
-      backdropOpacity.value = withTiming(0, { duration: D.base });
-      translateY.value = withTiming(screenH, { duration: D.base, easing: easeImpact }, (done) => {
-        if (done) runOnJS(onLaunch)({ x, y, width, height });
-      });
     });
   };
 
@@ -176,30 +166,27 @@ export default function ModeStatsSheet({ timer, stats, cooldown, screenH, blurTa
           <Text style={styles.allDone}>TOUS LES BADGES DÉBLOQUÉS 🏆</Text>
         )}
 
-        <View style={styles.ctaShadowWrap} ref={ctaRef}>
+        <View style={styles.ctaShadowWrap}>
           <PressTap
-            onPress={handleLaunchPress}
+            onPress={() => setShowHowTo(true)}
             tapScale={0.97}
-            style={[styles.cta, cooldown?.isLocked && styles.ctaLocked]}
+            style={styles.cta}
           >
-            {cooldown?.isLocked ? (
-              <Text style={styles.ctaLockEmoji}>👑</Text>
-            ) : (
-              <Svg width={13} height={13} viewBox="0 0 14 14" fill="none">
-                <Path d="M3 2l8 5-8 5V2z" fill={timer.color} />
-              </Svg>
-            )}
-            <Text
-              style={[
-                styles.ctaText,
-                { color: cooldown?.isLocked ? 'rgba(255,255,255,0.6)' : timer.color },
-              ]}
-            >
-              {cooldown?.isLocked ? 'Débloque avec Premium' : `Lancer ${timer.name}`}
+            <Text style={styles.ctaEmoji}>🙂</Text>
+            <Text style={[styles.ctaText, { color: HOWTO_COLOR }]}>
+              Comment ça marche ?
             </Text>
           </PressTap>
         </View>
       </Animated.View>
+
+      {showHowTo && (
+        <HowToSheet
+          timer={timer}
+          screenH={screenH}
+          onClose={() => setShowHowTo(false)}
+        />
+      )}
     </View>
   );
 }
@@ -407,10 +394,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
   },
-  ctaLocked: {
-    backgroundColor: 'rgba(255,255,255,0.16)',
-  },
-  ctaLockEmoji: {
+  ctaEmoji: {
     fontSize: 14,
   },
   ctaText: {

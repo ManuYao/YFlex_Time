@@ -74,6 +74,7 @@ export default function WheelPicker({
           const scale = distance === 0 ? 1 : 0.8;
           const isSelected = distance === 0;
           const fmt = formatValue(v, type);
+          const isLong = fmt.main.length > 5;
 
           return (
             <View key={i} style={[styles.item, { height: ITEM_HEIGHT }]}>
@@ -87,25 +88,28 @@ export default function WheelPicker({
                   style={[
                     styles.mainText,
                     {
-                      fontSize: isSelected ? 34 : 22,
+                      fontSize: isSelected ? (isLong ? 22 : 34) : (isLong ? 14 : 22),
                       fontFamily: isSelected ? fonts.monoExtraBold : fonts.monoBold,
-                    },
-                  ]}
-                >
-                  {fmt.main}
-                </Text>
-                <Text
-                  style={[
-                    styles.unitText,
-                    {
-                      fontSize: isSelected ? 13 : 10,
-                      color: isSelected ? accentColor : 'rgba(255,255,255,0.5)',
                     },
                   ]}
                   numberOfLines={1}
                 >
-                  {fmt.unit}
+                  {fmt.main}
                 </Text>
+                {fmt.unit ? (
+                  <Text
+                    style={[
+                      styles.unitText,
+                      {
+                        fontSize: isSelected ? 13 : 10,
+                        color: isSelected ? accentColor : 'rgba(255,255,255,0.5)',
+                      },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {fmt.unit}
+                  </Text>
+                ) : null}
               </View>
             </View>
           );
