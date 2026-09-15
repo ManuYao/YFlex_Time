@@ -7,6 +7,7 @@ import {
   Alert,
   Linking,
   StyleSheet,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -16,9 +17,11 @@ import Svg, { Path } from 'react-native-svg';
 
 import GradientBackground from '../components/common/GradientBackground';
 import Toggle from '../components/common/Toggle';
+import UpdateSheet from '../components/common/UpdateSheet';
 import { useSettings } from '../contexts/SettingsContext';
 import { useTimers } from '../contexts/TimersContext';
 import { usePremium } from '../hooks/usePremium';
+import { useOtaUpdate } from '../hooks/useOtaUpdate';
 import { haptic } from '../hooks/useHaptic';
 import { fonts } from '../lib/fonts';
 
@@ -33,6 +36,12 @@ export default function Settings() {
   const { resetAll: resetAllTimers } = useTimers();
   const { isPremium } = usePremium();
   const [premiumDenied, setPremiumDenied] = useState(false);
+  const { height: screenH } = useWindowDimensions();
+  const { pending, restart } = useOtaUpdate();
+  // null | 'pending' | 'info' — ouverture manuelle de la même feuille que
+  // UpdateGate (app/_layout.js) affiche automatiquement une fois par mise
+  // à jour ; ici accessible à tout moment depuis la ligne "Version".
+  const [updateSheet, setUpdateSheet] = useState(null);
 
   // Achat Premium désactivé pendant la bêta — pas de navigation vers
   // /premium, juste un refus visuel + haptique clair.
@@ -64,6 +73,10 @@ export default function Settings() {
                 'flexTimer_planning',
                 'flexTimer_planningArchives',
                 'flexTimer_customExercises',
+                // Purge la marque "déjà vue" de la feuille de mise à jour :
+                // après un reset, une version déjà en attente redevient
+                // une nouveauté à montrer (UpdateGate, une seule fois).
+                'flexTimer_updatePopupSeen',
               ]);
             } catch {}
             await resetAllTimers();
@@ -197,10 +210,22 @@ export default function Settings() {
           </Section>
 
           <Section title="À propos">
-            <Row label="Version" sub="Flex Timer 8.0.5" control={<Text style={styles.metaText}>build 42</Text>} />
+            <LinkRow
+              label="Version"
+              sub={pending ? '🔴🟡🟢🟣 Mise à jour prête à installer' : 'Flex Timer 10.1.2 · build 42'}
+              onPress={() => setUpdateSheet(pending ? 'pending' : 'info')}
+            />
             <LinkRow label="Conditions d'utilisation" onPress={() => router.push('/terms')} />
             <LinkRow label="Politique de confidentialité" onPress={() => router.push('/privacy')} />
-            <LinkRow label="Contact" sub={CONTACT_EMAIL} onPress={handleContact} isLast />
+            <LinkRow label="Contact" sub={CONTACT_EMAIL} onPress={handleContact} />
+            {/* TEMP — à retirer avant publication : aperçu de la feuille de
+                mise à jour sans attendre un vrai push EAS Update. */}
+            <LinkRow
+              label="Aperçu de la mise à jour (test)"
+              sub="Bouton temporaire (test)"
+              onPress={() => setUpdateSheet('pending')}
+              isLast
+            />
           </Section>
 
           <Pressable
@@ -213,6 +238,15 @@ export default function Settings() {
             <Text style={styles.resetText}>Réinitialiser l'application</Text>
           </Pressable>
         </ScrollView>
+
+        {updateSheet && (
+          <UpdateSheet
+            screenH={screenH}
+            mode={updateSheet}
+            onRestart={restart}
+            onClose={() => setUpdateSheet(null)}
+          />
+        )}
       </SafeAreaView>
     </GradientBackground>
   );

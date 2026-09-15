@@ -2,7 +2,7 @@
   "expo": {
     "name": "Flex Timer",
     "slug": "flex-timer",
-    "version": "8.0.5",
+    "version": "10.1.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -48,6 +48,14 @@
         "projectId": "85fc0368-09be-4ae2-86da-fb93de5bac8d"
       }
     },
-    "owner": "yao225"
+    "owner": "yao225",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/85fc0368-09be-4ae2-86da-fb93de5bac8d",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    }
   }
 }

@@ -1,4 +1,5 @@
-import { View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { View, StyleSheet } from 'react-native';
 import { Stack } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -19,6 +20,9 @@ import { StatusBar } from 'expo-status-bar';
 import { setAudioModeAsync } from 'expo-audio';
 
 import GrainOverlay from '../components/common/GrainOverlay';
+import UpdateGate from '../components/common/UpdateGate';
+import LaunchSplash from '../components/common/LaunchSplash';
+import { shouldShowSplash, markSplashShown, onSplashRequest } from '../lib/splash';
 import { TimersProvider } from '../contexts/TimersContext';
 import { SettingsProvider } from '../contexts/SettingsContext';
 
@@ -40,6 +44,24 @@ export default function RootLayout() {
     JetBrainsMono_700Bold,
     JetBrainsMono_800ExtraBold,
   });
+
+  // 'pending' : on masque tout en noir le temps de lire AsyncStorage, sinon
+  // le Home apparaîtrait une fraction de seconde avant le splash.
+  const [splash, setSplash] = useState('pending');
+
+  useEffect(() => {
+    let cancelled = false;
+    shouldShowSplash().then((show) => {
+      if (cancelled) return;
+      if (show) markSplashShown();
+      setSplash(show ? 'show' : 'hide');
+    });
+    const unsubscribe = onSplashRequest(() => setSplash('show'));
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
 
   if (!fontsLoaded) return null;
 
@@ -85,7 +107,12 @@ export default function RootLayout() {
                 <Stack.Screen name="day-archives" options={{ animation: 'fade' }} />
                 <Stack.Screen name="archive-detail" options={{ animation: 'fade' }} />
               </Stack>
+              <UpdateGate />
               <GrainOverlay opacity={0.06} tint="#FFFFFF" />
+              {splash === 'pending' && (
+                <View style={[StyleSheet.absoluteFill, { zIndex: 1000, backgroundColor: '#000000' }]} />
+              )}
+              {splash === 'show' && <LaunchSplash onDone={() => setSplash('hide')} />}
             </View>
           </TimersProvider>
         </SettingsProvider>
