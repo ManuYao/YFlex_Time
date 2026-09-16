@@ -23,8 +23,13 @@ import GrainOverlay from '../components/common/GrainOverlay';
 import LaunchSplash from '../components/common/LaunchSplash';
 import UpdateGate from '../components/common/UpdateGate';
 import { shouldShowSplash, markSplashShown, onSplashRequest } from '../lib/splash';
+import { loadCustomCategories } from '../lib/exercises';
 import { TimersProvider } from '../contexts/TimersContext';
 import { SettingsProvider } from '../contexts/SettingsContext';
+
+// Hydrate le cache des catégories perso avant que le premier écran du
+// planning ne rende ses chips : getCategory() est synchrone et lit ce cache.
+loadCustomCategories().catch(() => {});
 
 setAudioModeAsync({
   playsInSilentMode: true,

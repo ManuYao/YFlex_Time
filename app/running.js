@@ -63,6 +63,7 @@ export default function Running() {
 
   const [restTriggers, setRestTriggers] = useState([]);
   const isManualBasic = timer.id === 'basic';
+  const isEmom = timer.id === 'emom';
   const ctx = isManualBasic ? { restTriggers } : undefined;
 
   const state = computeState(timer, secondsElapsed, ctx) ?? fallbackState();
@@ -178,6 +179,23 @@ export default function Running() {
     haptic.medium();
   };
 
+  // EMOM : terminer la séance en cours de route SANS la perdre. L'appui long
+  // "Retour" renvoie au Home et jette la séance (comportement voulu pour
+  // "je me suis trompé de timer") — ici on part sur l'écran de fin, donc la
+  // séance est comptée dans l'historique avec les tours réellement faits.
+  const handleFinish = () => {
+    if (navigatedRef.current) return;
+    navigatedRef.current = true;
+    const done = Math.min(
+      Math.floor(secondsElapsed),
+      Math.floor(state.totalSecondsTarget)
+    );
+    router.replace({
+      pathname: '/end-session',
+      params: { timerId: timer.id, elapsed: done },
+    });
+  };
+
   const handleEndWork = () => {
     if (!isManualBasic || !isWorkInfinite) return;
     // haptic + phase sound are emitted by the phase-change effect on re-render.
@@ -279,6 +297,7 @@ export default function Running() {
           roundLabel={state.roundLabel}
           onReturn={handleReturn}
           progress={state.totalProgress}
+          markers={state.phaseMarkers}
           isPaused={isPaused}
         />
 
@@ -323,6 +342,8 @@ export default function Running() {
           endWorkLabel={isLastBasicWork ? 'FINI' : 'REPOS'}
           onEndWork={handleEndWork}
           hideSkip={isManualBasic && isWorkInfinite}
+          showFinish={isEmom}
+          onFinish={handleFinish}
         />
       </SafeAreaView>
 
@@ -347,7 +368,7 @@ export default function Running() {
   );
 }
 
-function TopBar({ tokens, name, tag, roundLabel, onReturn, progress, isPaused }) {
+function TopBar({ tokens, name, tag, roundLabel, onReturn, progress, markers, isPaused }) {
   const dotScale = useSharedValue(1);
   const dotOpacity = useSharedValue(0.6);
   useEffect(() => {
@@ -414,6 +435,10 @@ function TopBar({ tokens, name, tag, roundLabel, onReturn, progress, isPaused })
         </View>
       </View>
 
+      {/* Avancement global jusqu'à l'objectif de la séance. Volontairement
+          insensible à la pause : elle ne change ni de couleur ni de rythme,
+          elle dit seulement où on en est. Les découpes matérialisent les
+          phases (tours EMOM, travail/repos TABATA, blocs MIX). */}
       <View style={[styles.progressTrack, { backgroundColor: tokens.ringInactive }]}>
         <View
           style={[
@@ -424,6 +449,16 @@ function TopBar({ tokens, name, tag, roundLabel, onReturn, progress, isPaused })
             },
           ]}
         />
+        {(markers ?? []).map((m, i) => (
+          <View
+            key={i}
+            pointerEvents="none"
+            style={[
+              styles.progressNotch,
+              { backgroundColor: tokens.trackNotch, left: `${m * 100}%` },
+            ]}
+          />
+        ))}
       </View>
     </View>
   );
@@ -544,6 +579,8 @@ function BottomControls({
   endWorkLabel,
   onEndWork,
   hideSkip,
+  showFinish,
+  onFinish,
 }) {
   return (
     <View style={styles.bottom}>
@@ -602,7 +639,23 @@ function BottomControls({
           </View>
         )}
 
-        {hideSkip ? (
+        {showFinish ? (
+          // EMOM : "Fin" prend la place de Skip (avancer d'une minute n'a pas
+          // de sens sur un timer calé sur l'horloge). Appui long comme les
+          // autres boutons destructeurs — terminer par erreur coûte la séance.
+          <LongPressButton
+            label="Fin"
+            size={64}
+            duration={1000}
+            borderColor={tokens.btnBorder}
+            ringColor={tokens.primary}
+            labelColor={tokens.muted}
+            pressedBg={tokens.chipBg}
+            onComplete={onFinish}
+          >
+            <Text style={[styles.finishIcon, { color: tokens.primary }]}>■</Text>
+          </LongPressButton>
+        ) : hideSkip ? (
           <View style={{ width: 64, height: 64 }} />
         ) : (
           <LongPressButton
@@ -635,6 +688,7 @@ const fallbackState = () => ({
   totalProgress: 0,
   ringProgress: 0,
   isComplete: false,
+  phaseMarkers: [],
   phasesList: [],
 });
 
@@ -705,6 +759,15 @@ const styles = StyleSheet.create({
   progressFill: {
     height: '100%',
     borderRadius: 2,
+  },
+  progressNotch: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 2,
+    // `left` est le pourcentage exact de la frontière : on recentre le trait
+    // dessus au lieu de le faire démarrer après.
+    marginLeft: -1,
   },
 
   center: {
@@ -790,7 +853,10 @@ const styles = StyleSheet.create({
 
   bottom: {
     paddingHorizontal: 24,
-    paddingBottom: 8,
+    // Les commandes tombaient trop près du bord bas (et du geste système
+    // Android) : on les remonte franchement. S'ajoute à l'inset bas du
+    // SafeAreaView.
+    paddingBottom: 36,
     paddingTop: 12,
   },
   bottomRow: {
@@ -801,6 +867,10 @@ const styles = StyleSheet.create({
   },
   bottomIcon: {
     fontSize: 18,
+    fontFamily: fonts.sansBold,
+  },
+  finishIcon: {
+    fontSize: 15,
     fontFamily: fonts.sansBold,
   },
   pauseBtn: {

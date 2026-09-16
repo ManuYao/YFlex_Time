@@ -3,13 +3,17 @@ import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path } from 'react-native-svg';
 import Animated, {
+  Easing,
   FadeIn,
   FadeOut,
+  LinearTransition,
   useAnimatedStyle,
   useSharedValue,
-  withSpring,
+  withDelay,
+  withSequence,
   withTiming,
 } from 'react-native-reanimated';
 
@@ -21,14 +25,17 @@ import {
   removeSession,
   groupByDay,
   computeStreak,
-  computeTotals,
+  computeScopedTotals,
+  computeTypeBreakdown,
+  defaultTimeScope,
   formatSessionTime,
 } from '../../lib/history';
 import { loadScrollHintNextCard, saveScrollHintNextCard } from '../../lib/scrollHint';
 import { formatDuration } from '../../lib/formatters';
 import { fonts } from '../../lib/fonts';
-import { D, easeImpact } from '../../lib/animations';
+import { D, easeImpact, popIn, popOut } from '../../lib/animations';
 import { useHaptic } from '../../hooks/useHaptic';
+import { useLongPress } from '../../hooks/useLongPress';
 
 const FILTERS = ['TOUS', 'AMRAP', 'BASIC', 'EMOM', 'TABATA', 'MIX'];
 
@@ -43,6 +50,13 @@ const DAYS_PER_PAGE = 3;
 // Planning. Une fois par ouverture ; un toucher l'interrompt.
 const HINT_MIN_SESSIONS = 5;
 const HINT_IDLE_MS = 3000;
+// Relances suivantes : l'aperçu ne se rejoue qu'après une inactivité
+// nettement plus longue (l'utilisateur a touché l'écran entre-temps, il n'est
+// pas perdu — inutile de le relancer aussi vite que la première fois).
+const HINT_REPLAY_IDLE_MS = 12000;
+// Garde-fou : passé ce nombre de passages dans une même ouverture, on arrête
+// de proposer. Au-delà ce n'est plus un indice, c'est du harcèlement.
+const HINT_MAX_RUNS = 3;
 // Le doigt reste "posé" sur la carte le temps de bien le voir avant que
 // l'écran ne revienne (voir aussi le ralenti du peek dans app/history.js).
 const HINT_HOLD_MS = 1100;
@@ -55,6 +69,23 @@ const HINT_GAPS_MS = [5000, 10000];
 // terminer visuellement avant de compter la pause suivante.
 const HINT_RELEASE_MS = 550;
 const HINT_CARDS = 3;
+
+// Carrousel des cartes de tête (appui long sur "Séances" ou "Temps") :
+// aujourd'hui, puis la semaine, puis retour à l'affichage par défaut.
+const SCOPE_HOLD_MS = 2000;
+const SCOPE_STEP_MS = 5000;
+// Brillance : une fois à l'ouverture, puis rappel espacé pour signaler que
+// les deux cartes réagissent à l'appui long sans clignoter en permanence.
+const SHIMMER_EVERY_MS = 30000;
+
+// Sous-titre de la carte : sans lui, un chiffre "du jour" à la place du cumul
+// de toujours serait un mensonge silencieux. Version courte de SCOPE_LABEL
+// (lib/history.js) — les cartes font ~90 px de large.
+const SCOPE_CAPTION = {
+  all: 'TOTAL',
+  day: "AUJOURD'HUI",
+  week: 'SEMAINE',
+};
 
 export default function HistoryPage({
   width,
@@ -70,8 +101,11 @@ export default function HistoryPage({
   const [sessions, setSessions] = useState([]);
   const [filter, setFilter] = useState('TOUS');
   const [visibleDays, setVisibleDays] = useState(DAYS_PER_PAGE);
-  const [hintCard, setHintCard] = useState(-1);
+  const [hintId, setHintId] = useState(null);
   const [hintActive, setHintActive] = useState(false);
+  // null = affichage par défaut ; 'day' / 'week' = étape du carrousel.
+  const [scope, setScope] = useState(null);
+  const [shimmerTick, setShimmerTick] = useState(0);
 
   // Tout l'état de l'aperçu vit dans des refs : la séquence est pilotée par
   // des setTimeout qui doivent lire les valeurs du moment, pas celles
@@ -80,11 +114,46 @@ export default function HistoryPage({
     timers: [],
     idleTimer: null,
     running: false,
-    doneThisOpen: false,
+    stopped: false,
+    runs: 0,
     nextCard: 0,
     step: -1,
     eligible: false,
   }).current;
+
+  // Position des cartes dans la liste, pour viser celles réellement visibles
+  // en bas de l'écran (l'aperçu ne sert à rien s'il presse une carte sortie
+  // du champ). onLayout donne des coordonnées relatives au parent : on
+  // additionne l'offset du groupe (le jour) et celui de la ligne.
+  const geom = useRef({
+    scrollY: 0,
+    viewportH: 0,
+    groups: {},
+    rows: {},
+    order: [],
+  }).current;
+
+  // Carrousel des cartes de tête : une seule séquence à la fois.
+  const scopeTimers = useRef([]).current;
+  const clearScopeTimers = () => {
+    scopeTimers.forEach(clearTimeout);
+    scopeTimers.length = 0;
+  };
+
+  const startScopeCarousel = () => {
+    clearScopeTimers();
+    setScope('day');
+    scopeTimers.push(setTimeout(() => setScope('week'), SCOPE_STEP_MS));
+    scopeTimers.push(setTimeout(() => setScope(null), SCOPE_STEP_MS * 2));
+  };
+
+  useEffect(() => {
+    const id = setInterval(() => setShimmerTick((n) => n + 1), SHIMMER_EVERY_MS);
+    return () => {
+      clearInterval(id);
+      clearScopeTimers();
+    };
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -110,33 +179,63 @@ export default function HistoryPage({
   const finishHint = (nextCard) => {
     clearHintTimers();
     hint.running = false;
-    hint.doneThisOpen = true;
+    hint.runs += 1;
     hint.nextCard = nextCard;
     hint.step = -1;
-    setHintCard(-1);
+    setHintId(null);
     setHintActive(false);
     saveScrollHintNextCard(nextCard);
+    // Ne clôt pas le sujet : une nouvelle inactivité (bien plus longue) peut
+    // relancer l'aperçu, jusqu'à HINT_MAX_RUNS.
+    armHint();
+  };
+
+  /**
+   * Les HINT_CARDS dernières cartes entièrement visibles dans le viewport —
+   * donc celles du bas de l'écran, là où le pouce se trouve déjà. Repli sur
+   * les premières de la liste tant que rien n'est mesuré.
+   */
+  const hintTargets = () => {
+    const visible = geom.order.filter((id) => {
+      const row = geom.rows[id];
+      if (!row) return false;
+      const groupY = geom.groups[row.groupKey];
+      if (groupY == null) return false;
+      const top = groupY + row.y;
+      return (
+        top >= geom.scrollY - 2 &&
+        top + row.h <= geom.scrollY + geom.viewportH + 2
+      );
+    });
+    const list = visible.length > 0 ? visible : geom.order;
+    return list.slice(-HINT_CARDS);
   };
 
   const runHint = () => {
+    const targets = hintTargets();
+    if (targets.length === 0) return;
     hint.running = true;
     setHintActive(true);
-    const start = hint.nextCard % HINT_CARDS;
+    const start = Math.min(hint.nextCard, targets.length - 1);
     let at = 0;
-    for (let i = start, pos = 0; i < HINT_CARDS; i++, pos++) {
+    for (let i = start, pos = 0; i < targets.length; i++, pos++) {
       // Pause croissante entre deux cartes, mesurée depuis la fin du
       // relâchement de la précédente — pas un intervalle fixe.
-      if (pos > 0) at += HINT_HOLD_MS + HINT_RELEASE_MS + HINT_GAPS_MS[pos - 1];
+      if (pos > 0) {
+        const gap = HINT_GAPS_MS[pos - 1] ?? HINT_GAPS_MS[HINT_GAPS_MS.length - 1];
+        at += HINT_HOLD_MS + HINT_RELEASE_MS + gap;
+      }
       const cardIndex = i;
+      const cardId = targets[i];
       const fireAt = at;
       hint.timers.push(
         setTimeout(() => {
           hint.step = cardIndex;
-          setHintCard(cardIndex);
+          setHintId(cardId);
           onPeek?.();
         }, fireAt)
       );
-      hint.timers.push(setTimeout(() => setHintCard(-1), fireAt + HINT_HOLD_MS));
+      hint.timers.push(setTimeout(() => setHintId(null), fireAt + HINT_HOLD_MS));
     }
     const total = at + HINT_HOLD_MS + HINT_RELEASE_MS + D.slow;
     hint.timers.push(setTimeout(() => finishHint(0), total));
@@ -144,12 +243,14 @@ export default function HistoryPage({
 
   const armHint = () => {
     if (hint.idleTimer) clearTimeout(hint.idleTimer);
-    if (hint.doneThisOpen || hint.running) return;
+    hint.idleTimer = null;
+    if (hint.stopped || hint.running || hint.runs >= HINT_MAX_RUNS) return;
+    const delay = hint.runs === 0 ? HINT_IDLE_MS : HINT_REPLAY_IDLE_MS;
     hint.idleTimer = setTimeout(() => {
       hint.idleTimer = null;
-      if (hint.doneThisOpen || hint.running || !hint.eligible) return;
+      if (hint.stopped || hint.running || !hint.eligible) return;
       runHint();
-    }, HINT_IDLE_MS);
+    }, delay);
   };
 
   // Un toucher pendant la séquence l'arrête net et avance la reprise d'une
@@ -163,13 +264,14 @@ export default function HistoryPage({
     armHint();
   };
 
-  // "Une fois par ouverture" = par montage de l'écran (arrivée depuis le
-  // Home), pas par retour de focus : revenir d'une fiche de séance ne doit
-  // pas rejouer l'aperçu.
+  // Le compteur de passages repart à chaque montage de l'écran (arrivée
+  // depuis le Home), pas à chaque retour de focus : revenir d'une fiche de
+  // séance ne doit pas redonner droit à trois aperçus.
   useEffect(() => {
-    hint.doneThisOpen = false;
+    hint.stopped = false;
+    hint.runs = 0;
     loadScrollHintNextCard().then((n) => {
-      hint.nextCard = n;
+      hint.nextCard = n % HINT_CARDS;
     });
   }, []);
 
@@ -181,19 +283,23 @@ export default function HistoryPage({
         clearHintTimers();
         hint.running = false;
         hint.step = -1;
-        setHintCard(-1);
+        setHintId(null);
         setHintActive(false);
       };
     }, [])
   );
 
-  // Changer de page (swipe ou points) compte comme "l'utilisateur a compris".
+  // Changer de page (swipe ou points) compte comme "l'utilisateur a compris" :
+  // là, on arrête définitivement pour cette ouverture.
   useEffect(() => {
-    if (pageIndex !== 0 && hint.running) {
+    if (pageIndex === 0) return;
+    hint.stopped = true;
+    if (hint.running) {
       onPeekCancel?.();
       finishHint((hint.step + 1) % HINT_CARDS);
+    } else {
+      clearHintTimers();
     }
-    if (pageIndex !== 0) hint.doneThisOpen = true;
   }, [pageIndex]);
 
   const handleDelete = async (id) => {
@@ -208,12 +314,23 @@ export default function HistoryPage({
   const grouped = groupByDay(filtered);
   const shown = grouped.slice(0, visibleDays);
   const remainingDays = grouped.length - shown.length;
-  const totals = computeTotals(sessions);
   const streak = computeStreak(sessions);
 
-  // Les 3 premières cartes réellement affichées, dans l'ordre de la liste.
-  const hintIds = shown.flatMap((g) => g.items).slice(0, HINT_CARDS).map((s) => s.id);
-  hint.eligible = pageIndex === 0 && filtered.length >= HINT_MIN_SESSIONS;
+  // Hors carrousel, seule la carte "Temps" bascule sur la journée, et
+  // seulement si elle est bien remplie (> 5 min) : un 02:00 mis en avant à la
+  // place du cumul de toujours ferait plus petit qu'on est.
+  const timeScope = scope ?? defaultTimeScope(sessions);
+  const countScope = scope ?? 'all';
+  const timeTotals = computeScopedTotals(sessions, timeScope);
+  const countTotals = computeScopedTotals(sessions, countScope);
+  const breakdown = scope ? computeTypeBreakdown(sessions, scope) : [];
+
+  // Ordre d'affichage des cartes, pour que l'aperçu sache lesquelles sont en
+  // bas de l'écran.
+  geom.order = shown.flatMap((g) => g.items).map((s) => s.id);
+  // Pas d'aperçu pendant que le carrousel des cartes de tête tourne : deux
+  // animations d'aide en même temps, ça fait juste un écran agité.
+  hint.eligible = pageIndex === 0 && filtered.length >= HINT_MIN_SESSIONS && !scope;
 
   const handleFilter = (f) => {
     setFilter(f);
@@ -269,10 +386,74 @@ export default function HistoryPage({
       </View>
 
       <View style={styles.heroRow}>
-        <HeroStat label="SÉANCES" value={String(totals.count)} color="#FFFFFF" />
-        <HeroStat label="TEMPS" value={totals.timeLabel} color="#1FC777" />
-        <HeroStat label="STREAK" value={String(streak)} unit="j" color="#FFC933" />
+        <HeroStat
+          label="SÉANCES"
+          value={String(countTotals.count)}
+          caption={SCOPE_CAPTION[countScope]}
+          color="#FFFFFF"
+          shimmerKey={shimmerTick}
+          onLongPress={startScopeCarousel}
+        />
+        <HeroStat
+          label="TEMPS"
+          value={timeTotals.timeLabel}
+          caption={SCOPE_CAPTION[timeScope]}
+          color="#1FC777"
+          shimmerKey={shimmerTick}
+          onLongPress={startScopeCarousel}
+        />
+        <HeroStat
+          label="STREAK"
+          value={String(streak)}
+          unit="j"
+          caption="D'AFFILÉE"
+          color="#FFC933"
+        />
       </View>
+
+      {/* Bande de répartition : n'apparaît que pendant le carrousel — AUCUNE
+          hauteur réservée hors de ce moment, la mise en page redevient
+          exactement celle d'avant une fois revenu à l'affichage par défaut.
+          Le View racine anime son propre passage de 0 à sa hauteur réelle
+          via `layout`. Barre segmentée aux couleurs des modes plutôt qu'une
+          liste "NOM nombre" écrite — plus lisible d'un coup d'œil, et un
+          rectangle plein se centre proprement (contrairement à du texte, qui
+          traîne toujours un peu de marge de police asymétrique autour de sa
+          ligne de base — retour utilisateur). Chaque segment est large
+          proportionnellement à son compte (`flex: count`) et anime sa propre
+          largeur (`layout`) quand on bascule jour ↔ semaine. */}
+      <Animated.View
+        layout={LinearTransition.duration(D.base).easing(easeImpact)}
+        style={styles.breakdownRow}
+      >
+        {!!scope && (
+          <Animated.View
+            entering={popIn(0.82, D.medium)}
+            exiting={popOut(1.06, D.fast)}
+            style={styles.breakdownInner}
+          >
+            {breakdown.length === 0 ? (
+              <Animated.Text
+                key="empty"
+                entering={popIn(0.85, D.base)}
+                exiting={popOut(1.05, D.fast)}
+                layout={LinearTransition.duration(D.base).easing(easeImpact)}
+                style={styles.breakdownEmpty}
+              >
+                {scope === 'day' ? "RIEN AUJOURD'HUI" : 'RIEN CETTE SEMAINE'}
+              </Animated.Text>
+            ) : (
+              <View style={styles.breakdownBarTrack}>
+                {breakdown
+                  .slice(0, 4)
+                  .map((b) => (
+                    <BreakdownSegment key={b.name} count={b.count} color={b.color} />
+                  ))}
+              </View>
+            )}
+          </Animated.View>
+        )}
+      </Animated.View>
 
       <ScrollView
         horizontal
@@ -313,6 +494,15 @@ export default function HistoryPage({
         style={styles.list}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
+        scrollEventThrottle={32}
+        onLayout={(e) => {
+          geom.viewportH = e.nativeEvent.layout.height;
+        }}
+        onScroll={(e) => {
+          // Écrit une ref, ne redéclenche pas de rendu : c'est juste la
+          // position dont l'aperçu a besoin pour viser le bas de l'écran.
+          geom.scrollY = e.nativeEvent.contentOffset.y;
+        }}
       >
         {grouped.length === 0 ? (
           <View style={styles.empty}>
@@ -326,18 +516,31 @@ export default function HistoryPage({
         ) : (
           <>
             {shown.map((group) => (
-              <View key={group.key} style={styles.group}>
+              <View
+                key={group.key}
+                style={styles.group}
+                onLayout={(e) => {
+                  geom.groups[group.key] = e.nativeEvent.layout.y;
+                }}
+              >
                 <Text style={styles.groupLabel}>{group.date}</Text>
                 {group.items.map((s) => (
-                  <SessionRow
+                  <View
                     key={s.id}
-                    session={s}
-                    hinting={hintCard >= 0 && hintIds[hintCard] === s.id}
-                    onPress={() =>
-                      router.push({ pathname: '/session-detail', params: { id: s.id } })
-                    }
-                    onDelete={() => handleDelete(s.id)}
-                  />
+                    onLayout={(e) => {
+                      const { y, height } = e.nativeEvent.layout;
+                      geom.rows[s.id] = { groupKey: group.key, y, h: height };
+                    }}
+                  >
+                    <SessionRow
+                      session={s}
+                      hinting={hintId === s.id}
+                      onPress={() =>
+                        router.push({ pathname: '/session-detail', params: { id: s.id } })
+                      }
+                      onDelete={() => handleDelete(s.id)}
+                    />
+                  </View>
                 ))}
               </View>
             ))}
@@ -382,19 +585,125 @@ export default function HistoryPage({
   );
 }
 
-function HeroStat({ label, value, unit, color }) {
-  return (
-    <View style={styles.heroCard}>
-      <View
-        style={[styles.heroBlob, { backgroundColor: color, opacity: 0.18 }]}
+function HeroStat({ label, value, unit, color, caption, shimmerKey, onLongPress }) {
+  const [cardW, setCardW] = useState(0);
+  const { isPressing, progress, start, cancel } = useLongPress(onLongPress, SCOPE_HOLD_MS);
+
+  // Signal de changement à chaque bascule jour → semaine → total : PAS sur le
+  // texte lui-même (deux essais précédents — scale au montage, puis
+  // remontage par clé — ont fini par désaligner durablement le chiffre :
+  // `adjustsFontSizeToFit` mesure le texte pendant qu'une transform lui est
+  // appliquée et se fige sur une taille fausse une fois l'animation finie).
+  // On pulse à la place le halo coloré déjà présent derrière la carte —
+  // seule l'opacité bouge, aucun risque sur la mise en page du texte, qui
+  // reste maintenant totalement statique.
+  const blobPulse = useSharedValue(0);
+  useEffect(() => {
+    blobPulse.value = 0;
+    blobPulse.value = withSequence(
+      withTiming(1, { duration: 160, easing: easeImpact }),
+      withTiming(0, { duration: 500, easing: easeImpact })
+    );
+  }, [value, caption]);
+  const blobStyle = useAnimatedStyle(() => ({
+    opacity: 0.18 + blobPulse.value * 0.42,
+  }));
+
+  // Brillance : une bande claire traverse la carte de gauche à droite.
+  const shine = useSharedValue(-1);
+  useEffect(() => {
+    if (shimmerKey == null) return;
+    shine.value = -1;
+    shine.value = withDelay(
+      120,
+      withTiming(1, { duration: 900, easing: Easing.out(Easing.quad) })
+    );
+  }, [shimmerKey]);
+  const shineStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: shine.value * (cardW + 70) }],
+  }));
+
+  const card = (
+    <View
+      style={styles.heroCard}
+      onLayout={(e) => setCardW(e.nativeEvent.layout.width)}
+    >
+      <Animated.View
+        style={[styles.heroBlob, { backgroundColor: color }, blobStyle]}
         pointerEvents="none"
       />
+
+      {shimmerKey != null && cardW > 0 && (
+        <Animated.View style={[styles.heroShine, shineStyle]} pointerEvents="none">
+          <LinearGradient
+            colors={[
+              'rgba(255,255,255,0)',
+              'rgba(255,255,255,0.16)',
+              'rgba(255,255,255,0)',
+            ]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={StyleSheet.absoluteFill}
+          />
+        </Animated.View>
+      )}
+
       <Text style={styles.heroLabel}>{label}</Text>
+      {/* Le texte reste statique — jamais de transform ni de remontage
+          dessus (voir le commentaire sur blobPulse plus haut). Le halo
+          derrière la carte porte seul le signal de changement. */}
       <View style={styles.heroValueRow}>
-        <Text style={[styles.heroValue, { color }]}>{value}</Text>
+        <Text style={[styles.heroValue, { color }]} numberOfLines={1} adjustsFontSizeToFit>
+          {value}
+        </Text>
         {unit && <Text style={styles.heroUnit}>{unit}</Text>}
       </View>
+      {!!caption && (
+        <Text style={styles.heroCaption} numberOfLines={1} adjustsFontSizeToFit>
+          {caption}
+        </Text>
+      )}
+
+      {isPressing && (
+        <View
+          style={[styles.heroHold, { width: `${progress * 100}%`, backgroundColor: color }]}
+          pointerEvents="none"
+        />
+      )}
     </View>
+  );
+
+  if (!onLongPress) return card;
+
+  return (
+    <Pressable
+      style={styles.heroPressable}
+      onPressIn={start}
+      onPressOut={cancel}
+      // Pas de onPress : la carte n'est pas un bouton, seul l'appui long
+      // (2 s, avec son trait de progression) déclenche quelque chose.
+    >
+      {card}
+    </Pressable>
+  );
+}
+
+/**
+ * Un segment de la barre de répartition — un rectangle plein coloré, large
+ * proportionnellement à `count` (`flex: count` dans une rangée : la même
+ * logique qu'une jauge de stockage empilée). `layout` anime le changement de
+ * largeur quand un mode gagne ou perd du terrain d'un scope à l'autre — pas
+ * besoin d'un pulse de valeur séparé (contrairement à l'ancienne version en
+ * texte) : un segment qui grossit ou rétrécit EST déjà l'animation.
+ */
+function BreakdownSegment({ count, color }) {
+  return (
+    <Animated.View
+      entering={popIn(0.5, D.medium)}
+      exiting={popOut(1, D.fast)}
+      layout={LinearTransition.duration(D.base).easing(easeImpact)}
+      style={{ flex: count, minWidth: 6, backgroundColor: color || '#FFFFFF' }}
+    />
   );
 }
 
@@ -577,7 +886,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingHorizontal: 24,
     gap: 8,
+    // Espacement d'origine : breakdownRow n'a plus de hauteur figée, donc
+    // rien à lui laisser ici en permanence — seulement pendant qu'il affiche
+    // quelque chose (voir breakdownInner.paddingVertical plus bas).
     marginBottom: 20,
+  },
+  // flex sur le Pressable, pas sur la carte : sans ce relais la carte
+  // enveloppée se réduirait à la largeur de son contenu.
+  heroPressable: {
+    flex: 1,
   },
   heroCard: {
     flex: 1,
@@ -622,6 +939,64 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: 'rgba(255,255,255,0.5)',
     marginLeft: 2,
+  },
+  heroCaption: {
+    fontFamily: fonts.monoRegular,
+    fontSize: 8,
+    letterSpacing: 0.9,
+    color: 'rgba(255,255,255,0.38)',
+    marginTop: 4,
+  },
+  heroShine: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: -35,
+    width: 70,
+  },
+  heroHold: {
+    position: 'absolute',
+    left: 0,
+    bottom: 0,
+    height: 2,
+  },
+
+  breakdownRow: {
+    // Pas de hauteur figée : la place n'existe QUE pendant que la
+    // répartition est affichée, pas en permanence. `layout` sur ce View
+    // (posé côté JSX, voir plus bas) anime son passage de 0 à sa hauteur
+    // réelle — et inversement à la fin du carrousel, où tout redevient
+    // pile comme avant (cartes → filtres directement, sans blanc résiduel).
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  breakdownInner: {
+    // Pleine largeur pour que la barre s'étire d'un bord à l'autre — l'ancien
+    // contenu (chips texte) se contentait de sa largeur de contenu, ce qui
+    // laissait `breakdownRow` le recentrer, mais un rectangle plein a besoin
+    // de la largeur explicitement pour ne pas se réduire à rien.
+    width: '100%',
+    alignItems: 'center',
+    // La "respiration" demandée ne vaut que pendant l'affichage : elle vit
+    // ici, sur le contenu qui apparaît/disparaît, pas sur breakdownRow qui
+    // resterait sinon en permanence plus haut qu'avant.
+    paddingVertical: 8,
+  },
+  breakdownBarTrack: {
+    flexDirection: 'row',
+    width: '100%',
+    height: 10,
+    borderRadius: 6,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  breakdownEmpty: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 10.5,
+    letterSpacing: 1,
+    color: 'rgba(255,255,255,0.35)',
+    textAlign: 'center',
   },
 
   filtersRow: {

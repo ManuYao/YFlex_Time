@@ -1,6 +1,6 @@
 {
   "name": "flex-timer",
-  "version": "10.5.0",
+  "version": "10.6.0",
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
@@ -13,7 +13,7 @@
     "@expo-google-fonts/jetbrains-mono": "^0.4.1",
     "@react-native-async-storage/async-storage": "2.2.0",
     "babel-preset-expo": "~57.0.11",
-    "expo": "~57.0.22",
+    "expo": "~57.0.23",
     "expo-asset": "~57.0.16",
     "expo-audio": "~57.0.5",
     "expo-blur": "~57.0.3",

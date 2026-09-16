@@ -4,7 +4,6 @@ import {
   Text,
   Pressable,
   ScrollView,
-  Alert,
   Linking,
   StyleSheet,
   useWindowDimensions,
@@ -19,6 +18,10 @@ import Svg, { Path } from 'react-native-svg';
 import GradientBackground from '../components/common/GradientBackground';
 import Toggle from '../components/common/Toggle';
 import UpdateSheet from '../components/common/UpdateSheet';
+import ContactSheet from '../components/common/ContactSheet';
+import ConfirmSheet from '../components/common/ConfirmSheet';
+import { loadContactNoticeHidden, setContactNoticeHidden } from '../lib/contactNotice';
+import { loadCustomCategories } from '../lib/exercises';
 import { useSettings } from '../contexts/SettingsContext';
 import { useTimers } from '../contexts/TimersContext';
 import { usePremium } from '../hooks/usePremium';
@@ -57,6 +60,8 @@ export default function Settings() {
   // UpdateGate (app/_layout.js) affiche dès qu'une version pas encore vue est détectée ;
   // ici accessible à tout moment depuis la ligne "Version".
   const [updateSheet, setUpdateSheet] = useState(null);
+  const [contactSheet, setContactSheet] = useState(false);
+  const [resetConfirm, setResetConfirm] = useState(false);
 
   // Achat Premium désactivé pendant la bêta — pas de navigation vers
   // /premium, juste un refus visuel + haptique clair.
@@ -66,56 +71,83 @@ export default function Settings() {
     setTimeout(() => setPremiumDenied(false), 350);
   };
 
+  // Confirmation dans la charte de l'app (`ConfirmSheet`) plutôt que
+  // `Alert.alert` : la popup système tranchait complètement avec le reste,
+  // police et fond par défaut au milieu d'une app 100 % custom.
   const handleResetAll = () => {
-    Alert.alert(
-      'Réinitialiser l\'application',
-      'Tous tes réglages, timers personnalisés, ton planning et l\'historique seront supprimés. Cette action est irréversible.',
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Réinitialiser',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              // Ne jamais ajouter flexTimer_cooldown ou flexTimer_premium à cette
-              // liste : un reset complet ne doit pas devenir un moyen de
-              // contourner la limite quotidienne TABATA/MIX, ni de perdre le
-              // statut Pro par erreur.
-              await AsyncStorage.multiRemove([
-                'flexTimer_settings',
-                'flexTimer_history',
-                'flexTimer_onboarded',
-                'flexTimer_planning',
-                'flexTimer_planningArchives',
-                'flexTimer_customExercises',
-                // Purge la marque "déjà vue" de la feuille de mise à jour :
-                // après un reset, une version déjà en attente redevient
-                // une nouveauté à montrer (UpdateGate, jusqu'à confirmation).
-                'flexTimer_updatePopupSeen',
-              ]);
-            } catch {}
-            await resetAllTimers();
-            reset();
-            router.replace('/onboarding');
-          },
-        },
-      ]
-    );
+    haptic.light();
+    setResetConfirm(true);
   };
 
+  const runResetAll = async () => {
+    try {
+      // Ne jamais ajouter flexTimer_cooldown ou flexTimer_premium à cette
+      // liste : un reset complet ne doit pas devenir un moyen de
+      // contourner la limite quotidienne TABATA/MIX, ni de perdre le
+      // statut Pro par erreur.
+      await AsyncStorage.multiRemove([
+        'flexTimer_settings',
+        'flexTimer_history',
+        'flexTimer_onboarded',
+        'flexTimer_planning',
+        'flexTimer_planningArchives',
+        'flexTimer_customExercises',
+        'flexTimer_customCategories',
+        // L'utilisateur repart de zéro : le rappel avant l'envoi d'un
+        // mail redevient utile.
+        'flexTimer_contactNoticeHidden',
+        // Purge la marque "déjà vue" de la feuille de mise à jour :
+        // après un reset, une version déjà en attente redevient
+        // une nouveauté à montrer (UpdateGate, jusqu'à confirmation).
+        'flexTimer_updatePopupSeen',
+      ]);
+    } catch {}
+    // Le cache mémoire des catégories perso survivrait à la purge du
+    // stockage (l'app ne redémarre pas) : on le relit, donc vide.
+    await loadCustomCategories();
+    await resetAllTimers();
+    reset();
+    router.replace('/onboarding');
+  };
+
+  // Rappel de ce qui aide vraiment (contexte + pièces jointes) AVANT le
+  // client mail : une fois dans l'app mail, il est trop tard pour le dire.
   const handleContact = async () => {
     haptic.light();
+    if (await loadContactNoticeHidden()) {
+      openMail();
+      return;
+    }
+    setContactSheet(true);
+  };
+
+  const openMail = async (rememberChoice = false) => {
+    if (rememberChoice) setContactNoticeHidden(true);
+    const body = [
+      'Décris ici ton problème ou ton idée.',
+      "N'hésite pas à joindre une photo ou une vidéo : c'est ce qui aide le plus.",
+      '',
+      '',
+      '—',
+      `Flex Timer ${APP_VERSION}`,
+    ].join('\n');
+
     try {
       const available = await MailComposer.isAvailableAsync();
       if (available) {
         await MailComposer.composeAsync({
           recipients: [CONTACT_EMAIL],
           subject: 'Flex Timer — contact',
+          body,
         });
         return;
       }
     } catch {}
-    Linking.openURL(`mailto:${CONTACT_EMAIL}`).catch(() => {});
+    Linking.openURL(
+      `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(
+        'Flex Timer — contact'
+      )}&body=${encodeURIComponent(body)}`
+    ).catch(() => {});
   };
 
   return (
@@ -276,6 +308,25 @@ export default function Settings() {
             mode={updateSheet}
             onRestart={restart}
             onClose={() => setUpdateSheet(null)}
+          />
+        )}
+
+        {contactSheet && (
+          <ContactSheet
+            screenH={screenH}
+            onOpenMail={openMail}
+            onClose={() => setContactSheet(false)}
+          />
+        )}
+
+        {resetConfirm && (
+          <ConfirmSheet
+            screenH={screenH}
+            title="Réinitialiser l'application"
+            body="Tous tes réglages, timers personnalisés, ton planning et l'historique seront supprimés. Cette action est irréversible."
+            confirmLabel="Réinitialiser"
+            onConfirm={runResetAll}
+            onClose={() => setResetConfirm(false)}
           />
         )}
       </SafeAreaView>

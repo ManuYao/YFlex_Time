@@ -306,7 +306,14 @@ export default function PlanningPage({
   );
 }
 
-function BlockCard({ block, dayArchived, onRename, onAddTag, onOpenTag, onDelete }) {
+function BlockCard({
+  block,
+  dayArchived,
+  onRename,
+  onAddTag,
+  onOpenTag,
+  onDelete,
+}) {
   const swipeRef = useRef(null);
   const blockArchived = !!block.archivedAt;
   // Lecture seule si le jour OU le bloc est archivé. Le menu ⋮ reste visible

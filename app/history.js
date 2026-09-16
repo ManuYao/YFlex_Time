@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, {
@@ -38,7 +38,17 @@ export default function History() {
   // n'est PAS resynchronisé sur le scroll de l'utilisateur (sinon boucle
   // scrollTo → onScroll → scrollTo) : il ne sert que depuis la page 0.
   const peekX = useSharedValue(0);
+  // `useDerivedValue` s'exécute une première fois dès l'enregistrement, donc
+  // avant que la FlatList (montée seulement une fois `rootW` mesuré, plus
+  // bas) n'existe — scrollTo tombait sur une ref pas encore initialisée et
+  // logguait un warning à chaque ouverture. `mounted` reflète exactement la
+  // même condition que celle qui rend la FlatList.
+  const mounted = useSharedValue(false);
+  useEffect(() => {
+    mounted.value = rootW > 0;
+  }, [rootW]);
   useDerivedValue(() => {
+    if (!mounted.value) return;
     scrollTo(listRef, peekX.value, 0, false);
   });
 
