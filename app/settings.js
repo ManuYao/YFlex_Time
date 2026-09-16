@@ -233,11 +233,8 @@ export default function Settings() {
             <LinkRow label="Conditions d'utilisation" onPress={() => router.push('/terms')} />
             <LinkRow label="Politique de confidentialité" onPress={() => router.push('/privacy')} />
             <LinkRow label="Contact" sub={CONTACT_EMAIL} onPress={handleContact} />
-            {/* TEMP — à retirer avant publication : aperçu de la feuille de
-                mise à jour sans attendre un vrai push EAS Update. */}
             <LinkRow
-              label="Aperçu de la mise à jour (test)"
-              sub="Bouton temporaire (test)"
+              label="Aperçu de la mise à jour"
               onPress={() => setUpdateSheet('pending')}
               isLast
             />

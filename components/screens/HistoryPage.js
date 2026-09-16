@@ -6,11 +6,12 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 
 import PageDots from '../common/PageDots';
+import PressTap from '../common/PressTap';
 import { TIMERS } from '../../lib/timers-config';
 import {
   loadHistory,
   removeSession,
-  groupByPeriod,
+  groupByDay,
   computeStreak,
   computeTotals,
   formatSessionTime,
@@ -21,12 +22,18 @@ import { useHaptic } from '../../hooks/useHaptic';
 
 const FILTERS = ['TOUS', 'AMRAP', 'BASIC', 'EMOM', 'TABATA', 'MIX'];
 
+// Jours affichés d'un coup. Chaque jour monte plusieurs lignes Swipeable
+// (un gesture handler chacune) : en limiter le nombre garde la liste fluide
+// sur les longs historiques.
+const DAYS_PER_PAGE = 3;
+
 export default function HistoryPage({ width, height, pageIndex, onSelectPage }) {
   const router = useRouter();
   const haptic = useHaptic();
   const insets = useSafeAreaInsets();
   const [sessions, setSessions] = useState([]);
   const [filter, setFilter] = useState('TOUS');
+  const [visibleDays, setVisibleDays] = useState(DAYS_PER_PAGE);
 
   useFocusEffect(
     useCallback(() => {
@@ -49,9 +56,21 @@ export default function HistoryPage({ width, height, pageIndex, onSelectPage }) 
   const filtered =
     filter === 'TOUS' ? sessions : sessions.filter((s) => s.name === filter);
 
-  const grouped = groupByPeriod(filtered);
+  const grouped = groupByDay(filtered);
+  const shown = grouped.slice(0, visibleDays);
+  const remainingDays = grouped.length - shown.length;
   const totals = computeTotals(sessions);
   const streak = computeStreak(sessions);
+
+  const handleFilter = (f) => {
+    setFilter(f);
+    setVisibleDays(DAYS_PER_PAGE);
+  };
+
+  const handleShowMore = () => {
+    haptic.light();
+    setVisibleDays((n) => n + DAYS_PER_PAGE);
+  };
 
   return (
     <View style={[styles.page, { width, height }]}>
@@ -114,7 +133,7 @@ export default function HistoryPage({ width, height, pageIndex, onSelectPage }) 
           return (
             <Pressable
               key={f}
-              onPress={() => setFilter(f)}
+              onPress={() => handleFilter(f)}
               style={({ pressed }) => [
                 styles.filterChip,
                 {
@@ -152,21 +171,43 @@ export default function HistoryPage({ width, height, pageIndex, onSelectPage }) 
             </Text>
           </View>
         ) : (
-          grouped.map((group) => (
-            <View key={group.date} style={styles.group}>
-              <Text style={styles.groupLabel}>{group.date}</Text>
-              {group.items.map((s) => (
-                <SessionRow
-                  key={s.id}
-                  session={s}
-                  onPress={() =>
-                    router.push({ pathname: '/session-detail', params: { id: s.id } })
-                  }
-                  onDelete={() => handleDelete(s.id)}
-                />
-              ))}
-            </View>
-          ))
+          <>
+            {shown.map((group) => (
+              <View key={group.key} style={styles.group}>
+                <Text style={styles.groupLabel}>{group.date}</Text>
+                {group.items.map((s) => (
+                  <SessionRow
+                    key={s.id}
+                    session={s}
+                    onPress={() =>
+                      router.push({ pathname: '/session-detail', params: { id: s.id } })
+                    }
+                    onDelete={() => handleDelete(s.id)}
+                  />
+                ))}
+              </View>
+            ))}
+
+            {remainingDays > 0 && (
+              <View style={styles.moreWrap}>
+                <PressTap onPress={handleShowMore} tapScale={0.94} style={styles.moreBtn}>
+                  <Text style={styles.moreText}>VOIR PLUS</Text>
+                  <Svg width={10} height={10} viewBox="0 0 10 10" fill="none">
+                    <Path
+                      d="M2 3.5L5 6.5l3-3"
+                      stroke="rgba(255,255,255,0.8)"
+                      strokeWidth={1.6}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </Svg>
+                </PressTap>
+                <Text style={styles.moreHint}>
+                  ENCORE {remainingDays} {remainingDays > 1 ? 'JOURS' : 'JOUR'}
+                </Text>
+              </View>
+            )}
+          </>
         )}
       </ScrollView>
 
@@ -442,6 +483,36 @@ const styles = StyleSheet.create({
 
   group: {
     marginBottom: 24,
+  },
+
+  moreWrap: {
+    alignItems: 'center',
+    gap: 8,
+    paddingTop: 4,
+    paddingBottom: 8,
+  },
+  moreBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.20)',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+  moreText: {
+    fontFamily: fonts.sansBold,
+    fontSize: 11,
+    letterSpacing: 1.7,
+    color: 'rgba(255,255,255,0.85)',
+  },
+  moreHint: {
+    fontFamily: fonts.monoRegular,
+    fontSize: 10,
+    letterSpacing: 1.2,
+    color: 'rgba(255,255,255,0.35)',
   },
   groupLabel: {
     fontFamily: fonts.sansBold,
