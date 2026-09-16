@@ -22,6 +22,10 @@ import { setAudioModeAsync } from 'expo-audio';
 import GrainOverlay from '../components/common/GrainOverlay';
 import LaunchSplash from '../components/common/LaunchSplash';
 import UpdateGate from '../components/common/UpdateGate';
+import APKBlockedScreen from '../components/common/APKBlockedScreen';
+import MaintenanceBanner from '../components/common/MaintenanceBanner';
+import MaintenancePopup from '../components/common/MaintenancePopup';
+import { useAPKCheck } from '../hooks/useAPKCheck';
 import { shouldShowSplash, markSplashShown, onSplashRequest } from '../lib/splash';
 import { loadCustomCategories } from '../lib/exercises';
 import { TimersProvider } from '../contexts/TimersContext';
@@ -53,6 +57,13 @@ export default function RootLayout() {
   // 'pending' : on masque tout en noir le temps de lire AsyncStorage, sinon
   // le Home apparaîtrait une fraction de seconde avant le splash.
   const [splash, setSplash] = useState('pending');
+
+  // Vérification d'APK distante (Gist) : mise à jour obligatoire ou
+  // maintenance annoncée. Indépendante de l'OTA (voir lib/apkVersionCheck.js).
+  // Tant qu'elle n'a pas répondu, tout est à false : l'app démarre
+  // normalement, la vérification ne retarde jamais l'affichage.
+  const apk = useAPKCheck();
+  const [bannerClosed, setBannerClosed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -113,11 +124,37 @@ export default function RootLayout() {
                 <Stack.Screen name="archive-detail" options={{ animation: 'fade' }} />
               </Stack>
               <UpdateGate />
+
+              {!apk.isBlockedByForcedUpdate && apk.isMaintenance && !bannerClosed && (
+                <MaintenanceBanner
+                  message={apk.maintenanceMessage}
+                  onPress={apk.openMaintenancePopup}
+                  onDismiss={() => setBannerClosed(true)}
+                />
+              )}
+              {!apk.isBlockedByForcedUpdate && apk.showMaintenancePopup && (
+                <MaintenancePopup
+                  message={apk.maintenanceMessage}
+                  onClose={apk.dismissMaintenancePopup}
+                />
+              )}
+
               <GrainOverlay opacity={0.06} tint="#FFFFFF" />
               {splash === 'pending' && (
                 <View style={[StyleSheet.absoluteFill, { zIndex: 1000, backgroundColor: '#000000' }]} />
               )}
               {splash === 'show' && <LaunchSplash onDone={() => setSplash('hide')} />}
+
+              {/* En dernier, et au zIndex le plus haut : rien ne doit passer
+                  au-dessus du blocage, pas même la cinématique de démarrage. */}
+              {apk.isBlockedByForcedUpdate && (
+                <APKBlockedScreen
+                  message={apk.forcedUpdateMessage}
+                  downloadUrl={apk.downloadUrl}
+                  currentVersion={apk.currentVersion}
+                  minVersion={apk.minVersion}
+                />
+              )}
             </View>
           </TimersProvider>
         </SettingsProvider>

@@ -26,6 +26,8 @@ import { useSettings } from '../contexts/SettingsContext';
 import { useTimers } from '../contexts/TimersContext';
 import { usePremium } from '../hooks/usePremium';
 import { useOtaUpdate } from '../hooks/useOtaUpdate';
+import { useAPKCheck } from '../hooks/useAPKCheck';
+import { FORCE_CHECK_LIMIT } from '../lib/apkVersionCheck';
 import { haptic } from '../hooks/useHaptic';
 import { fonts } from '../lib/fonts';
 
@@ -36,6 +38,14 @@ const STATUS_LABEL = {
   checking: 'vérification…',
   'up-to-date': 'à jour',
   found: 'nouvelle version trouvée et téléchargée',
+  error: 'erreur',
+};
+
+const APK_FORCE_STATUS_LABEL = {
+  idle: 'pas encore vérifié',
+  checking: 'vérification…',
+  ok: 'terminé',
+  limited: 'limite atteinte',
   error: 'erreur',
 };
 
@@ -56,6 +66,16 @@ export default function Settings() {
   const [premiumDenied, setPremiumDenied] = useState(false);
   const { height: screenH } = useWindowDimensions();
   const { pending, restart, checkNow, status, lastCheckAt, lastError, diagnostics } = useOtaUpdate();
+  const {
+    isMaintenance,
+    isBlockedByForcedUpdate,
+    minVersion,
+    fromCache: apkFromCache,
+    error: apkError,
+    recheck: recheckAPK,
+    forceCheckStatus,
+    forceCheckQuota,
+  } = useAPKCheck();
   // null | 'pending' | 'info' — ouverture manuelle de la même feuille que
   // UpdateGate (app/_layout.js) affiche dès qu'une version pas encore vue est détectée ;
   // ici accessible à tout moment depuis la ligne "Version".
@@ -81,10 +101,11 @@ export default function Settings() {
 
   const runResetAll = async () => {
     try {
-      // Ne jamais ajouter flexTimer_cooldown ou flexTimer_premium à cette
-      // liste : un reset complet ne doit pas devenir un moyen de
-      // contourner la limite quotidienne TABATA/MIX, ni de perdre le
-      // statut Pro par erreur.
+      // Ne jamais ajouter flexTimer_cooldown, flexTimer_premium ou
+      // flexTimer_apkForceCheckLog à cette liste : un reset complet ne doit
+      // pas devenir un moyen de contourner la limite quotidienne TABATA/MIX,
+      // de perdre le statut Pro, ou de remettre à zéro le quota de 5
+      // vérifications manuelles/heure (sinon ce n'est plus une limite).
       await AsyncStorage.multiRemove([
         'flexTimer_settings',
         'flexTimer_history',
@@ -100,6 +121,12 @@ export default function Settings() {
         // après un reset, une version déjà en attente redevient
         // une nouveauté à montrer (UpdateGate, jusqu'à confirmation).
         'flexTimer_updatePopupSeen',
+        // Vérification d'APK distante : on repart d'une lecture fraîche du
+        // Gist, et un message de maintenance déjà lu redevient à montrer.
+        // Sans effet sur un blocage en cours — il est recalculé à partir de
+        // la version installée, pas d'un drapeau local.
+        'flexTimer_apkCheck',
+        'flexTimer_maintenanceSeen',
       ]);
     } catch {}
     // Le cache mémoire des catégories perso survivrait à la purge du
@@ -291,6 +318,51 @@ export default function Settings() {
             />
           </Section>
 
+          {/* TEMP — à retirer avant publication, même logique que le bloc OTA
+              ci-dessus. Vérification d'APK distante (Gist) : mise à jour
+              obligatoire + maintenance, voir lib/apkVersionCheck.js.
+              "Vérifier maintenant" est plafonné à 5 fois par heure glissante
+              (persisté, un redémarrage de l'app ne réinitialise pas le
+              compteur) — le bouton se grise une fois le quota épuisé. */}
+          <Section title="Diagnostic maintenance (test)">
+            <View style={styles.diagBox}>
+              <DiagLine label="Maintenance" value={isMaintenance ? 'oui' : 'non'} />
+              <DiagLine label="Blocage actif" value={isBlockedByForcedUpdate ? 'oui' : 'non'} />
+              <DiagLine label="Version minimale" value={minVersion || '—'} />
+              <DiagLine label="Réponse" value={apkFromCache ? 'cache' : 'réseau'} />
+              <DiagLine
+                label="Dernier check manuel"
+                value={APK_FORCE_STATUS_LABEL[forceCheckStatus] || forceCheckStatus}
+              />
+              <DiagLine
+                label="Quota restant"
+                value={
+                  forceCheckQuota.remaining === null
+                    ? '—'
+                    : `${forceCheckQuota.remaining}/${forceCheckQuota.limit} cette heure`
+                }
+              />
+              {!!forceCheckQuota.retryAt && (
+                <DiagLine
+                  label="Réessayer après"
+                  value={new Date(forceCheckQuota.retryAt).toLocaleTimeString('fr-FR')}
+                />
+              )}
+              {!!apkError && <DiagLine label="Erreur" value={apkError} isError />}
+            </View>
+            <LinkRow
+              label="Vérifier maintenant"
+              sub={
+                forceCheckQuota.remaining === 0
+                  ? `Limite atteinte — réessaie après ${new Date(forceCheckQuota.retryAt).toLocaleTimeString('fr-FR')}`
+                  : `Force une lecture du Gist (${forceCheckQuota.remaining ?? FORCE_CHECK_LIMIT}/${FORCE_CHECK_LIMIT} restantes cette heure)`
+              }
+              onPress={recheckAPK}
+              disabled={forceCheckQuota.remaining === 0 || forceCheckStatus === 'checking'}
+              isLast
+            />
+          </Section>
+
           <Pressable
             onPress={handleResetAll}
             style={({ pressed }) => [
@@ -355,14 +427,16 @@ function Row({ label, sub, control, isLast }) {
   );
 }
 
-function LinkRow({ label, sub, onPress, isLast }) {
+function LinkRow({ label, sub, onPress, isLast, disabled }) {
   return (
     <Pressable
       onPress={onPress}
+      disabled={disabled}
       style={({ pressed }) => [
         styles.row,
         !isLast && styles.rowBorder,
-        pressed && { opacity: 0.6 },
+        disabled && { opacity: 0.4 },
+        pressed && !disabled && { opacity: 0.6 },
       ]}
     >
       <View style={styles.rowText}>
