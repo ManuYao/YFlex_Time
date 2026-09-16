@@ -1,21 +1,46 @@
-import { useCallback, useRef, useState } from 'react';
-import { View, FlatList, StyleSheet } from 'react-native';
+import { useCallback, useState } from 'react';
+import { View, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Animated, {
+  cancelAnimation,
+  scrollTo,
+  useAnimatedRef,
+  useDerivedValue,
+  useSharedValue,
+  withDelay,
+  withSequence,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 
 import GradientBackground from '../components/common/GradientBackground';
 import HistoryPage from '../components/screens/HistoryPage';
 import PlanningPage from '../components/screens/PlanningPage';
 import { haptic } from '../hooks/useHaptic';
+import { easeImpact, springSheet } from '../lib/animations';
 
 const PAGES = ['history', 'planning'];
 const keyExtractor = (item) => item;
 
+// Largeur de la bande de Planning dévoilée par l'aperçu automatique (mission
+// "hint de bascule") : assez pour voir le bouton retour et le début du
+// carrousel des jours, jamais assez pour changer de page.
+const PEEK_PX = 56;
+
 export default function History() {
-  const listRef = useRef(null);
+  const listRef = useAnimatedRef();
   const [rootW, setRootW] = useState(0);
   const [rootH, setRootH] = useState(0);
   const [page, setPage] = useState(0);
   const [sheetOpen, setSheetOpen] = useState(false);
+
+  // Décalage programmatique du pager, piloté uniquement par l'aperçu. Il
+  // n'est PAS resynchronisé sur le scroll de l'utilisateur (sinon boucle
+  // scrollTo → onScroll → scrollTo) : il ne sert que depuis la page 0.
+  const peekX = useSharedValue(0);
+  useDerivedValue(() => {
+    scrollTo(listRef, peekX.value, 0, false);
+  });
 
   // Mesure locale plutôt que Dimensions : la largeur d'une page doit suivre
   // le conteneur réel (barres système, découpes), sinon le pagingEnabled
@@ -39,10 +64,34 @@ export default function History() {
     }
   };
 
+  const peek = useCallback(() => {
+    // Rythme aligné sur la carte "pressée" côté HistoryPage (glissement lent,
+    // maintien net, retour posé) plutôt qu'un flash — demande explicite après
+    // test de l'utilisateur.
+    peekX.value = withSequence(
+      withTiming(PEEK_PX, { duration: 420, easing: easeImpact }),
+      withDelay(680, withSpring(0, springSheet))
+    );
+  }, []);
+
+  // Remise à zéro instantanée : l'utilisateur vient de poser le doigt, un
+  // retour animé se battrait avec son propre geste de scroll.
+  const cancelPeek = useCallback(() => {
+    cancelAnimation(peekX);
+    peekX.value = 0;
+  }, []);
+
   const renderItem = useCallback(
     ({ item }) =>
       item === 'history' ? (
-        <HistoryPage width={rootW} height={rootH} pageIndex={page} onSelectPage={goToPage} />
+        <HistoryPage
+          width={rootW}
+          height={rootH}
+          pageIndex={page}
+          onSelectPage={goToPage}
+          onPeek={peek}
+          onPeekCancel={cancelPeek}
+        />
       ) : (
         <PlanningPage
           width={rootW}
@@ -64,7 +113,7 @@ export default function History() {
       <SafeAreaView style={styles.safe} edges={['top']}>
         <View style={styles.root} onLayout={handleLayout}>
           {rootW > 0 && (
-            <FlatList
+            <Animated.FlatList
               ref={listRef}
               data={PAGES}
               renderItem={renderItem}
