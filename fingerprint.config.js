@@ -6,9 +6,16 @@
 // 10.2.1 → f7da5cbc…). On exclut donc les champs de version — le numéro
 // reste purement informationnel, l'empreinte ne bouge que sur un vrai
 // changement natif (nouvelle lib, plugin, SDK).
+//
+// ⚠️ `sourceSkips` REMPLACE la valeur par défaut, il ne s'y ajoute pas. Le
+// défaut (`PackageJsonAndroidAndIosScriptsIfNotContainRun`) doit donc être
+// répété ici : EAS réécrit les scripts `android`/`ios` de package.json en
+// `expo run:*` pendant le prebuild, et sans ce skip l'empreinte calculée sur
+// le serveur diffère de la locale → build refusé ("Runtime version
+// calculated on local machine not equal…", build 67b1cd89 du 16/09/2026).
 /** @type {import('@expo/fingerprint').Config} */
 const config = {
-  sourceSkips: ['ExpoConfigVersions'],
+  sourceSkips: ['ExpoConfigVersions', 'PackageJsonAndroidAndIosScriptsIfNotContainRun'],
 };
 
 module.exports = config;
