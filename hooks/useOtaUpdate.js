@@ -15,7 +15,7 @@ const RECHECK_MIN_MS = 60 * 1000;
  * publiée (`checkAutomatically: ON_LOAD` dans app.json). Ici on complète avec
  * une vérification quand l'app revient au premier plan — les gens laissent
  * l'app ouverte des jours — et on expose `pending` pour afficher la feuille
- * "Nouvelle version" (déclenchée depuis Home, voir hooks/useSwipeTriggeredUpdate.js).
+ * "Nouvelle version" (components/common/UpdateGate.js, dès détection).
  * Le redémarrage applique la version déjà téléchargée ; sans redémarrage elle
  * s'applique au prochain lancement à froid.
  *
@@ -24,7 +24,7 @@ const RECHECK_MIN_MS = 60 * 1000;
  * retour au premier plan (voir lib/updatePopup.js).
  *
  * `status` / `checkNow` : diagnostic pour le bloc technique de Paramètres > À
- * propos (Aperçu de la mise à jour) — permet de vérifier ce qui se passe sur
+ * propos (Diagnostic mise à jour) — permet de vérifier ce qui se passe sur
  * un vrai APK sans brancher d'ordinateur (pas de Metro sur un build standalone).
  *
  * Désactivé en dev (Expo Go, dev-client, `expo start`) : Updates.isEnabled
@@ -97,6 +97,10 @@ export function useOtaUpdate() {
   return {
     pending: isUpdatePending,
     updateId: downloadedUpdate?.updateId,
+    // Version OTA actuellement exécutée (null si c'est le bundle embarqué
+    // dans l'APK) : sert à UpdateGate pour montrer "Quoi de neuf" une fois
+    // même si la mise à jour s'est appliquée toute seule au lancement.
+    runningUpdateId: Updates.isEmbeddedLaunch ? null : Updates.updateId ?? null,
     restart,
     checkNow: runCheck,
     status,

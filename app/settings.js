@@ -54,7 +54,7 @@ export default function Settings() {
   const { height: screenH } = useWindowDimensions();
   const { pending, restart, checkNow, status, lastCheckAt, lastError, diagnostics } = useOtaUpdate();
   // null | 'pending' | 'info' — ouverture manuelle de la même feuille que
-  // le carrousel Home déclenche après 4 swipes (useSwipeTriggeredUpdate) ;
+  // UpdateGate (app/_layout.js) affiche dès qu'une version pas encore vue est détectée ;
   // ici accessible à tout moment depuis la ligne "Version".
   const [updateSheet, setUpdateSheet] = useState(null);
 
@@ -90,7 +90,7 @@ export default function Settings() {
                 'flexTimer_customExercises',
                 // Purge la marque "déjà vue" de la feuille de mise à jour :
                 // après un reset, une version déjà en attente redevient
-                // une nouveauté à montrer (une seule fois, après 4 swipes).
+                // une nouveauté à montrer (UpdateGate, jusqu'à confirmation).
                 'flexTimer_updatePopupSeen',
               ]);
             } catch {}
@@ -232,12 +232,7 @@ export default function Settings() {
             />
             <LinkRow label="Conditions d'utilisation" onPress={() => router.push('/terms')} />
             <LinkRow label="Politique de confidentialité" onPress={() => router.push('/privacy')} />
-            <LinkRow label="Contact" sub={CONTACT_EMAIL} onPress={handleContact} />
-            <LinkRow
-              label="Aperçu de la mise à jour"
-              onPress={() => setUpdateSheet('pending')}
-              isLast
-            />
+            <LinkRow label="Contact" sub={CONTACT_EMAIL} onPress={handleContact} isLast />
           </Section>
 
           {/* TEMP — à retirer avant publication : "console" visuelle pour

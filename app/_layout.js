@@ -21,6 +21,7 @@ import { setAudioModeAsync } from 'expo-audio';
 
 import GrainOverlay from '../components/common/GrainOverlay';
 import LaunchSplash from '../components/common/LaunchSplash';
+import UpdateGate from '../components/common/UpdateGate';
 import { shouldShowSplash, markSplashShown, onSplashRequest } from '../lib/splash';
 import { TimersProvider } from '../contexts/TimersContext';
 import { SettingsProvider } from '../contexts/SettingsContext';
@@ -106,6 +107,7 @@ export default function RootLayout() {
                 <Stack.Screen name="day-archives" options={{ animation: 'fade' }} />
                 <Stack.Screen name="archive-detail" options={{ animation: 'fade' }} />
               </Stack>
+              <UpdateGate />
               <GrainOverlay opacity={0.06} tint="#FFFFFF" />
               {splash === 'pending' && (
                 <View style={[StyleSheet.absoluteFill, { zIndex: 1000, backgroundColor: '#000000' }]} />
