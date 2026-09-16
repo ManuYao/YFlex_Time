@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as MailComposer from 'expo-mail-composer';
+import Constants from 'expo-constants';
 import Svg, { Path } from 'react-native-svg';
 
 import GradientBackground from '../components/common/GradientBackground';
@@ -27,6 +28,20 @@ import { fonts } from '../lib/fonts';
 
 const CONTACT_EMAIL = 'yaomanuit@gmail.com';
 
+const STATUS_LABEL = {
+  idle: 'pas encore vérifié',
+  checking: 'vérification…',
+  'up-to-date': 'à jour',
+  found: 'nouvelle version trouvée et téléchargée',
+  error: 'erreur',
+};
+
+// Lu depuis app.json (expo.version) : ne JAMAIS ré-écrire "Flex Timer X.Y.Z"
+// en dur ici, sinon on retombe dans le bug qui a fait dire à l'utilisateur
+// "la version affichée n'est pas la bonne" — un seul endroit à changer
+// (app.json + package.json) pour que Paramètres suive automatiquement.
+const APP_VERSION = Constants.expoConfig?.version ?? '?.?.?';
+
 const GOLD = '#F0C954';
 const DENY_RED = '#FF5454';
 
@@ -37,10 +52,10 @@ export default function Settings() {
   const { isPremium } = usePremium();
   const [premiumDenied, setPremiumDenied] = useState(false);
   const { height: screenH } = useWindowDimensions();
-  const { pending, restart } = useOtaUpdate();
+  const { pending, restart, checkNow, status, lastCheckAt, lastError, diagnostics } = useOtaUpdate();
   // null | 'pending' | 'info' — ouverture manuelle de la même feuille que
-  // UpdateGate (app/_layout.js) affiche automatiquement une fois par mise
-  // à jour ; ici accessible à tout moment depuis la ligne "Version".
+  // le carrousel Home déclenche après 4 swipes (useSwipeTriggeredUpdate) ;
+  // ici accessible à tout moment depuis la ligne "Version".
   const [updateSheet, setUpdateSheet] = useState(null);
 
   // Achat Premium désactivé pendant la bêta — pas de navigation vers
@@ -75,7 +90,7 @@ export default function Settings() {
                 'flexTimer_customExercises',
                 // Purge la marque "déjà vue" de la feuille de mise à jour :
                 // après un reset, une version déjà en attente redevient
-                // une nouveauté à montrer (UpdateGate, une seule fois).
+                // une nouveauté à montrer (une seule fois, après 4 swipes).
                 'flexTimer_updatePopupSeen',
               ]);
             } catch {}
@@ -212,7 +227,7 @@ export default function Settings() {
           <Section title="À propos">
             <LinkRow
               label="Version"
-              sub={pending ? '🔴🟡🟢🟣 Mise à jour prête à installer' : 'Flex Timer 10.1.2 · build 42'}
+              sub={pending ? '🔴🟡🟢🟣 Mise à jour prête à installer' : `Flex Timer ${APP_VERSION} · build 42`}
               onPress={() => setUpdateSheet(pending ? 'pending' : 'info')}
             />
             <LinkRow label="Conditions d'utilisation" onPress={() => router.push('/terms')} />
@@ -224,6 +239,30 @@ export default function Settings() {
               label="Aperçu de la mise à jour (test)"
               sub="Bouton temporaire (test)"
               onPress={() => setUpdateSheet('pending')}
+              isLast
+            />
+          </Section>
+
+          {/* TEMP — à retirer avant publication : "console" visuelle pour
+              vérifier l'état réel d'EAS Update sur un APK sans ordinateur ni
+              Metro (impossible à brancher sur un build standalone). */}
+          <Section title="Diagnostic mise à jour (test)">
+            <View style={styles.diagBox}>
+              <DiagLine label="OTA actif" value={diagnostics.isEnabled ? 'oui' : 'non (dev/Expo Go)'} />
+              <DiagLine label="Canal" value={diagnostics.channel || '—'} />
+              <DiagLine label="Runtime version" value={diagnostics.runtimeVersion || '—'} />
+              <DiagLine label="Version en cours" value={diagnostics.runningUpdateId || '—'} />
+              <DiagLine label="Mise à jour prête" value={pending ? 'oui' : 'non'} />
+              <DiagLine label="Dernier check" value={STATUS_LABEL[status] || status} />
+              {!!lastCheckAt && (
+                <DiagLine label="À" value={new Date(lastCheckAt).toLocaleTimeString('fr-FR')} />
+              )}
+              {!!lastError && <DiagLine label="Erreur" value={lastError} isError />}
+            </View>
+            <LinkRow
+              label="Vérifier maintenant"
+              sub="Force un checkForUpdateAsync (voir le résultat ci-dessus)"
+              onPress={checkNow}
               isLast
             />
           </Section>
@@ -289,6 +328,17 @@ function LinkRow({ label, sub, onPress, isLast }) {
       </View>
       <Text style={styles.chevron}>›</Text>
     </Pressable>
+  );
+}
+
+function DiagLine({ label, value, isError }) {
+  return (
+    <View style={styles.diagLine}>
+      <Text style={styles.diagLabel}>{label}</Text>
+      <Text style={[styles.diagValue, isError && styles.diagValueError]} numberOfLines={2}>
+        {value}
+      </Text>
+    </View>
   );
 }
 
@@ -462,6 +512,31 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansBold,
     fontSize: 18,
     color: 'rgba(255,255,255,0.30)',
+  },
+
+  diagBox: {
+    padding: 14,
+    gap: 8,
+  },
+  diagLine: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  diagLabel: {
+    fontFamily: fonts.monoRegular,
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.45)',
+  },
+  diagValue: {
+    flex: 1,
+    fontFamily: fonts.monoBold,
+    fontSize: 11,
+    color: '#1FC777',
+    textAlign: 'right',
+  },
+  diagValueError: {
+    color: '#FF5454',
   },
 
   sliderWrap: {

@@ -31,6 +31,7 @@ import TickRing from '../components/common/TickRing';
 import WheelPicker from '../components/common/WheelPicker';
 import PressTap from '../components/common/PressTap';
 import ModeStatsSheet from '../components/common/ModeStatsSheet';
+import UpdateSheet from '../components/common/UpdateSheet';
 import { getTimerHero, getTimerDescription } from '../lib/timers-config';
 import { formatValue } from '../lib/formatters';
 import { getTokens } from '../lib/tokens';
@@ -41,6 +42,7 @@ import { useTimerHeat } from '../hooks/useTimerHeat';
 import { useLongPress } from '../hooks/useLongPress';
 import { useCooldown } from '../hooks/useCooldown';
 import { usePremium } from '../hooks/usePremium';
+import { useSwipeTriggeredUpdate } from '../hooks/useSwipeTriggeredUpdate';
 import { FREE_USES_PER_DAY } from '../lib/cooldown';
 import {
   D,
@@ -123,6 +125,7 @@ export default function Home() {
   const [statsOpen, setStatsOpen] = useState(false);
   const [isLaunching, setIsLaunching] = useState(false);
   const activeIndexRef = useRef(initialIndex);
+  const updateSheet = useSwipeTriggeredUpdate();
 
   const active = timers[activeIndex];
   const activeHeat = heatMap[active.id] || 0;
@@ -144,7 +147,8 @@ export default function Home() {
     activeIndexRef.current = index;
     haptic.selection();
     setActiveIndex(index);
-  }, [haptic, rootW]);
+    updateSheet.registerSwipe();
+  }, [haptic, rootW, updateSheet.registerSwipe]);
 
   // getItemLayout doit annoncer au FlatList la meme largeur que celle
   // reellement rendue par chaque carte (styles.card, override par rootW plus
@@ -386,6 +390,17 @@ export default function Home() {
           screenH={rootH}
           blurTargetRef={blurTargetRef}
           onClose={() => setStatsOpen(false)}
+        />
+      )}
+
+      {/* (U) Feuille "Nouvelle version" — déclenchée après quelques swipes
+          du carrousel, voir hooks/useSwipeTriggeredUpdate.js */}
+      {updateSheet.visible && (
+        <UpdateSheet
+          screenH={rootH}
+          mode="pending"
+          onRestart={updateSheet.restart}
+          onClose={updateSheet.dismiss}
         />
       )}
     </View>
