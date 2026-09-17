@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, Linking, BackHandler } from 'react-native';
+import { View, Text, StyleSheet, BackHandler, Modal } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
@@ -8,6 +8,7 @@ import GradientBackground from './GradientBackground';
 import PressTap from './PressTap';
 import { fonts } from '../../lib/fonts';
 import { haptic } from '../../hooks/useHaptic';
+import { useApkInstaller } from '../../hooks/useApkInstaller';
 import { D, slideInY } from '../../lib/animations';
 
 const MODE_COLORS = ['#FF5454', '#FFC933', '#1FC777', '#9575FF'];
@@ -32,6 +33,7 @@ export default function APKBlockedScreen({
   minVersion,
 }) {
   const insets = useSafeAreaInsets();
+  const installer = useApkInstaller(downloadUrl);
 
   useEffect(() => {
     haptic.warning();
@@ -41,18 +43,8 @@ export default function APKBlockedScreen({
     return () => sub.remove();
   }, []);
 
-  const openDownload = async () => {
-    haptic.medium();
-    try {
-      await Linking.openURL(downloadUrl);
-    } catch {
-      // Lien cassé côté Gist : on ne peut rien faire de plus ici, l'adresse
-      // reste affichée juste en dessous pour être recopiée à la main.
-    }
-  };
-
   return (
-    <View style={styles.root}>
+    <Modal visible transparent animationType="none" statusBarTranslucent>
       <GradientBackground colors={['#FF5454', '#0A0A0A', '#000000']} ambient>
         <View
           style={[
@@ -95,16 +87,54 @@ export default function APKBlockedScreen({
 
           {downloadUrl ? (
             <Animated.View entering={slideInY(14, D.base, 300)}>
-              <PressTap onPress={openDownload} accessibilityLabel="Télécharger la mise à jour">
-                <LinearGradient
-                  colors={MODE_COLORS}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.cta}
-                >
-                  <Text style={styles.ctaText}>Télécharger la mise à jour</Text>
-                </LinearGradient>
-              </PressTap>
+              {installer.canAutoInstall ? (
+                <>
+                  <PressTap
+                    onPress={installer.autoInstall}
+                    disabled={installer.status === 'downloading'}
+                    accessibilityLabel="Installer automatiquement la mise à jour"
+                  >
+                    <LinearGradient
+                      colors={MODE_COLORS}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={[styles.cta, installer.status === 'downloading' && styles.ctaBusy]}
+                    >
+                      <Text style={styles.ctaText}>
+                        {installer.status === 'downloading'
+                          ? `Téléchargement… ${Math.round(installer.progress * 100)}%`
+                          : 'Installer automatiquement'}
+                      </Text>
+                    </LinearGradient>
+                  </PressTap>
+
+                  <PressTap
+                    onPress={installer.openInBrowser}
+                    accessibilityLabel="Télécharger dans le navigateur"
+                    style={styles.secondaryBtn}
+                  >
+                    <Text style={styles.secondaryBtnText}>Télécharger dans le navigateur</Text>
+                  </PressTap>
+
+                  {installer.status === 'error' && (
+                    <Text style={styles.errorText}>
+                      L'installation automatique a échoué — utilise le téléchargement
+                      dans le navigateur ci-dessus.
+                    </Text>
+                  )}
+                </>
+              ) : (
+                <PressTap onPress={installer.openInBrowser} accessibilityLabel="Télécharger la mise à jour">
+                  <LinearGradient
+                    colors={MODE_COLORS}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.cta}
+                  >
+                    <Text style={styles.ctaText}>Télécharger la mise à jour</Text>
+                  </LinearGradient>
+                </PressTap>
+              )}
               <Text style={styles.hint} numberOfLines={2}>
                 {downloadUrl}
               </Text>
@@ -117,17 +147,11 @@ export default function APKBlockedScreen({
           )}
         </View>
       </GradientBackground>
-    </View>
+    </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  root: {
-    ...StyleSheet.absoluteFillObject,
-    // Au-dessus de tout, y compris de la cinématique de démarrage (1000).
-    zIndex: 2000,
-    backgroundColor: '#000000',
-  },
   content: {
     flex: 1,
     paddingHorizontal: 24,
@@ -215,6 +239,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  ctaBusy: {
+    opacity: 0.7,
+  },
   ctaText: {
     fontFamily: fonts.sansBold,
     fontSize: 15,
@@ -223,6 +250,27 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0,0,0,0.35)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
+  },
+  secondaryBtn: {
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 10,
+  },
+  secondaryBtnText: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 14,
+    letterSpacing: -0.1,
+    color: 'rgba(255,255,255,0.72)',
+    textDecorationLine: 'underline',
+  },
+  errorText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: 'center',
+    color: '#FF8A8A',
+    marginTop: 8,
   },
   hint: {
     fontFamily: fonts.monoRegular,

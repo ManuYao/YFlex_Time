@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -20,12 +20,14 @@ import Toggle from '../components/common/Toggle';
 import UpdateSheet from '../components/common/UpdateSheet';
 import ContactSheet from '../components/common/ContactSheet';
 import ConfirmSheet from '../components/common/ConfirmSheet';
+import MaintenanceScreen from '../components/common/MaintenanceScreen';
 import { loadContactNoticeHidden, setContactNoticeHidden } from '../lib/contactNotice';
 import { loadCustomCategories } from '../lib/exercises';
 import { useSettings } from '../contexts/SettingsContext';
 import { useTimers } from '../contexts/TimersContext';
 import { usePremium } from '../hooks/usePremium';
 import { useOtaUpdate } from '../hooks/useOtaUpdate';
+import { UPDATE_POPUP_SEEN_KEY, markUpdatePopupSeen, resolveUpdateCandidate } from '../lib/updatePopup';
 import { useAPKCheck } from '../hooks/useAPKCheck';
 import { FORCE_CHECK_LIMIT } from '../lib/apkVersionCheck';
 import { haptic } from '../hooks/useHaptic';
@@ -65,7 +67,33 @@ export default function Settings() {
   const { isPremium } = usePremium();
   const [premiumDenied, setPremiumDenied] = useState(false);
   const { height: screenH } = useWindowDimensions();
-  const { pending, restart, checkNow, status, lastCheckAt, lastError, diagnostics } = useOtaUpdate();
+  const { pending, updateId, runningUpdateId, restart, checkNow, status, lastCheckAt, lastError, diagnostics } =
+    useOtaUpdate();
+  // Même dérivation que la feuille automatique (components/common/UpdateGate.js) :
+  // consulter "Version" depuis Paramètres doit compter comme "vu" pour de bon,
+  // sinon la feuille automatique revient quand même au lancement suivant alors
+  // qu'aucune nouvelle version n'a été publiée entre-temps.
+  const updateCandidate = resolveUpdateCandidate({ pending, updateId, runningUpdateId });
+  // TEMP — lit directement la valeur persistée pour comparer à l'oeil avec le
+  // candidat ci-dessus dans le bloc diagnostic : sert à confirmer si le
+  // pop-up "Quoi de neuf" revient parce que `runningUpdateId` change à
+  // chaque lancement (pas de bug d'écriture) ou parce que l'écriture ne
+  // colle pas (là ce serait un vrai bug). Relu à chaque ouverture de
+  // Paramètres, pas de souscription temps réel.
+  const [seenPopupId, setSeenPopupId] = useState(undefined);
+  useEffect(() => {
+    let cancelled = false;
+    AsyncStorage.getItem(UPDATE_POPUP_SEEN_KEY)
+      .then((v) => {
+        if (!cancelled) setSeenPopupId(v);
+      })
+      .catch(() => {
+        if (!cancelled) setSeenPopupId(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const {
     isMaintenance,
     isBlockedByForcedUpdate,
@@ -82,6 +110,9 @@ export default function Settings() {
   const [updateSheet, setUpdateSheet] = useState(null);
   const [contactSheet, setContactSheet] = useState(false);
   const [resetConfirm, setResetConfirm] = useState(false);
+  // Aperçu de MaintenanceScreen indépendant du Gist/cache/quota — pour voir le
+  // halo tout de suite sans dépendre d'une vraie maintenance en ligne.
+  const [previewMaintenance, setPreviewMaintenance] = useState(false);
 
   // Achat Premium désactivé pendant la bêta — pas de navigation vers
   // /premium, juste un refus visuel + haptique clair.
@@ -287,7 +318,7 @@ export default function Settings() {
             <LinkRow
               label="Version"
               sub={pending ? '🔴🟡🟢🟣 Mise à jour prête à installer' : `Flex Timer ${APP_VERSION} · build 42`}
-              onPress={() => setUpdateSheet(pending ? 'pending' : 'info')}
+              onPress={() => setUpdateSheet(updateCandidate?.mode || 'info')}
             />
             <LinkRow label="Conditions d'utilisation" onPress={() => router.push('/terms')} />
             <LinkRow label="Politique de confidentialité" onPress={() => router.push('/privacy')} />
@@ -304,6 +335,27 @@ export default function Settings() {
               <DiagLine label="Runtime version" value={diagnostics.runtimeVersion || '—'} />
               <DiagLine label="Version en cours" value={diagnostics.runningUpdateId || '—'} />
               <DiagLine label="Mise à jour prête" value={pending ? 'oui' : 'non'} />
+              <DiagLine
+                label="Candidat pop-up"
+                value={updateCandidate ? `${updateCandidate.mode} · ${updateCandidate.id.slice(0, 8)}…` : '—'}
+              />
+              <DiagLine
+                label="Marqué vu (stocké)"
+                value={
+                  seenPopupId === undefined
+                    ? '…'
+                    : seenPopupId
+                      ? `${seenPopupId.slice(0, 8)}…`
+                      : 'aucun'
+                }
+              />
+              {!!updateCandidate && seenPopupId !== undefined && (
+                <DiagLine
+                  label="Correspondent"
+                  value={updateCandidate.id === seenPopupId ? 'oui — ne devrait pas s’afficher' : 'non — va s’afficher'}
+                  isError={updateCandidate.id !== seenPopupId}
+                />
+              )}
               <DiagLine label="Dernier check" value={STATUS_LABEL[status] || status} />
               {!!lastCheckAt && (
                 <DiagLine label="À" value={new Date(lastCheckAt).toLocaleTimeString('fr-FR')} />
@@ -359,6 +411,11 @@ export default function Settings() {
               }
               onPress={recheckAPK}
               disabled={forceCheckQuota.remaining === 0 || forceCheckStatus === 'checking'}
+            />
+            <LinkRow
+              label="Aperçu de la page maintenance (test)"
+              sub="Affiche MaintenanceScreen avec un message d'exemple, sans passer par le Gist"
+              onPress={() => setPreviewMaintenance(true)}
               isLast
             />
           </Section>
@@ -378,8 +435,14 @@ export default function Settings() {
           <UpdateSheet
             screenH={screenH}
             mode={updateSheet}
-            onRestart={restart}
-            onClose={() => setUpdateSheet(null)}
+            onRestart={() => {
+              if (updateCandidate) markUpdatePopupSeen(updateCandidate.id);
+              restart();
+            }}
+            onClose={() => {
+              if (updateCandidate) markUpdatePopupSeen(updateCandidate.id);
+              setUpdateSheet(null);
+            }}
           />
         )}
 
@@ -399,6 +462,14 @@ export default function Settings() {
             confirmLabel="Réinitialiser"
             onConfirm={runResetAll}
             onClose={() => setResetConfirm(false)}
+          />
+        )}
+
+        {previewMaintenance && (
+          <MaintenanceScreen
+            title="MAINTENANCE"
+            message="Exemple : Flex Timer est en maintenance ce soir de 22h à 23h pour une mise à jour du système de badges. Certaines fonctions peuvent être temporairement indisponibles, mais tes séances en cours ne sont pas affectées."
+            onClose={() => setPreviewMaintenance(false)}
           />
         )}
       </SafeAreaView>
