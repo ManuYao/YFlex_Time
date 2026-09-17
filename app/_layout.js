@@ -64,6 +64,15 @@ export default function RootLayout() {
   // normalement, la vérification ne retarde jamais l'affichage.
   const apk = useAPKCheck();
   const [bannerClosed, setBannerClosed] = useState(false);
+  // Le splash (zIndex 1000) recouvre entièrement le bandeau (150) et la
+  // pop-up (160) de maintenance : sans ce garde-fou, ils se montent et jouent
+  // leur animation d'entrée CACHÉS derrière, et n'apparaissent qu'une fois
+  // déjà figés à leur état final quand le splash se retire — d'où
+  // l'impression de "pas de halo" puis "ça disparaît" (c'est le splash qui
+  // se ferme, pas eux). Une fois passé à true, ça ne redevient jamais false :
+  // si `onSplashRequest` rejoue le splash plus tard (redémarrage OTA), il ne
+  // doit pas re-masquer une pop-up déjà affichée entre-temps.
+  const [splashCleared, setSplashCleared] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -71,6 +80,7 @@ export default function RootLayout() {
       if (cancelled) return;
       if (show) markSplashShown();
       setSplash(show ? 'show' : 'hide');
+      if (!show) setSplashCleared(true);
     });
     const unsubscribe = onSplashRequest(() => setSplash('show'));
     return () => {
@@ -125,14 +135,14 @@ export default function RootLayout() {
               </Stack>
               <UpdateGate />
 
-              {!apk.isBlockedByForcedUpdate && apk.isMaintenance && !bannerClosed && (
+              {splashCleared && !apk.isBlockedByForcedUpdate && apk.isMaintenance && !bannerClosed && (
                 <MaintenanceBanner
                   message={apk.maintenanceMessage}
                   onPress={apk.openMaintenancePopup}
                   onDismiss={() => setBannerClosed(true)}
                 />
               )}
-              {!apk.isBlockedByForcedUpdate && apk.showMaintenancePopup && (
+              {splashCleared && !apk.isBlockedByForcedUpdate && apk.showMaintenancePopup && (
                 <MaintenancePopup
                   message={apk.maintenanceMessage}
                   onClose={apk.dismissMaintenancePopup}
@@ -143,7 +153,14 @@ export default function RootLayout() {
               {splash === 'pending' && (
                 <View style={[StyleSheet.absoluteFill, { zIndex: 1000, backgroundColor: '#000000' }]} />
               )}
-              {splash === 'show' && <LaunchSplash onDone={() => setSplash('hide')} />}
+              {splash === 'show' && (
+                <LaunchSplash
+                  onDone={() => {
+                    setSplash('hide');
+                    setSplashCleared(true);
+                  }}
+                />
+              )}
 
               {/* En dernier, et au zIndex le plus haut : rien ne doit passer
                   au-dessus du blocage, pas même la cinématique de démarrage. */}
