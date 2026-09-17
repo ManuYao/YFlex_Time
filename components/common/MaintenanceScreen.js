@@ -43,15 +43,17 @@ const HIDDEN_ROUTES = new Set(['/', '/index', '/onboarding', '/countdown', '/run
  * « il se passe quelque chose d'important », le halo devient plus présent et
  * tourne plus vite ; un message d'une ligne reste discret. Seuils du brief
  * d'origine (<50 / 50-150 / >150 caractères).
+ *
+ * TRÈS discret : juste un scintillement subtil qu'on voit à peine, pas envahissant.
  */
 const intensityFor = (length) => {
   if (length > 150) {
-    return { ring: 0.8, glow: 0.4, duration: 1600, spread: 13, width: 3.5 };
+    return { ring: 0.15, glow: 0.08, duration: 1600, spread: 5, width: 1.5 };
   }
   if (length >= 50) {
-    return { ring: 0.65, glow: 0.28, duration: 2500, spread: 11, width: 3 };
+    return { ring: 0.12, glow: 0.06, duration: 2500, spread: 4.5, width: 1.3 };
   }
-  return { ring: 0.5, glow: 0.18, duration: 3500, spread: 7, width: 2.5 };
+  return { ring: 0.1, glow: 0.05, duration: 3500, spread: 4, width: 1.2 };
 };
 
 // Un carré assez grand pour couvrir la carte quel que soit l'angle : son côté
