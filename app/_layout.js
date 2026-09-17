@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Stack } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -24,8 +24,9 @@ import LaunchSplash from '../components/common/LaunchSplash';
 import UpdateGate from '../components/common/UpdateGate';
 import APKBlockedScreen from '../components/common/APKBlockedScreen';
 import MaintenanceBanner from '../components/common/MaintenanceBanner';
-import MaintenancePopup from '../components/common/MaintenancePopup';
+import MaintenanceScreen from '../components/common/MaintenanceScreen';
 import { useAPKCheck } from '../hooks/useAPKCheck';
+import { useOtaUpdate } from '../hooks/useOtaUpdate';
 import { shouldShowSplash, markSplashShown, onSplashRequest } from '../lib/splash';
 import { loadCustomCategories } from '../lib/exercises';
 import { TimersProvider } from '../contexts/TimersContext';
@@ -63,15 +64,16 @@ export default function RootLayout() {
   // Tant qu'elle n'a pas répondu, tout est à false : l'app démarre
   // normalement, la vérification ne retarde jamais l'affichage.
   const apk = useAPKCheck();
+  const ota = useOtaUpdate();
   const [bannerClosed, setBannerClosed] = useState(false);
-  // Le splash (zIndex 1000) recouvre entièrement le bandeau (150) et la
-  // pop-up (160) de maintenance : sans ce garde-fou, ils se montent et jouent
-  // leur animation d'entrée CACHÉS derrière, et n'apparaissent qu'une fois
-  // déjà figés à leur état final quand le splash se retire — d'où
-  // l'impression de "pas de halo" puis "ça disparaît" (c'est le splash qui
-  // se ferme, pas eux). Une fois passé à true, ça ne redevient jamais false :
-  // si `onSplashRequest` rejoue le splash plus tard (redémarrage OTA), il ne
-  // doit pas re-masquer une pop-up déjà affichée entre-temps.
+  // Le splash (zIndex 1000) recouvre entièrement le bandeau (150) et la page
+  // (900) de maintenance : sans ce garde-fou, ils se montent et jouent leur
+  // animation d'entrée CACHÉS derrière, et n'apparaissent qu'une fois déjà
+  // figés à leur état final quand le splash se retire — d'où l'impression de
+  // "pas de halo" puis "ça disparaît" (c'est le splash qui se ferme, pas
+  // eux). Une fois passé à true, ça ne redevient jamais false : si
+  // `onSplashRequest` rejoue le splash plus tard (redémarrage OTA), il ne
+  // doit pas re-masquer une page déjà affichée entre-temps.
   const [splashCleared, setSplashCleared] = useState(false);
 
   useEffect(() => {
@@ -88,6 +90,20 @@ export default function RootLayout() {
       unsubscribe();
     };
   }, []);
+
+  // Refetch du Gist quand un nouvel OTA arrive (une nouvelle version a été
+  // téléchargée ou appliquée). Cela vérifie si la maintenance ou le blocage
+  // forcé est toujours actuel, ou si l'état a changé entre le lancement et
+  // l'arrivée de l'OTA.
+  const lastOtaIdRef = useRef(null);
+  useEffect(() => {
+    const currentOtaId = ota.updateId || ota.runningUpdateId;
+    if (currentOtaId && currentOtaId !== lastOtaIdRef.current) {
+      // OTA détecté : refetch du Gist
+      apk.recheck();
+      lastOtaIdRef.current = currentOtaId;
+    }
+  }, [ota.updateId, ota.runningUpdateId, apk]);
 
   if (!fontsLoaded) return null;
 
@@ -138,14 +154,15 @@ export default function RootLayout() {
               {splashCleared && !apk.isBlockedByForcedUpdate && apk.isMaintenance && !bannerClosed && (
                 <MaintenanceBanner
                   message={apk.maintenanceMessage}
-                  onPress={apk.openMaintenancePopup}
+                  onPress={apk.openMaintenanceScreen}
                   onDismiss={() => setBannerClosed(true)}
                 />
               )}
-              {splashCleared && !apk.isBlockedByForcedUpdate && apk.showMaintenancePopup && (
-                <MaintenancePopup
+              {splashCleared && !apk.isBlockedByForcedUpdate && apk.showMaintenanceScreen && (
+                <MaintenanceScreen
                   message={apk.maintenanceMessage}
-                  onClose={apk.dismissMaintenancePopup}
+                  downloadUrl={apk.downloadUrl}
+                  onClose={apk.dismissMaintenanceScreen}
                 />
               )}
 
@@ -170,6 +187,7 @@ export default function RootLayout() {
                   downloadUrl={apk.downloadUrl}
                   currentVersion={apk.currentVersion}
                   minVersion={apk.minVersion}
+                  onQuit={apk.dismissBlockedScreen}
                 />
               )}
             </View>

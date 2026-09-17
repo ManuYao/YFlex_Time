@@ -15,7 +15,7 @@ import {
 // 24h côté réseau, celle-ci évite juste des lectures AsyncStorage en rafale.
 const RECHECK_MIN_MS = 60 * 1000;
 
-const INITIAL = {
+const INITIAL_STATE = {
   checked: false,
   isBlockedByForcedUpdate: false,
   isMaintenance: false,
@@ -29,31 +29,54 @@ const INITIAL = {
 };
 
 /**
+ * État partagé au niveau module — PAS un `useState` par instance.
+ *
+ * `useAPKCheck()` est appelé deux fois dans l'app : une fois dans
+ * `app/_layout.js` (pilote le bandeau/pop-up réels), une fois dans
+ * `app/settings.js` (bloc diagnostic). Avec deux state React indépendants,
+ * forcer une vérification depuis Paramètres ne mettait à jour QUE le
+ * diagnostic — le bandeau/pop-up réels restaient sur leur ancien résultat
+ * jusqu'au prochain retour au premier plan de l'instance de `_layout.js`.
+ * Bug constaté le 17/09/2026 : "Maintenance: oui" dans Paramètres, mais rien
+ * ne s'affiche à l'écran.
+ *
+ * Toutes les instances partagent donc ce même objet et se notifient entre
+ * elles au moindre changement (même principe que le pub/sub de
+ * `lib/splash.js` pour `onSplashRequest`).
+ */
+let shared = {
+  state: INITIAL_STATE,
+  showMaintenanceScreen: false,
+  forceCheckStatus: 'idle', // idle | checking | ok | limited | error
+  forceCheckQuota: { remaining: null, limit: null, retryAt: null },
+};
+const listeners = new Set();
+
+const setShared = (patch) => {
+  shared = { ...shared, ...patch };
+  listeners.forEach((notify) => notify(shared));
+};
+
+/**
  * Déclenche la vérification d'APK au démarrage, puis à chaque retour au
  * premier plan (les gens laissent l'app ouverte des jours). Tant que rien
  * n'a répondu, l'état reste « rien à signaler » : l'app démarre toujours
  * normalement, la vérification ne retarde jamais l'affichage.
  *
- * Pop-up vs bandeau, pendant une maintenance :
- * - la pop-up (`showMaintenancePopup`) s'affiche UNE fois par message —
+ * Page vs bandeau, pendant une maintenance :
+ * - la page (`showMaintenanceScreen`) s'affiche UNE fois par message —
  *   mémorisée dans AsyncStorage, comme la feuille "Nouvelle version" ;
  * - le bandeau, lui, reste visible tant que la maintenance est annoncée.
  * Un nouveau texte dans le Gist = une nouvelle pop-up.
  */
 export function useAPKCheck() {
-  const [state, setState] = useState(INITIAL);
-  const [showMaintenancePopup, setShowMaintenancePopup] = useState(false);
+  const [local, setLocal] = useState(shared);
   const lastRunRef = useRef(0);
 
-  // Quota du bouton "Vérifier maintenant" de Paramètres (5/heure glissante,
-  // lib/apkVersionCheck.js) — distinct du check auto ci-dessous, qui garde
-  // son throttle 24h normal.
-  const [forceCheckStatus, setForceCheckStatus] = useState('idle'); // idle | checking | ok | limited | error
-  const [forceCheckQuota, setForceCheckQuota] = useState({
-    remaining: null,
-    limit: null,
-    retryAt: null,
-  });
+  useEffect(() => {
+    listeners.add(setLocal);
+    return () => listeners.delete(setLocal);
+  }, []);
 
   const run = useCallback(async (force = false) => {
     const now = Date.now();
@@ -61,12 +84,12 @@ export function useAPKCheck() {
     lastRunRef.current = now;
 
     const next = await checkAPKVersion({ force });
-    setState(next);
-
+    let showScreen = shared.showMaintenanceScreen;
     if (next.isMaintenance && next.maintenanceMessage) {
       const seen = await hasSeenMaintenanceMessage(next.maintenanceMessage);
-      if (!seen) setShowMaintenancePopup(true);
+      if (!seen) showScreen = true;
     }
+    setShared({ state: next, showMaintenanceScreen: showScreen });
   }, []);
 
   useEffect(() => {
@@ -91,10 +114,10 @@ export function useAPKCheck() {
     };
   }, [run]);
 
-  const dismissMaintenancePopup = useCallback(() => {
-    markMaintenanceMessageSeen(state.maintenanceMessage);
-    setShowMaintenancePopup(false);
-  }, [state.maintenanceMessage]);
+  const dismissMaintenanceScreen = useCallback(() => {
+    markMaintenanceMessageSeen(shared.state.maintenanceMessage);
+    setShared({ showMaintenanceScreen: false });
+  }, []);
 
   // Quota affiché dès l'ouverture de Paramètres, avant tout clic — sinon
   // "Vérifier maintenant" resterait muet sur le nombre de tentatives
@@ -102,7 +125,7 @@ export function useAPKCheck() {
   useEffect(() => {
     let cancelled = false;
     getForceCheckQuota().then((q) => {
-      if (!cancelled) setForceCheckQuota(q);
+      if (!cancelled) setShared({ forceCheckQuota: q });
     });
     return () => {
       cancelled = true;
@@ -115,31 +138,50 @@ export function useAPKCheck() {
    * donc pas contournable en fermant/rouvrant l'app. Séparée de `run(true)` :
    * le check auto au démarrage/retour au premier plan n'est jamais concerné
    * par cette limite, uniquement par son throttle 24h habituel.
+   *
+   * Écrit dans l'état PARTAGÉ (voir plus haut) : le résultat se reflète donc
+   * immédiatement dans le bandeau/pop-up réels, pas seulement ici.
    */
   const recheck = useCallback(async () => {
-    setForceCheckStatus('checking');
+    setShared({ forceCheckStatus: 'checking' });
     const next = await forceCheckAPKVersion();
-    setState(next);
-
     const quota = await getForceCheckQuota();
-    setForceCheckQuota(quota);
-    setForceCheckStatus(next.quotaExceeded ? 'limited' : next.error ? 'error' : 'ok');
 
+    let showScreen = shared.showMaintenanceScreen;
     if (next.isMaintenance && next.maintenanceMessage) {
       const seen = await hasSeenMaintenanceMessage(next.maintenanceMessage);
-      if (!seen) setShowMaintenancePopup(true);
+      if (!seen) showScreen = true;
     }
+
+    setShared({
+      state: next,
+      showMaintenanceScreen: showScreen,
+      forceCheckQuota: quota,
+      forceCheckStatus: next.quotaExceeded ? 'limited' : next.error ? 'error' : 'ok',
+    });
+  }, []);
+
+  const dismissBlockedScreen = useCallback(() => {
+    // TEMP: quitter le blocage en mode test. À retirer une fois les tests faits.
+    setShared({
+      state: {
+        ...shared.state,
+        isBlockedByForcedUpdate: false,
+      },
+    });
   }, []);
 
   return {
-    ...state,
-    showMaintenancePopup,
+    ...local.state,
+    showMaintenanceScreen: local.showMaintenanceScreen,
     /** Rouvre la pop-up à la demande (tap sur le bandeau). */
-    openMaintenancePopup: () => setShowMaintenancePopup(true),
-    dismissMaintenancePopup,
+    openMaintenanceScreen: () => setShared({ showMaintenanceScreen: true }),
+    dismissMaintenanceScreen,
+    /** TEMP: quitter le blocage en mode test. */
+    dismissBlockedScreen,
     /** Vérification manuelle plafonnée à 5/heure (bloc diagnostic Paramètres). */
     recheck,
-    forceCheckStatus,
-    forceCheckQuota,
+    forceCheckStatus: local.forceCheckStatus,
+    forceCheckQuota: local.forceCheckQuota,
   };
 }

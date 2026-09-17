@@ -31,6 +31,7 @@ export default function APKBlockedScreen({
   downloadUrl,
   currentVersion,
   minVersion,
+  onQuit, // TEMP: callback pour quitter le blocage en mode test
 }) {
   const insets = useSafeAreaInsets();
   const installer = useApkInstaller(downloadUrl);
@@ -144,6 +145,14 @@ export default function APKBlockedScreen({
               Aucun lien de téléchargement n'a été fourni. Contacte-nous depuis
               le mail de l'app pour recevoir la nouvelle version.
             </Animated.Text>
+          )}
+
+          {onQuit && (
+            <Animated.View entering={slideInY(14, D.base, 360)} style={styles.quitBtnWrap}>
+              <PressTap onPress={onQuit} accessibilityLabel="Quitter ce menu">
+                <Text style={styles.quitBtnText}>Quitter (test)</Text>
+              </PressTap>
+            </Animated.View>
           )}
         </View>
       </GradientBackground>
@@ -279,5 +288,17 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     color: 'rgba(255,255,255,0.38)',
     marginTop: 14,
+  },
+
+  quitBtnWrap: {
+    marginTop: 20,
+  },
+  quitBtnText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 13,
+    letterSpacing: -0.1,
+    color: 'rgba(255,255,255,0.55)',
+    textAlign: 'center',
+    padding: 12,
   },
 });
