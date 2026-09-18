@@ -146,3 +146,89 @@ publication).
   vérifier.
 - **Quelqu'un est bloqué à tort** → remets `"is_forced_update": false` dans
   le Gist. Il sera débloqué à sa prochaine vérification.
+
+---
+
+## Faire passer les testeurs sur une nouvelle APK (procédure complète)
+
+Cas typique : une mise à jour **native** (nouvelle lib, comme la notification
+de chrono en 12.0.0) ne peut pas arriver toute seule par `push-update.cmd`.
+Il faut que chaque testeur réinstalle l'app à la main, et le Gist sert à le
+leur dire — avec un bouton qui télécharge directement.
+
+### Ce qu'il faut bien comprendre (pour ne pas s'embrouiller)
+
+Un téléphone est bloqué **seulement si les deux sont vrais en même temps** :
+
+1. `is_forced_update` vaut `true` ;
+2. la version installée est **plus petite** que `min_apk_version`.
+
+Conséquence : tu **n'as jamais besoin de « remettre en mode normal »** après
+coup. Un testeur qui vient d'installer la 12.0.0 a une version égale à
+`min_apk_version`, donc pas plus petite → il n'est pas bloqué, même si
+`is_forced_update` reste à `true` pendant des mois. Seuls les téléphones
+encore en 11.x voient l'écran rouge. Tu peux laisser le Gist tel quel jusqu'à
+la prochaine APK, où tu changeras juste le numéro et le lien.
+
+### Les 4 étapes
+
+1. **Attends la fin du build** (`eas build`, ~15 min). À la fin, EAS affiche
+   un lien qui se termine par `.apk` (ou ouvre <https://expo.dev>, projet
+   Flex Timer, onglet Builds, dernier build → bouton Download → copier le
+   lien). Vérifie-le : ouvert dans un navigateur, il doit lancer un
+   téléchargement, pas afficher une page d'erreur.
+
+2. **Installe-la toi-même d'abord** sur ton téléphone. Ouvre Paramètres → À
+   propos : la version affichée doit être la nouvelle (ex. `12.0.0`). Si tu
+   ne fais pas ça, tu risques de bloquer tout le monde sur un lien qui ne
+   marche pas.
+
+3. **Modifie le Gist** (page du Gist → Edit → Update public gist). Seulement
+   ces trois lignes changent :
+
+   ```json
+   "min_apk_version": "12.0.0",
+   "is_forced_update": true,
+   "download_url": "https://expo.dev/artifacts/eas/XXXXXXXX.apk",
+   "forced_update_message": "Nouvelle version avec le chrono en arrière-plan. Installe-la pour continuer (30 secondes)."
+   ```
+
+   (le message est libre, ce qui précède est un exemple ; garde-le court,
+   c'est un écran plein.)
+
+4. **Préviens les testeurs** en une phrase, par message : « ouvre Flex
+   Timer, suis l'écran rouge ». Ce qu'ils verront : un écran rouge, bouton
+   « Installer la mise à jour » → téléchargement dans l'app → Android
+   demande « autoriser cette source » la première fois, puis « installer ».
+   Un lien « Télécharger dans le navigateur » reste dessous en secours.
+
+### Délais à prévoir
+
+- L'app relit le Gist **au plus une fois par 24 h**. Un testeur qui a ouvert
+  l'app ce matin ne verra l'écran rouge que demain, sauf s'il force la
+  lecture (Paramètres → Diagnostic maintenance → Vérifier maintenant).
+- Le blocage arrive **au lancement**, pas au milieu d'une séance.
+
+### Astuce : prévenir en douceur avant de forcer
+
+Si tu veux laisser un jour ou deux aux gens avant de bloquer, active d'abord
+la maintenance simple (fermable) avec le lien dans le texte :
+
+```json
+"is_maintenance": true,
+"maintenance_message": "Nouvelle version 12.0.0 disponible : le chrono continue en arrière-plan. Réinstalle depuis le lien envoyé par message quand tu as 30 secondes.",
+"is_forced_update": false
+```
+
+puis, quand tu veux couper les anciennes versions, passe
+`"is_forced_update": true` et `"is_maintenance": false` en une seule édition.
+La page de maintenance simple **n'a pas de bouton de téléchargement**
+(décision : ce bouton n'existe que sur l'écran bloquant), d'où l'idée
+d'envoyer le lien par message dans ce cas.
+
+### Après la migration
+
+Rien à faire dans le Gist. La prochaine fois qu'une APK native sera
+nécessaire, tu répètes les 4 étapes avec le nouveau numéro et le nouveau
+lien — les versions intermédiaires (12.1.0, 12.2.0…) passeront toutes
+seules par `push-update.cmd`, sans toucher au Gist.

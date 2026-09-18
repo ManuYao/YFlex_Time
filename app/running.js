@@ -5,7 +5,6 @@ import {
   Pressable,
   StyleSheet,
   BackHandler,
-  AppState,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -37,6 +36,13 @@ import { useTimer } from '../hooks/useTimer';
 import { useHaptic } from '../hooks/useHaptic';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { useSound } from '../hooks/useSound';
+import {
+  TIMER_ACTIONS,
+  onTimerNotificationAction,
+  startTimerNotification,
+  stopTimerNotification,
+  updateTimerNotification,
+} from '../lib/timerNotification';
 
 const easeImpact = Easing.bezier(0.22, 1, 0.36, 1);
 const springEnergetic = { stiffness: 380, damping: 22, mass: 1 };
@@ -76,35 +82,16 @@ export default function Running() {
   const lastPhaseRef = useRef(state.phaseLabel);
   const navigatedRef = useRef(false);
   const skippedRef = useRef(0);
-  const appStateRef = useRef(AppState.currentState);
-  const pendingPhaseBeepRef = useRef(false);
 
   useEffect(() => {
     if (state.phaseLabel !== lastPhaseRef.current) {
       lastPhaseRef.current = state.phaseLabel;
       if (!state.isComplete) {
         haptic.medium();
-        // Le son échoue silencieusement en arrière-plan (shouldPlayInBackground: false) :
-        // on rattrape avec un seul bip au retour au premier plan plutôt que rien du tout.
-        if (appStateRef.current === 'active') {
-          sound.playPhase();
-        } else {
-          pendingPhaseBeepRef.current = true;
-        }
+        sound.playPhase();
       }
     }
   }, [state.phaseLabel, state.isComplete]);
-
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', (next) => {
-      if (appStateRef.current !== 'active' && next === 'active' && pendingPhaseBeepRef.current) {
-        pendingPhaseBeepRef.current = false;
-        sound.playPhase();
-      }
-      appStateRef.current = next;
-    });
-    return () => sub.remove();
-  }, []);
 
   useEffect(() => {
     if (state.isComplete && !navigatedRef.current) {
@@ -202,11 +189,92 @@ export default function Running() {
     setRestTriggers((prev) => [...prev, secondsElapsed]);
   };
 
+  // Bouton "Stop" de la notification : on termine la séance EN LA GARDANT
+  // (écran de fin, historique), comme le "Fin" d'EMOM — depuis le volet de
+  // notifications on ne peut pas faire d'appui long, et jeter la séance
+  // sur un tap serait bien pire que la compter un peu courte.
+  const handleStop = () => {
+    if (navigatedRef.current) return;
+    navigatedRef.current = true;
+    haptic.warning();
+    const elapsedWhole = Math.floor(secondsElapsed);
+    const done =
+      state.totalSecondsTarget > 0
+        ? Math.min(elapsedWhole, Math.floor(state.totalSecondsTarget))
+        : elapsedWhole;
+    router.replace({
+      pathname: '/end-session',
+      params: {
+        timerId: timer.id,
+        elapsed: done,
+        ...(isManualBasic ? { ctx: JSON.stringify({ restTriggers }) } : {}),
+      },
+    });
+  };
+
   const displaySeconds = isWorkInfinite
     ? Math.floor(state.phaseSecondsLeft)
     : Math.ceil(state.phaseSecondsLeft);
   const centerLabel = isWorkInfinite ? 'ÉCOULÉ' : 'RESTANT';
   const ctaLabel = isPaused ? 'EN PAUSE' : 'EN COURS';
+
+  // Libellé du 3ᵉ bouton de la notification : "Passer" partout, sauf BASIC en
+  // travail libre où il joue le rôle du bouton central (REPOS / FINI), et
+  // EMOM où avancer d'une minute n'a pas de sens (pas de bouton du tout).
+  const notifSkipLabel = isEmom
+    ? null
+    : isManualBasic && isWorkInfinite
+    ? isLastBasicWork
+      ? 'Fini'
+      : 'Repos'
+    : 'Passer';
+
+  // Notification persistante (Android) : démarrée avec l'écran, coupée avec
+  // lui — quitter Running, quelle qu'en soit la raison, retire la notif et
+  // arrête le service de premier plan.
+  useEffect(() => {
+    startTimerNotification();
+    return () => {
+      stopTimerNotification();
+    };
+  }, []);
+
+  // Une réécriture par seconde affichée (même valeur que le gros chiffre),
+  // plus à chaque changement de phase / tour / pause.
+  useEffect(() => {
+    if (state.isComplete) return;
+    updateTimerNotification({
+      timerName: timer.name,
+      color: timer.color,
+      phaseLabel: state.phaseLabel,
+      roundLabel: state.roundLabel,
+      seconds: displaySeconds,
+      countUp: isWorkInfinite,
+      isPaused,
+      skipLabel: notifSkipLabel,
+    });
+  }, [displaySeconds, state.phaseLabel, state.roundLabel, isPaused, isWorkInfinite, notifSkipLabel, state.isComplete]);
+
+  // Les boutons de la notification pilotent les MÊMES handlers que l'écran.
+  // Ref pour s'abonner une seule fois tout en lisant toujours la dernière
+  // version des handlers (ils capturent l'état courant à chaque rendu).
+  const actionsRef = useRef(null);
+  actionsRef.current = {
+    // Gardes explicites : un tap sur un bouton déjà obsolète (notif pas
+    // encore réécrite) ne doit pas inverser l'état par erreur.
+    [TIMER_ACTIONS.PAUSE]: () => {
+      if (!isPaused) handlePauseToggle();
+    },
+    [TIMER_ACTIONS.RESUME]: () => {
+      if (isPaused) handlePauseToggle();
+    },
+    [TIMER_ACTIONS.SKIP]: isManualBasic && isWorkInfinite ? handleEndWork : handleSkip,
+    [TIMER_ACTIONS.STOP]: handleStop,
+  };
+  useEffect(
+    () => onTimerNotificationAction((action) => actionsRef.current?.[action]?.()),
+    []
+  );
 
   // Pulse ambiant — overlay LinearGradient timer.bgColors, opacity 0→0.15→0 cycle 2s
   const pulseOpacity = useSharedValue(0);

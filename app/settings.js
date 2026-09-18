@@ -7,6 +7,8 @@ import {
   Linking,
   StyleSheet,
   useWindowDimensions,
+  AppState,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -22,6 +24,10 @@ import ContactSheet from '../components/common/ContactSheet';
 import ConfirmSheet from '../components/common/ConfirmSheet';
 import LegalGate from '../components/common/LegalGate';
 import { loadContactNoticeHidden, setContactNoticeHidden } from '../lib/contactNotice';
+import {
+  isBatteryOptimizationEnabled,
+  openBatteryOptimizationSettings,
+} from '../lib/batteryOptimization';
 import { loadLegalAccepted } from '../lib/legalConsent';
 import { loadCustomCategories } from '../lib/exercises';
 import { useSettings } from '../contexts/SettingsContext';
@@ -106,6 +112,26 @@ export default function Settings() {
     };
   }, []);
 
+  // null = pas encore lu. Relu à chaque retour au premier plan : l'utilisateur
+  // revient ici juste après avoir changé le réglage système, la ligne doit
+  // refléter le nouvel état sans rouvrir l'écran.
+  const [batteryOptimized, setBatteryOptimized] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    const read = () =>
+      isBatteryOptimizationEnabled().then((on) => {
+        if (!cancelled) setBatteryOptimized(on);
+      });
+    read();
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') read();
+    });
+    return () => {
+      cancelled = true;
+      sub.remove();
+    };
+  }, []);
+
   // Achat Premium désactivé pendant la bêta — pas de navigation vers
   // /premium, juste un refus visuel + haptique clair.
   const handlePremiumPress = () => {
@@ -156,6 +182,9 @@ export default function Settings() {
         // Conseils de surcharge progressive déjà montrés (lib/progression.js) :
         // après un reset, un conseil déjà vu redevient à proposer.
         'flexTimer_progressionSeen',
+        // Proposition d'exclusion de l'optimisation batterie (fin de la
+        // première séance) : redemandée après un reset.
+        'flexTimer_batteryPromptSeen',
       ]);
     } catch {}
     // Le cache mémoire des catégories perso survivrait à la purge du
@@ -294,8 +323,25 @@ export default function Settings() {
                   color="#FFC933"
                 />
               }
-              isLast
+              isLast={Platform.OS !== 'android'}
             />
+            {Platform.OS === 'android' && (
+              <LinkRow
+                label="Chrono en arrière-plan"
+                sub={
+                  batteryOptimized === null
+                    ? 'Vérification…'
+                    : batteryOptimized
+                    ? "Optimisation batterie active — touche pour l'exclure"
+                    : 'Exclu de l’optimisation batterie ✓'
+                }
+                onPress={() => {
+                  haptic.light();
+                  openBatteryOptimizationSettings();
+                }}
+                isLast
+              />
+            )}
           </Section>
 
           <Section title="Notifications">

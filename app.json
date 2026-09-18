@@ -2,7 +2,7 @@
   "expo": {
     "name": "Flex Timer",
     "slug": "flex-timer",
-    "version": "11.1.0",
+    "version": "12.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -22,7 +22,9 @@
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
-        "android.permission.REQUEST_INSTALL_PACKAGES"
+        "android.permission.REQUEST_INSTALL_PACKAGES",
+        "android.permission.FOREGROUND_SERVICE_SPECIAL_USE",
+        "android.permission.POST_NOTIFICATIONS"
       ]
     },
     "plugins": [
@@ -38,7 +40,8 @@
           "backgroundColor": "#000000"
         }
       ],
-      "expo-mail-composer"
+      "expo-mail-composer",
+      "./plugins/withTimerForegroundService"
     ],
     "experiments": {
       "typedRoutes": false

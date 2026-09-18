@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { View, Text, Pressable, StyleSheet, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -19,6 +19,12 @@ import Animated, {
 import TickRing from '../components/common/TickRing';
 import GradientBackground from '../components/common/GradientBackground';
 import Confetti from '../components/common/Confetti';
+import ConfirmSheet from '../components/common/ConfirmSheet';
+import {
+  shouldPromptBatteryOptimization,
+  markBatteryPromptSeen,
+  openBatteryOptimizationSettings,
+} from '../lib/batteryOptimization';
 import { useTimers } from '../contexts/TimersContext';
 import { computeSessionStats } from '../lib/timer-engine';
 import { formatDuration } from '../lib/formatters';
@@ -38,6 +44,28 @@ export default function EndSession() {
   const timer = timers.find((t) => t.id === timerId);
   const elapsedNum = Number(elapsed) || 0;
   const savedRef = useRef(false);
+  const { height: screenH } = useWindowDimensions();
+
+  // Une seule fois, à la fin de la première séance (jamais pendant l'effort,
+  // jamais au lancement) : proposer d'exclure l'app de l'optimisation
+  // batterie pour que le chrono en arrière-plan reste fiable partout.
+  const [batterySheet, setBatterySheet] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const id = setTimeout(() => {
+      shouldPromptBatteryOptimization().then((show) => {
+        if (!cancelled && show) setBatterySheet(true);
+      });
+    }, 2200);
+    return () => {
+      cancelled = true;
+      clearTimeout(id);
+    };
+  }, []);
+  const closeBatterySheet = () => {
+    setBatterySheet(false);
+    markBatteryPromptSeen();
+  };
 
   let ctx;
   if (ctxParam) {
@@ -310,6 +338,19 @@ export default function EndSession() {
         </View>
       </View>
       </SafeAreaView>
+
+      {batterySheet && (
+        <ConfirmSheet
+          screenH={screenH}
+          title="Chrono en arrière-plan"
+          body="Pour que le chrono et ses bips restent fiables écran éteint ou dans une autre appli, autorise Flex Timer à ignorer l'optimisation de batterie. Modifiable plus tard dans Paramètres › Timers."
+          confirmLabel="Autoriser"
+          cancelLabel="Plus tard"
+          destructive={false}
+          onConfirm={openBatteryOptimizationSettings}
+          onClose={closeBatterySheet}
+        />
+      )}
     </GradientBackground>
   );
 }

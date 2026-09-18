@@ -29,6 +29,7 @@ import { useAPKCheck } from '../hooks/useAPKCheck';
 import { useOtaUpdate } from '../hooks/useOtaUpdate';
 import { shouldShowSplash, markSplashShown, markSplashCleared, onSplashRequest } from '../lib/splash';
 import { loadCustomCategories } from '../lib/exercises';
+import { registerTimerNotification } from '../lib/timerNotification';
 import { TimersProvider } from '../contexts/TimersContext';
 import { SettingsProvider } from '../contexts/SettingsContext';
 
@@ -36,9 +37,18 @@ import { SettingsProvider } from '../contexts/SettingsContext';
 // planning ne rende ses chips : getCategory() est synchrone et lit ce cache.
 loadCustomCategories().catch(() => {});
 
+// Service de premier plan + handlers des boutons de la notification de
+// séance : doivent exister dès le chargement du bundle, avant tout écran.
+registerTimerNotification();
+
 setAudioModeAsync({
   playsInSilentMode: true,
-  shouldPlayInBackground: false,
+  // Les bips de phase doivent sonner écran éteint : le service de premier
+  // plan garde le processus vivant, expo-audio ne doit plus couper les
+  // lecteurs au passage en arrière-plan. Aucune notification média n'est
+  // créée pour autant (elle n'apparaît qu'avec des commandes d'écran de
+  // verrouillage, jamais demandées ici).
+  shouldPlayInBackground: true,
   shouldRouteThroughEarpiece: false,
   interruptionMode: 'mixWithOthers',
 }).catch(() => {});
