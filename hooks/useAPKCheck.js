@@ -161,24 +161,12 @@ export function useAPKCheck() {
     });
   }, []);
 
-  const dismissBlockedScreen = useCallback(() => {
-    // TEMP: quitter le blocage en mode test. À retirer une fois les tests faits.
-    setShared({
-      state: {
-        ...shared.state,
-        isBlockedByForcedUpdate: false,
-      },
-    });
-  }, []);
-
   return {
     ...local.state,
     showMaintenanceScreen: local.showMaintenanceScreen,
     /** Rouvre la pop-up à la demande (tap sur le bandeau). */
     openMaintenanceScreen: () => setShared({ showMaintenanceScreen: true }),
     dismissMaintenanceScreen,
-    /** TEMP: quitter le blocage en mode test. */
-    dismissBlockedScreen,
     /** Vérification manuelle plafonnée à 5/heure (bloc diagnostic Paramètres). */
     recheck,
     forceCheckStatus: local.forceCheckStatus,

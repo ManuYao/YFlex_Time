@@ -200,7 +200,6 @@ export default function RootLayout() {
                   downloadUrl={apk.downloadUrl}
                   currentVersion={apk.currentVersion}
                   minVersion={apk.minVersion}
-                  onQuit={apk.dismissBlockedScreen}
                 />
               )}
             </View>
