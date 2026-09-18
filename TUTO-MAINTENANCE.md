@@ -91,21 +91,18 @@ Pour arrêter : remets `"is_maintenance": false`.
 
 ## Forcer une mise à jour
 
-Deux lignes doivent être vraies **en même temps** pour qu'un téléphone soit
-bloqué :
+**Une seule chose suffit** : changer `min_apk_version`. Dès qu'un téléphone a
+une version installée inférieure, il est bloqué automatiquement — pas besoin
+de toucher à un deuxième réglage.
 
 ```json
-"min_apk_version": "11.0.0",
-"is_forced_update": true,
+"min_apk_version": "12.0.0",
 "download_url": "https://lien-direct-vers-ton-apk.apk",
 ```
 
 - `min_apk_version` = la version **minimale acceptable**. Tous les
-  téléphones dont la version installée est inférieure sont bloqués. Les
-  autres ne voient rien.
-- `is_forced_update` = l'interrupteur. Le remettre à `false` débloque tout
-  le monde immédiatement (enfin : à leur prochaine vérification, voir plus
-  bas).
+  téléphones dont la version installée est inférieure sont bloqués
+  automatiquement. Les autres (déjà à jour) ne voient rien.
 - `download_url` = le lien direct vers le nouvel APK (celui que te donne EAS
   à la fin d'un `eas build`). Sans lien, l'écran s'affiche quand même mais
   sans bouton.
@@ -113,8 +110,28 @@ bloqué :
 La version installée sur un téléphone est celle affichée dans
 **Paramètres → À propos** de l'app (elle vient de `app.json`).
 
-⚠️ Vérifie toujours ton lien avant de mettre `is_forced_update` à `true` :
-une fois bloqués, les gens n'ont plus que ce bouton.
+⚠️ Vérifie toujours ton lien **avant** de changer `min_apk_version` : une
+fois bloqués, les gens n'ont plus que ce bouton.
+
+### Le champ `is_forced_update` — coupe-circuit, pas interrupteur principal
+
+Tu n'as **pas besoin** d'y toucher pour bloquer — c'est déjà fait par
+`min_apk_version` seul. Il ne sert que dans un cas précis : tu veux préparer
+un futur `min_apk_version` (par exemple pour tester) **sans bloquer
+personne tout de suite**. Ajoute alors :
+
+```json
+"is_forced_update": false,
+```
+
+Tant que cette ligne est à `false`, **personne n'est bloqué**, même avec un
+`min_apk_version` plus récent que ce qu'ils ont installé. Retire la ligne
+(ou remets `true`) quand tu veux vraiment déclencher le blocage.
+
+Pour débloquer tout le monde après un blocage déjà actif : remets
+`min_apk_version` à une version que tout le monde a déjà (ou ajoute
+`"is_forced_update": false`) — à leur prochaine vérification (voir plus
+bas), ils sont débloqués.
 
 ---
 
@@ -158,17 +175,15 @@ leur dire — avec un bouton qui télécharge directement.
 
 ### Ce qu'il faut bien comprendre (pour ne pas s'embrouiller)
 
-Un téléphone est bloqué **seulement si les deux sont vrais en même temps** :
-
-1. `is_forced_update` vaut `true` ;
-2. la version installée est **plus petite** que `min_apk_version`.
+Un téléphone est bloqué dès qu'**une seule chose** est vraie : sa version
+installée est **plus petite** que `min_apk_version`. Pas de deuxième réglage
+à changer en même temps.
 
 Conséquence : tu **n'as jamais besoin de « remettre en mode normal »** après
 coup. Un testeur qui vient d'installer la 12.0.0 a une version égale à
-`min_apk_version`, donc pas plus petite → il n'est pas bloqué, même si
-`is_forced_update` reste à `true` pendant des mois. Seuls les téléphones
-encore en 11.x voient l'écran rouge. Tu peux laisser le Gist tel quel jusqu'à
-la prochaine APK, où tu changeras juste le numéro et le lien.
+`min_apk_version`, donc pas plus petite → il n'est pas bloqué. Tu peux
+laisser le Gist tel quel jusqu'à la prochaine APK, où tu changeras juste le
+numéro et le lien.
 
 ### Les 4 étapes
 
@@ -188,10 +203,13 @@ la prochaine APK, où tu changeras juste le numéro et le lien.
 
    ```json
    "min_apk_version": "12.0.0",
-   "is_forced_update": true,
    "download_url": "https://expo.dev/artifacts/eas/XXXXXXXX.apk",
    "forced_update_message": "Nouvelle version avec le chrono en arrière-plan. Installe-la pour continuer (30 secondes)."
    ```
+
+   (si le Gist contient encore une ligne `"is_forced_update": false` d'un
+   test précédent, supprime-la ou passe-la à `true` — sinon elle empêche le
+   blocage de se déclencher, voir la section juste en dessous.)
 
    (le message est libre, ce qui précède est un exemple ; garde-le court,
    c'est un écran plein.)
@@ -228,8 +246,12 @@ la maintenance simple (fermable) avec le lien dans le texte :
 "is_forced_update": false
 ```
 
-puis, quand tu veux couper les anciennes versions, passe
-`"is_forced_update": true` et `"is_maintenance": false` en une seule édition.
+Remarque : mettre `min_apk_version` à `12.0.0` dès maintenant **bloquerait
+déjà tout le monde** sous cette version — le `"is_forced_update": false`
+ci-dessus est justement ce qui retient le blocage le temps que les gens
+lisent le message. Quand tu veux vraiment couper les anciennes versions,
+retire cette ligne (ou passe-la à `true`) et mets `"is_maintenance": false`,
+en une seule édition.
 La page de maintenance simple **n'a pas de bouton de téléchargement**
 (décision : ce bouton n'existe que sur l'écran bloquant), d'où l'idée
 d'envoyer le lien par message dans ce cas.
