@@ -350,13 +350,8 @@ export default function Settings() {
           <Section title="Notifications">
             <Row
               label="Rappels quotidiens"
-              sub="Pour garder ta streak"
-              control={
-                <Toggle
-                  value={settings.notifications}
-                  onChange={(v) => update('notifications', v)}
-                />
-              }
+              sub="Pour garder ta streak · bientôt disponible"
+              control={<Toggle value={false} onChange={() => {}} disabled />}
               isLast
             />
           </Section>
