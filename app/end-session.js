@@ -25,6 +25,11 @@ import {
   markBatteryPromptSeen,
   openBatteryOptimizationSettings,
 } from '../lib/batteryOptimization';
+import {
+  shouldPromptNotificationPermission,
+  markNotificationPromptShown,
+  openNotificationSettings,
+} from '../lib/notificationPrompt';
 import { useTimers } from '../contexts/TimersContext';
 import { computeSessionStats } from '../lib/timer-engine';
 import { formatDuration } from '../lib/formatters';
@@ -49,13 +54,22 @@ export default function EndSession() {
   // Une seule fois, à la fin de la première séance (jamais pendant l'effort,
   // jamais au lancement) : proposer d'exclure l'app de l'optimisation
   // batterie pour que le chrono en arrière-plan reste fiable partout.
+  // Exclusif avec le rappel notifications juste en dessous : jamais les
+  // deux feuilles empilées à la fin d'une même séance, la batterie passe
+  // en premier (elle ne se propose qu'une fois, contrairement à l'autre).
   const [batterySheet, setBatterySheet] = useState(false);
+  const [notificationSheet, setNotificationSheet] = useState(false);
   useEffect(() => {
     let cancelled = false;
-    const id = setTimeout(() => {
-      shouldPromptBatteryOptimization().then((show) => {
-        if (!cancelled && show) setBatterySheet(true);
-      });
+    const id = setTimeout(async () => {
+      const showBattery = await shouldPromptBatteryOptimization();
+      if (cancelled) return;
+      if (showBattery) {
+        setBatterySheet(true);
+        return;
+      }
+      const showNotif = await shouldPromptNotificationPermission();
+      if (!cancelled && showNotif) setNotificationSheet(true);
     }, 2200);
     return () => {
       cancelled = true;
@@ -65,6 +79,18 @@ export default function EndSession() {
   const closeBatterySheet = () => {
     setBatterySheet(false);
     markBatteryPromptSeen();
+  };
+  // Rappel mensuel tant que la permission n'est pas accordée (voir
+  // lib/notificationPrompt.js) : "Plus tard" et "Autoriser" marquent tous
+  // les deux la date de ce rappel — le prochain revient dans 30 jours dans
+  // les deux cas, seule la destination du CTA change.
+  const closeNotificationSheet = () => {
+    setNotificationSheet(false);
+    markNotificationPromptShown();
+  };
+  const confirmNotificationSheet = () => {
+    markNotificationPromptShown();
+    openNotificationSettings();
   };
 
   let ctx;
@@ -349,6 +375,19 @@ export default function EndSession() {
           destructive={false}
           onConfirm={openBatteryOptimizationSettings}
           onClose={closeBatterySheet}
+        />
+      )}
+
+      {notificationSheet && (
+        <ConfirmSheet
+          screenH={screenH}
+          title="Notifications désactivées"
+          body="Sans les notifications, tu ne verras pas ton chrono défiler quand tu quittes l'app. Active-les dans les réglages pour en profiter."
+          confirmLabel="Autoriser"
+          cancelLabel="Plus tard"
+          destructive={false}
+          onConfirm={confirmNotificationSheet}
+          onClose={closeNotificationSheet}
         />
       )}
     </GradientBackground>

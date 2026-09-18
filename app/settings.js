@@ -185,6 +185,9 @@ export default function Settings() {
         // Proposition d'exclusion de l'optimisation batterie (fin de la
         // première séance) : redemandée après un reset.
         'flexTimer_batteryPromptSeen',
+        // Rappel mensuel notifications (lib/notificationPrompt.js) : reparti
+        // à zéro après un reset, comme les autres rappels ci-dessus.
+        'flexTimer_notificationPromptLastShown',
       ]);
     } catch {}
     // Le cache mémoire des catégories perso survivrait à la purge du
