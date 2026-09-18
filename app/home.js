@@ -31,7 +31,16 @@ import TickRing from '../components/common/TickRing';
 import WheelPicker from '../components/common/WheelPicker';
 import PressTap from '../components/common/PressTap';
 import ModeStatsSheet from '../components/common/ModeStatsSheet';
+import ProgressionSheet from '../components/common/ProgressionSheet';
 import { getTimerHero, getTimerDescription } from '../lib/timers-config';
+import { loadArchives, loadPlanning } from '../lib/planning';
+import {
+  findProgressionSuggestion,
+  loadProgressionSeen,
+  locateExerciseInPlanning,
+  markProgressionSuggested,
+} from '../lib/progression';
+import { onSplashCleared } from '../lib/splash';
 import { formatValue } from '../lib/formatters';
 import { getTokens } from '../lib/tokens';
 import { fonts } from '../lib/fonts';
@@ -83,6 +92,14 @@ const HOLD_RING_CIRCUMFERENCE = 2 * Math.PI * HOLD_RING_RADIUS;
 // de rootW (largeur réellement mesurée) donc reste dans le composant (Q9).
 const keyExtractor = (item) => item.id;
 
+// Délai avant de proposer une surcharge progressive, compté à partir de la
+// fin du splash : laisser l'accueil se poser, plutôt qu'une feuille qui saute
+// dessus dès l'ouverture.
+const PROGRESSION_DELAY_MS = 1500;
+// Une seule proposition par lancement, même si l'accueil est remonté après
+// une séance : revenir de /end-session ne doit pas rejouer le conseil.
+let progressionCheckedThisLaunch = false;
+
 export default function Home() {
   // Taille reelle de la racine : SCREEN_W/H (Dimensions window) ne correspond
   // pas forcement a la zone qu'occupe l'app (barres systeme, overlay Expo Go,
@@ -122,6 +139,7 @@ export default function Home() {
   const [picker, setPicker] = useState(null);
   const [statsOpen, setStatsOpen] = useState(false);
   const [isLaunching, setIsLaunching] = useState(false);
+  const [progression, setProgression] = useState(null);
   const activeIndexRef = useRef(initialIndex);
 
   const active = timers[activeIndex];
@@ -132,6 +150,55 @@ export default function Home() {
   // lancement que pendant que le panneau stats/badges est ouvert — sinon le
   // CTA "Lancer X" de la BottomBar reste visible en double sous le panneau.
   const hideChrome = isLaunching || statsOpen;
+
+  // Miroir synchrone des overlays de l'accueil, lu au moment où le délai de
+  // la suggestion expire : le callback du setTimeout verrait des états figés
+  // à la création de l'effet. Si quelque chose est déjà ouvert (ou qu'une
+  // séance part), on laisse tomber pour ce lancement plutôt que d'empiler
+  // deux feuilles — ou pire, d'en ouvrir une derrière /countdown, dont le
+  // BackHandler capturerait alors le retour Android pendant le chrono.
+  const overlayBusyRef = useRef(false);
+  overlayBusyRef.current = isLaunching || statsOpen || !!picker;
+
+  useEffect(() => {
+    if (!hydrated || progressionCheckedThisLaunch) return;
+    let cancelled = false;
+    let timer = null;
+    const unsubscribe = onSplashCleared(() => {
+      timer = setTimeout(async () => {
+        if (cancelled || progressionCheckedThisLaunch) return;
+        progressionCheckedThisLaunch = true;
+        if (overlayBusyRef.current) return;
+        const [archives, seen] = await Promise.all([loadArchives(), loadProgressionSeen()]);
+        if (cancelled || overlayBusyRef.current) return;
+        const found = findProgressionSuggestion({ archives, seen });
+        if (found) setProgression(found);
+      }, PROGRESSION_DELAY_MS);
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+      if (timer) clearTimeout(timer);
+    };
+  }, [hydrated]);
+
+  // « Pas maintenant », voile ou retour Android : on note la charge du moment,
+  // le conseil ne revient que si elle n'a pas bougé après deux semaines
+  // (lib/progression.js). Appelé aussi après « Ajuster » (la feuille se ferme).
+  const handleProgressionClose = useCallback(() => {
+    if (progression) markProgressionSuggested(progression.key, progression.weight);
+    setProgression(null);
+  }, [progression]);
+
+  // Téléportation vers l'étiquette vivante du planning (2ᵉ page de /history).
+  // Si elle a été retirée du planning entre-temps, on ouvre quand même le
+  // planning : l'utilisateur voit où la remettre.
+  const handleProgressionAdjust = useCallback(async () => {
+    if (!progression) return;
+    const planning = await loadPlanning();
+    const target = locateExerciseInPlanning(planning, progression);
+    router.push({ pathname: '/history', params: { page: 'planning', ...(target || {}) } });
+  }, [progression, router]);
 
   // Effet de bord (haptique) dans le corps de la fonction, pas dans
   // l'updater passé à setActiveIndex : un setState appelé depuis l'intérieur
@@ -386,6 +453,19 @@ export default function Home() {
           screenH={rootH}
           blurTargetRef={blurTargetRef}
           onClose={() => setStatsOpen(false)}
+        />
+      )}
+
+      {/* (U) Conseil de surcharge progressive — voir lib/progression.js.
+          Pas d'autre garde ici : le voile de la feuille bloque déjà tout
+          (picker, stats, lancement), et la vérification "rien d'ouvert"
+          se fait au moment de l'apparition (overlayBusyRef). */}
+      {progression && (
+        <ProgressionSheet
+          screenH={rootH}
+          suggestion={progression}
+          onAdjust={handleProgressionAdjust}
+          onClose={handleProgressionClose}
         />
       )}
     </View>

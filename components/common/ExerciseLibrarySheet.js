@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TextInput, ScrollView, StyleSheet } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
@@ -13,6 +13,7 @@ import {
   categoryChip,
   getAllCategories,
   getCategory,
+  guessCategoryFromName,
   isCustomCategory,
   loadCustomCategories,
   loadCustomExercises,
@@ -33,11 +34,47 @@ const emptyCategoryDraft = () => ({
 
 export default function ExerciseLibrarySheet({ screenH, blockName, onClose, onPick }) {
   const [categories, setCategories] = useState(getAllCategories);
-  const [categoryId, setCategoryId] = useState(categories[0].id);
+  // Le rayon s'ouvre sur le groupe déduit du nom du bloc ("Jambes" → JAMBES)
+  // au lieu du premier de la liste. Recalculé quand `categories` change :
+  // les groupes perso arrivent d'AsyncStorage après le premier rendu, un bloc
+  // nommé comme l'un d'eux ne peut être reconnu qu'à ce moment-là.
+  const guess = useMemo(() => guessCategoryFromName(blockName), [blockName, categories]);
+  const [categoryId, setCategoryId] = useState(() => guess ?? categories[0].id);
+  // Dès que l'utilisateur a choisi ou touché un groupe lui-même, la
+  // présélection ne le reprend plus — lui changer sa sélection sous les
+  // doigts serait pire que de ne rien présélectionner.
+  const manualPick = useRef(false);
   const [customs, setCustoms] = useState([]);
   const [view, setView] = useState('list');
   const [customName, setCustomName] = useState('');
   const [draft, setDraft] = useState(emptyCategoryDraft);
+
+  // Le chip présélectionné peut être hors champ dans la rangée horizontale
+  // (CARDIO est le 6ᵉ, un groupe perso encore plus loin) : sans recadrage,
+  // l'utilisateur verrait une rangée sans chip actif et des exercices d'un
+  // groupe qu'il ne voit pas. Les chips ne sont mesurés qu'après le montage,
+  // d'où `revealTarget` : onLayout prend le relais si la mesure manque encore.
+  const catScrollRef = useRef(null);
+  const chipX = useRef({});
+  const revealTarget = useRef(null);
+  const revealChip = (id) => {
+    const x = chipX.current[id];
+    if (x == null) {
+      revealTarget.current = id;
+      return;
+    }
+    revealTarget.current = null;
+    catScrollRef.current?.scrollTo({
+      x: Math.max(0, x - styles.catContent.paddingHorizontal),
+      animated: false,
+    });
+  };
+
+  useEffect(() => {
+    if (!guess || manualPick.current) return;
+    setCategoryId(guess);
+    revealChip(guess);
+  }, [guess]);
 
   useEffect(() => {
     let cancelled = false;
@@ -72,6 +109,7 @@ export default function ExerciseLibrarySheet({ screenH, blockName, onClose, onPi
 
   const openCategoryEditor = (cat) => {
     haptic.light();
+    manualPick.current = true;
     setDraft(
       cat
         ? { id: cat.id, label: cat.label, color: cat.color, text: cat.text }
@@ -241,6 +279,7 @@ export default function ExerciseLibrarySheet({ screenH, blockName, onClose, onPi
           ) : (
             <>
               <ScrollView
+                ref={catScrollRef}
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 style={styles.catRow}
@@ -249,36 +288,46 @@ export default function ExerciseLibrarySheet({ screenH, blockName, onClose, onPi
                 {categories.map((c) => {
                   const isActive = c.id === categoryId;
                   return (
-                    <PressTap
+                    // PressTap ne relaie pas onLayout : la mesure vit sur une
+                    // View neutre autour, sans effet sur le rendu du chip.
+                    <View
                       key={c.id}
-                      onPress={() => {
-                        haptic.selection();
-                        setCategoryId(c.id);
-                        setView('list');
+                      onLayout={(e) => {
+                        chipX.current[c.id] = e.nativeEvent.layout.x;
+                        if (revealTarget.current === c.id) revealChip(c.id);
                       }}
-                      // Seuls les groupes créés se modifient : les six groupes
-                      // d'origine sont le socle de la bibliothèque.
-                      onLongPress={
-                        isCustomCategory(c.id) ? () => openCategoryEditor(c) : undefined
-                      }
-                      tapScale={0.94}
-                      style={[
-                        styles.catChip,
-                        {
-                          backgroundColor: isActive ? c.color : 'rgba(255,255,255,0.05)',
-                          borderColor: isActive ? c.color : 'rgba(255,255,255,0.12)',
-                        },
-                      ]}
                     >
-                      <Text
+                      <PressTap
+                        onPress={() => {
+                          haptic.selection();
+                          manualPick.current = true;
+                          setCategoryId(c.id);
+                          setView('list');
+                        }}
+                        // Seuls les groupes créés se modifient : les six groupes
+                        // d'origine sont le socle de la bibliothèque.
+                        onLongPress={
+                          isCustomCategory(c.id) ? () => openCategoryEditor(c) : undefined
+                        }
+                        tapScale={0.94}
                         style={[
-                          styles.catText,
-                          { color: isActive ? '#0A0A0A' : 'rgba(255,255,255,0.65)' },
+                          styles.catChip,
+                          {
+                            backgroundColor: isActive ? c.color : 'rgba(255,255,255,0.05)',
+                            borderColor: isActive ? c.color : 'rgba(255,255,255,0.12)',
+                          },
                         ]}
                       >
-                        {c.label}
-                      </Text>
-                    </PressTap>
+                        <Text
+                          style={[
+                            styles.catText,
+                            { color: isActive ? '#0A0A0A' : 'rgba(255,255,255,0.65)' },
+                          ]}
+                        >
+                          {c.label}
+                        </Text>
+                      </PressTap>
+                    </View>
                   );
                 })}
 

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useLocalSearchParams } from 'expo-router';
 import Animated, {
   cancelAnimation,
   scrollTo,
@@ -29,9 +30,19 @@ const PEEK_PX = 56;
 
 export default function History() {
   const listRef = useAnimatedRef();
+  // Arrivée directe sur le planning (conseil de surcharge progressive depuis
+  // l'accueil, lib/progression.js) : `page=planning`, plus l'étiquette à
+  // ouvrir quand elle existe encore. Lus une seule fois au montage.
+  const params = useLocalSearchParams();
+  const [initialPage] = useState(() => (params.page === 'planning' ? 1 : 0));
+  const [focus] = useState(() =>
+    params.page === 'planning' && params.dayKey
+      ? { dayKey: params.dayKey, blockId: params.blockId, tagId: params.tagId }
+      : null
+  );
   const [rootW, setRootW] = useState(0);
   const [rootH, setRootH] = useState(0);
-  const [page, setPage] = useState(0);
+  const [page, setPage] = useState(initialPage);
   const [sheetOpen, setSheetOpen] = useState(false);
 
   // Décalage programmatique du pager, piloté uniquement par l'aperçu. Il
@@ -44,11 +55,18 @@ export default function History() {
   // logguait un warning à chaque ouverture. `mounted` reflète exactement la
   // même condition que celle qui rend la FlatList.
   const mounted = useSharedValue(false);
+  // Sans cette garde, l'exécution initiale du derived value (peekX = 0)
+  // ramènerait la liste en page 0 juste après un `initialScrollIndex` de 1 —
+  // la téléportation vers le planning se ferait annuler dans la foulée.
+  const onFirstPage = useSharedValue(initialPage === 0);
   useEffect(() => {
     mounted.value = rootW > 0;
   }, [rootW]);
+  useEffect(() => {
+    onFirstPage.value = page === 0;
+  }, [page]);
   useDerivedValue(() => {
-    if (!mounted.value) return;
+    if (!mounted.value || !onFirstPage.value) return;
     scrollTo(listRef, peekX.value, 0, false);
   });
 
@@ -110,9 +128,10 @@ export default function History() {
           pageIndex={page}
           onSelectPage={goToPage}
           onSheetChange={setSheetOpen}
+          focus={focus}
         />
       ),
-    [rootW, rootH, page]
+    [rootW, rootH, page, focus]
   );
 
   return (
@@ -130,6 +149,7 @@ export default function History() {
               keyExtractor={keyExtractor}
               horizontal
               pagingEnabled
+              initialScrollIndex={initialPage}
               scrollEnabled={!sheetOpen}
               showsHorizontalScrollIndicator={false}
               decelerationRate="fast"

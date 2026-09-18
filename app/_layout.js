@@ -27,7 +27,7 @@ import MaintenanceBanner from '../components/common/MaintenanceBanner';
 import MaintenanceScreen from '../components/common/MaintenanceScreen';
 import { useAPKCheck } from '../hooks/useAPKCheck';
 import { useOtaUpdate } from '../hooks/useOtaUpdate';
-import { shouldShowSplash, markSplashShown, onSplashRequest } from '../lib/splash';
+import { shouldShowSplash, markSplashShown, markSplashCleared, onSplashRequest } from '../lib/splash';
 import { loadCustomCategories } from '../lib/exercises';
 import { TimersProvider } from '../contexts/TimersContext';
 import { SettingsProvider } from '../contexts/SettingsContext';
@@ -82,7 +82,10 @@ export default function RootLayout() {
       if (cancelled) return;
       if (show) markSplashShown();
       setSplash(show ? 'show' : 'hide');
-      if (!show) setSplashCleared(true);
+      if (!show) {
+        setSplashCleared(true);
+        markSplashCleared();
+      }
     });
     const unsubscribe = onSplashRequest(() => setSplash('show'));
     return () => {
@@ -161,7 +164,6 @@ export default function RootLayout() {
               {splashCleared && !apk.isBlockedByForcedUpdate && apk.showMaintenanceScreen && (
                 <MaintenanceScreen
                   message={apk.maintenanceMessage}
-                  downloadUrl={apk.downloadUrl}
                   onClose={apk.dismissMaintenanceScreen}
                 />
               )}
@@ -175,6 +177,7 @@ export default function RootLayout() {
                   onDone={() => {
                     setSplash('hide');
                     setSplashCleared(true);
+                    markSplashCleared();
                   }}
                 />
               )}

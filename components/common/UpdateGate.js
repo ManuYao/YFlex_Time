@@ -4,12 +4,16 @@ import { usePathname } from 'expo-router';
 
 import UpdateSheet from './UpdateSheet';
 import { useOtaUpdate } from '../../hooks/useOtaUpdate';
-import { hasSeenUpdatePopup, markUpdatePopupSeen } from '../../lib/updatePopup';
+import { hasSeenUpdatePopup, markUpdatePopupSeen, resolveUpdateCandidate } from '../../lib/updatePopup';
 
 // Seule exception à l'affichage immédiat : jamais par-dessus un chrono en
-// cours ou le compte à rebours (et pas sur l'écran de redirection initial).
-// Dès que l'utilisateur en sort, la feuille apparaît.
-const HIDDEN_ROUTES = new Set(['/', '/index', '/countdown', '/running']);
+// cours, le compte à rebours, l'écran de redirection initial, ou le
+// tutoriel — un nouvel utilisateur (ou un reset complet, qui purge aussi
+// flexTimer_updatePopupSeen) ne doit jamais voir la feuille se superposer à
+// l'onboarding. Dès que l'utilisateur quitte une de ces routes, la feuille
+// apparaît (l'effet dépend de `pathname`, donc il se redéclenche à la sortie
+// de l'onboarding).
+const HIDDEN_ROUTES = new Set(['/', '/index', '/onboarding', '/countdown', '/running']);
 
 /**
  * Monté une fois dans le layout racine. Affiche la feuille "Nouvelle version"
@@ -34,19 +38,19 @@ export default function UpdateGate() {
   // { id, mode } de la feuille affichée, ou null.
   const [sheet, setSheet] = useState(null);
 
-  const candidateId = pending && updateId ? updateId : runningUpdateId;
-  const candidateMode = pending && updateId ? 'pending' : 'info';
+  const candidate = resolveUpdateCandidate({ pending, updateId, runningUpdateId });
+  const candidateId = candidate?.id;
 
   useEffect(() => {
-    if (!candidateId || sheet || HIDDEN_ROUTES.has(pathname)) return;
+    if (!candidate || sheet || HIDDEN_ROUTES.has(pathname)) return;
     let cancelled = false;
-    hasSeenUpdatePopup(candidateId).then((seen) => {
-      if (!cancelled && !seen) setSheet({ id: candidateId, mode: candidateMode });
+    hasSeenUpdatePopup(candidate.id).then((seen) => {
+      if (!cancelled && !seen) setSheet(candidate);
     });
     return () => {
       cancelled = true;
     };
-  }, [candidateId, candidateMode, pathname, sheet]);
+  }, [candidateId, candidate?.mode, pathname, sheet]);
 
   if (!sheet) return null;
 

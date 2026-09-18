@@ -9,6 +9,8 @@ import { haptic } from '../../hooks/useHaptic';
 const ITEM_HEIGHT = 52;
 const VISIBLE_ITEMS = 5;
 const PADDING_ITEMS = Math.floor(VISIBLE_ITEMS / 2);
+// En dessous de cet écart (px) on ne recale pas : c'est du bruit d'arrondi dp -> px.
+const SNAP_EPSILON = 1;
 
 export default function WheelPicker({
   values,
@@ -19,6 +21,8 @@ export default function WheelPicker({
 }) {
   const scrollRef = useRef(null);
   const lastIdxRef = useRef(values.indexOf(selectedValue));
+  // true = le scroll en cours est notre recalage, pas le doigt de l'utilisateur
+  const settlingRef = useRef(false);
   const [activeIdx, setActiveIdx] = useState(values.indexOf(selectedValue));
 
   useEffect(() => {
@@ -30,14 +34,44 @@ export default function WheelPicker({
     }
   }, []);
 
+  const idxAt = (y) =>
+    Math.max(0, Math.min(values.length - 1, Math.round(y / ITEM_HEIGHT)));
+
+  // Point de passage unique : une seule haptique et un seul onChange par index,
+  // que la valeur soit retenue pendant le scroll ou confirmée à l'arrêt.
+  const commit = (idx) => {
+    if (idx === lastIdxRef.current) return;
+    lastIdxRef.current = idx;
+    setActiveIdx(idx);
+    haptic.selection();
+    onChange?.(values[idx]);
+  };
+
   const onScroll = (e) => {
+    commit(idxAt(e.nativeEvent.contentOffset.y));
+  };
+
+  const onScrollBeginDrag = () => {
+    // Nouveau geste : un recalage en attente n'a plus de sens.
+    settlingRef.current = false;
+  };
+
+  // snapToInterval peut immobiliser la liste à quelques pixels d'un multiple exact
+  // de ITEM_HEIGHT alors que le rail, lui, est dessiné à une position fixe.
+  // À l'arrêt : on confirme l'index retenu et on recale la liste pile dessus.
+  const onMomentumScrollEnd = (e) => {
     const y = e.nativeEvent.contentOffset.y;
-    const idx = Math.max(0, Math.min(values.length - 1, Math.round(y / ITEM_HEIGHT)));
-    if (idx !== lastIdxRef.current) {
-      lastIdxRef.current = idx;
-      setActiveIdx(idx);
-      haptic.selection();
-      onChange?.(values[idx]);
+    const idx = idxAt(y);
+    const wasSettling = settlingRef.current;
+    settlingRef.current = false;
+    commit(idx);
+    // Sur Android, notre scrollTo animé déclenche lui-même un momentum end :
+    // on ne le recale pas une seconde fois, sinon aller-retour possible.
+    if (wasSettling) return;
+    const target = idx * ITEM_HEIGHT;
+    if (Math.abs(y - target) > SNAP_EPSILON && scrollRef.current) {
+      settlingRef.current = true;
+      scrollRef.current.scrollTo({ y: target, animated: true });
     }
   };
 
@@ -65,6 +99,8 @@ export default function WheelPicker({
         snapToInterval={ITEM_HEIGHT}
         decelerationRate="fast"
         onScroll={onScroll}
+        onScrollBeginDrag={onScrollBeginDrag}
+        onMomentumScrollEnd={onMomentumScrollEnd}
         scrollEventThrottle={16}
         contentContainerStyle={{ paddingVertical: railTop }}
       >
@@ -156,7 +192,12 @@ const styles = StyleSheet.create({
   mainText: {
     color: '#FFFFFF',
     letterSpacing: -0.7,
-    lineHeight: 36,
+    // PAS de lineHeight fixe. Une boîte de 36 px figée alors que la police passe
+    // de 14/22 à 34 px selon la sélection plaçait le chiffre à une hauteur
+    // différente dans sa boîte à chaque changement d'état (~5 px de saut, et le
+    // chiffre sélectionné ~4 px trop haut dans le rail). Sans lineHeight, la boîte
+    // suit la police (ascent + descent, includeFontPadding: false) et styles.item
+    // la centre : les chiffres tombent au centre exact de l'item, à toute taille.
     includeFontPadding: false,
     textAlign: 'center',
   },

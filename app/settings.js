@@ -20,14 +20,15 @@ import Toggle from '../components/common/Toggle';
 import UpdateSheet from '../components/common/UpdateSheet';
 import ContactSheet from '../components/common/ContactSheet';
 import ConfirmSheet from '../components/common/ConfirmSheet';
-import MaintenanceScreen from '../components/common/MaintenanceScreen';
+import LegalGate from '../components/common/LegalGate';
 import { loadContactNoticeHidden, setContactNoticeHidden } from '../lib/contactNotice';
+import { loadLegalAccepted } from '../lib/legalConsent';
 import { loadCustomCategories } from '../lib/exercises';
 import { useSettings } from '../contexts/SettingsContext';
 import { useTimers } from '../contexts/TimersContext';
 import { usePremium } from '../hooks/usePremium';
 import { useOtaUpdate } from '../hooks/useOtaUpdate';
-import { UPDATE_POPUP_SEEN_KEY, markUpdatePopupSeen, resolveUpdateCandidate } from '../lib/updatePopup';
+import { markUpdatePopupSeen, resolveUpdateCandidate } from '../lib/updatePopup';
 import { useAPKCheck } from '../hooks/useAPKCheck';
 import { FORCE_CHECK_LIMIT } from '../lib/apkVersionCheck';
 import { haptic } from '../hooks/useHaptic';
@@ -74,26 +75,6 @@ export default function Settings() {
   // sinon la feuille automatique revient quand même au lancement suivant alors
   // qu'aucune nouvelle version n'a été publiée entre-temps.
   const updateCandidate = resolveUpdateCandidate({ pending, updateId, runningUpdateId });
-  // TEMP — lit directement la valeur persistée pour comparer à l'oeil avec le
-  // candidat ci-dessus dans le bloc diagnostic : sert à confirmer si le
-  // pop-up "Quoi de neuf" revient parce que `runningUpdateId` change à
-  // chaque lancement (pas de bug d'écriture) ou parce que l'écriture ne
-  // colle pas (là ce serait un vrai bug). Relu à chaque ouverture de
-  // Paramètres, pas de souscription temps réel.
-  const [seenPopupId, setSeenPopupId] = useState(undefined);
-  useEffect(() => {
-    let cancelled = false;
-    AsyncStorage.getItem(UPDATE_POPUP_SEEN_KEY)
-      .then((v) => {
-        if (!cancelled) setSeenPopupId(v);
-      })
-      .catch(() => {
-        if (!cancelled) setSeenPopupId(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
   const {
     isMaintenance,
     isBlockedByForcedUpdate,
@@ -110,9 +91,20 @@ export default function Settings() {
   const [updateSheet, setUpdateSheet] = useState(null);
   const [contactSheet, setContactSheet] = useState(false);
   const [resetConfirm, setResetConfirm] = useState(false);
-  // Aperçu de MaintenanceScreen indépendant du Gist/cache/quota — pour voir le
-  // halo tout de suite sans dépendre d'une vraie maintenance en ligne.
-  const [previewMaintenance, setPreviewMaintenance] = useState(false);
+  // null = pas encore lu : on n'affiche la validation juridique qu'une fois
+  // sûr qu'elle manque, sinon elle flasherait à chaque ouverture chez ceux
+  // qui ont déjà accepté. Relu à chaque montage de l'écran : après un reset
+  // complet (qui purge la clé), le prochain passage ici la redemande.
+  const [legalAccepted, setLegalAcceptedState] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    loadLegalAccepted().then((ok) => {
+      if (!cancelled) setLegalAcceptedState(ok);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Achat Premium désactivé pendant la bêta — pas de navigation vers
   // /premium, juste un refus visuel + haptique clair.
@@ -158,6 +150,12 @@ export default function Settings() {
         // la version installée, pas d'un drapeau local.
         'flexTimer_apkCheck',
         'flexTimer_maintenanceSeen',
+        // Validation juridique (conseils sportifs / exclusion médicale) :
+        // un utilisateur qui repart de zéro doit relire et réaccepter.
+        'flexTimer_legalAccepted',
+        // Conseils de surcharge progressive déjà montrés (lib/progression.js) :
+        // après un reset, un conseil déjà vu redevient à proposer.
+        'flexTimer_progressionSeen',
       ]);
     } catch {}
     // Le cache mémoire des catégories perso survivrait à la purge du
@@ -335,27 +333,6 @@ export default function Settings() {
               <DiagLine label="Runtime version" value={diagnostics.runtimeVersion || '—'} />
               <DiagLine label="Version en cours" value={diagnostics.runningUpdateId || '—'} />
               <DiagLine label="Mise à jour prête" value={pending ? 'oui' : 'non'} />
-              <DiagLine
-                label="Candidat pop-up"
-                value={updateCandidate ? `${updateCandidate.mode} · ${updateCandidate.id.slice(0, 8)}…` : '—'}
-              />
-              <DiagLine
-                label="Marqué vu (stocké)"
-                value={
-                  seenPopupId === undefined
-                    ? '…'
-                    : seenPopupId
-                      ? `${seenPopupId.slice(0, 8)}…`
-                      : 'aucun'
-                }
-              />
-              {!!updateCandidate && seenPopupId !== undefined && (
-                <DiagLine
-                  label="Correspondent"
-                  value={updateCandidate.id === seenPopupId ? 'oui — ne devrait pas s’afficher' : 'non — va s’afficher'}
-                  isError={updateCandidate.id !== seenPopupId}
-                />
-              )}
               <DiagLine label="Dernier check" value={STATUS_LABEL[status] || status} />
               {!!lastCheckAt && (
                 <DiagLine label="À" value={new Date(lastCheckAt).toLocaleTimeString('fr-FR')} />
@@ -411,11 +388,6 @@ export default function Settings() {
               }
               onPress={recheckAPK}
               disabled={forceCheckQuota.remaining === 0 || forceCheckStatus === 'checking'}
-            />
-            <LinkRow
-              label="Aperçu de la page maintenance (test)"
-              sub="Affiche MaintenanceScreen avec un message d'exemple, sans passer par le Gist"
-              onPress={() => setPreviewMaintenance(true)}
               isLast
             />
           </Section>
@@ -465,13 +437,7 @@ export default function Settings() {
           />
         )}
 
-        {previewMaintenance && (
-          <MaintenanceScreen
-            title="MAINTENANCE"
-            message="Exemple : Flex Timer est en maintenance ce soir de 22h à 23h pour une mise à jour du système de badges. Certaines fonctions peuvent être temporairement indisponibles, mais tes séances en cours ne sont pas affectées."
-            onClose={() => setPreviewMaintenance(false)}
-          />
-        )}
+        {legalAccepted === false && <LegalGate onAccept={() => setLegalAcceptedState(true)} />}
       </SafeAreaView>
     </GradientBackground>
   );

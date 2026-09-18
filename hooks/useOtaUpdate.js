@@ -94,13 +94,28 @@ export function useOtaUpdate() {
     } catch {}
   }, []);
 
+  // Bug constaté le 17/09/2026 : en dev (Expo Go, dev-client), plusieurs
+  // champs d'expo-updates (isUpdatePending, downloadedUpdate.updateId,
+  // Updates.updateId) peuvent être renseignés avec des valeurs qui changent
+  // d'une session à l'autre alors qu'aucune vraie mise à jour OTA n'existe —
+  // le mécanisme entier est désactivé en dev (`Updates.isEnabled === false`).
+  // UpdateGate (candidateId = pending && updateId ? updateId : runningUpdateId)
+  // prenait alors l'un ou l'autre chemin selon l'état du moment, et la feuille
+  // "Quoi de neuf" repassait comme jamais vue à CHAQUE démarrage au lieu de
+  // respecter `flexTimer_updatePopupSeen`. Un premier correctif n'avait gardé
+  // que `runningUpdateId` — insuffisant, `pending`/`updateId` restaient
+  // ouverts. Toute la sortie du hook est donc neutralisée d'un coup dès que
+  // `Updates.isEnabled` est faux : en dev, il n'y a de toute façon jamais de
+  // vraie version OTA à annoncer.
+  const isEnabled = Updates.isEnabled;
+
   return {
-    pending: isUpdatePending,
-    updateId: downloadedUpdate?.updateId,
+    pending: isEnabled ? isUpdatePending : false,
+    updateId: isEnabled ? downloadedUpdate?.updateId : undefined,
     // Version OTA actuellement exécutée (null si c'est le bundle embarqué
     // dans l'APK) : sert à UpdateGate pour montrer "Quoi de neuf" une fois
     // même si la mise à jour s'est appliquée toute seule au lancement.
-    runningUpdateId: Updates.isEmbeddedLaunch ? null : Updates.updateId ?? null,
+    runningUpdateId: isEnabled && !Updates.isEmbeddedLaunch ? Updates.updateId ?? null : null,
     restart,
     checkNow: runCheck,
     status,

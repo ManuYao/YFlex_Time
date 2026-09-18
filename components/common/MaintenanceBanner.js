@@ -19,9 +19,9 @@ import { haptic } from '../../hooks/useHaptic';
 import { D, easeImpact, springSheet } from '../../lib/animations';
 
 // Même exception que la feuille "Nouvelle version" (UpdateGate) : rien ne
-// s'affiche par-dessus un chrono en cours ou le compte à rebours. Le bandeau
-// revient dès que l'utilisateur en sort.
-const HIDDEN_ROUTES = new Set(['/', '/index', '/countdown', '/running']);
+// s'affiche par-dessus un chrono en cours, le compte à rebours, ou le
+// tutoriel. Le bandeau revient dès que l'utilisateur en sort.
+const HIDDEN_ROUTES = new Set(['/', '/index', '/onboarding', '/countdown', '/running']);
 
 const ACCENT = '#FFC933';
 
@@ -32,7 +32,7 @@ const ACCENT = '#FFC933';
  * session en cours ; il revient au prochain lancement si la maintenance
  * n'est pas terminée).
  *
- * Le détail complet est dans la pop-up (MaintenancePopup), montrée une fois
+ * Le détail complet est dans la page (MaintenanceScreen), montrée une fois
  * par message : ici on ne garde que deux lignes.
  */
 export default function MaintenanceBanner({ message, onPress, onDismiss }) {

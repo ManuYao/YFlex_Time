@@ -45,19 +45,40 @@ export default function PlanningPage({
   pageIndex,
   onSelectPage,
   onSheetChange,
+  // { dayKey, blockId, tagId } : arrivée depuis le conseil de surcharge
+  // progressive de l'accueil (lib/progression.js) — on se place sur le jour
+  // et on ouvre la fiche de l'étiquette pour ajuster la charge.
+  focus = null,
 }) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [planning, setPlanning] = useState(emptyPlanning);
-  const [dayKey, setDayKey] = useState(todayKey);
+  const [dayKey, setDayKey] = useState(() =>
+    focus?.dayKey && DAYS.some((d) => d.key === focus.dayKey) ? focus.dayKey : todayKey()
+  );
   const [usedDays, setUsedDays] = useState(() => new Set());
   const [sheet, setSheet] = useState(null);
+  // Une seule ouverture automatique : revenir sur la page (useFocusEffect
+  // rejoue à chaque retour) ne doit pas rouvrir la fiche dans le dos de
+  // l'utilisateur qui vient de la fermer.
+  const focusConsumed = useRef(false);
 
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
       loadPlanning().then((p) => {
-        if (!cancelled) setPlanning(p);
+        if (cancelled) return;
+        setPlanning(p);
+        if (focusConsumed.current || !focus?.blockId || !focus?.tagId) return;
+        focusConsumed.current = true;
+        // Vérifié sur le planning fraîchement lu, pas sur les params : entre
+        // le conseil et l'arrivée ici, l'étiquette a pu être retirée — la
+        // fiche lit `tag.weight` au montage et planterait sur undefined.
+        const block = (p[focus.dayKey]?.blocks || []).find((b) => b.id === focus.blockId);
+        if (!block || block.archivedAt) return;
+        if (!block.tags.some((t) => t.id === focus.tagId)) return;
+        setSheet({ type: 'detail', blockId: focus.blockId, tagId: focus.tagId });
+        onSheetChange?.(true);
       });
       loadHistory().then((sessions) => {
         if (!cancelled) setUsedDays(daysUsedThisWeek(sessions));
