@@ -34,10 +34,13 @@ n'est **pas** possible et où il faut réinstaller l'app à la main.
   "download_url": "https://exemple.com/flex-timer.apk",
   "is_maintenance": false,
   "maintenance_message": "Maintenance en cours, certaines fonctions peuvent être indisponibles.",
-  "is_forced_update": false,
   "forced_update_message": "Mise à jour critique requise. Télécharge la nouvelle version pour continuer."
 }
 ```
+
+`min_apk_version` doit être la version **que tu as actuellement installée**
+(visible dans Paramètres → À propos) — sinon tu te bloquerais toi-même dès
+la création du Gist.
 
 4. Clique **Create public gist**.
 5. Sur la page du Gist, clique le bouton **Raw** : l'adresse qui s'ouvre
@@ -113,25 +116,13 @@ La version installée sur un téléphone est celle affichée dans
 ⚠️ Vérifie toujours ton lien **avant** de changer `min_apk_version` : une
 fois bloqués, les gens n'ont plus que ce bouton.
 
-### Le champ `is_forced_update` — coupe-circuit, pas interrupteur principal
-
-Tu n'as **pas besoin** d'y toucher pour bloquer — c'est déjà fait par
-`min_apk_version` seul. Il ne sert que dans un cas précis : tu veux préparer
-un futur `min_apk_version` (par exemple pour tester) **sans bloquer
-personne tout de suite**. Ajoute alors :
-
-```json
-"is_forced_update": false,
-```
-
-Tant que cette ligne est à `false`, **personne n'est bloqué**, même avec un
-`min_apk_version` plus récent que ce qu'ils ont installé. Retire la ligne
-(ou remets `true`) quand tu veux vraiment déclencher le blocage.
+Le champ `"is_forced_update"` peut rester dans le Gist ou en être retiré,
+**ça ne change rien** : il n'est plus lu par l'app. Seul `min_apk_version`
+déclenche le blocage.
 
 Pour débloquer tout le monde après un blocage déjà actif : remets
-`min_apk_version` à une version que tout le monde a déjà (ou ajoute
-`"is_forced_update": false`) — à leur prochaine vérification (voir plus
-bas), ils sont débloqués.
+`min_apk_version` à une version que tout le monde a déjà — à leur prochaine
+vérification (voir plus bas), ils sont débloqués.
 
 ---
 
@@ -161,8 +152,8 @@ publication).
   ignore le fichier et continue normalement. Rien ne casse, mais rien ne
   s'affiche non plus. Colle ton texte dans <https://jsonlint.com/> pour
   vérifier.
-- **Quelqu'un est bloqué à tort** → remets `"is_forced_update": false` dans
-  le Gist. Il sera débloqué à sa prochaine vérification.
+- **Quelqu'un est bloqué à tort** → remets `min_apk_version` à une version
+  que tout le monde a déjà. Il sera débloqué à sa prochaine vérification.
 
 ---
 
@@ -207,10 +198,6 @@ numéro et le lien.
    "forced_update_message": "Nouvelle version avec le chrono en arrière-plan. Installe-la pour continuer (30 secondes)."
    ```
 
-   (si le Gist contient encore une ligne `"is_forced_update": false` d'un
-   test précédent, supprime-la ou passe-la à `true` — sinon elle empêche le
-   blocage de se déclencher, voir la section juste en dessous.)
-
    (le message est libre, ce qui précède est un exemple ; garde-le court,
    c'est un écran plein.)
 
@@ -237,21 +224,20 @@ numéro et le lien.
 
 ### Astuce : prévenir en douceur avant de forcer
 
-Si tu veux laisser un jour ou deux aux gens avant de bloquer, active d'abord
-la maintenance simple (fermable) avec le lien dans le texte :
+Si tu veux laisser un jour ou deux aux gens avant de bloquer, **ne touche
+pas encore `min_apk_version`** (le bloquer viendra de ce champ, et de rien
+d'autre — voir plus haut). Utilise d'abord la maintenance simple (fermable)
+toute seule, avec le lien dans le texte :
 
 ```json
 "is_maintenance": true,
-"maintenance_message": "Nouvelle version 12.0.0 disponible : le chrono continue en arrière-plan. Réinstalle depuis le lien envoyé par message quand tu as 30 secondes.",
-"is_forced_update": false
+"maintenance_message": "Nouvelle version 12.0.0 disponible : le chrono continue en arrière-plan. Réinstalle depuis le lien envoyé par message quand tu as 30 secondes."
 ```
 
-Remarque : mettre `min_apk_version` à `12.0.0` dès maintenant **bloquerait
-déjà tout le monde** sous cette version — le `"is_forced_update": false`
-ci-dessus est justement ce qui retient le blocage le temps que les gens
-lisent le message. Quand tu veux vraiment couper les anciennes versions,
-retire cette ligne (ou passe-la à `true`) et mets `"is_maintenance": false`,
-en une seule édition.
+Quand tu veux vraiment couper les anciennes versions, dans une deuxième
+édition : mets `min_apk_version` à `12.0.0` (ça déclenche le blocage) et
+`"is_maintenance": false` (plus besoin du message, l'écran de blocage
+prend le relais).
 La page de maintenance simple **n'a pas de bouton de téléchargement**
 (décision : ce bouton n'existe que sur l'écran bloquant), d'où l'idée
 d'envoyer le lien par message dans ce cas.
