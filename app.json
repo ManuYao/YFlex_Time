@@ -50,9 +50,7 @@
       }
     },
     "owner": "yao225",
-    "runtimeVersion": {
-      "policy": "fingerprint"
-    },
+    "runtimeVersion": "a080109385024b1fe715cb810614869e413c0ff4",
     "updates": {
       "url": "https://u.expo.dev/85fc0368-09be-4ae2-86da-fb93de5bac8d",
       "checkAutomatically": "ON_LOAD",
