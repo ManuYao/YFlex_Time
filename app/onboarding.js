@@ -6,10 +6,12 @@ import {
   FlatList,
   Dimensions,
   StyleSheet,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import notifee from '@notifee/react-native';
 import Svg, { Path } from 'react-native-svg';
 
 import GradientBackground from '../components/common/GradientBackground';
@@ -87,6 +89,15 @@ export default function Onboarding() {
     try {
       await AsyncStorage.setItem('flexTimer_onboarded', '1');
     } catch {}
+    // Demandée ici plutôt qu'au premier lancement d'un chrono (app/running.js
+    // appelle aussi requestPermission, mais l'OS ne montre le dialogue système
+    // qu'une fois : le demander ici évite d'interrompre l'utilisateur pile au
+    // moment où il lance sa première séance).
+    if (Platform.OS === 'android') {
+      try {
+        await notifee.requestPermission();
+      } catch {}
+    }
     router.replace('/home');
   };
 
