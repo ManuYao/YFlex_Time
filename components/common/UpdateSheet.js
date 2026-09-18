@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated from 'react-native-reanimated';
 
@@ -7,7 +7,7 @@ import BottomSheet from './BottomSheet';
 import PressTap from './PressTap';
 import { fonts } from '../../lib/fonts';
 import { haptic } from '../../hooks/useHaptic';
-import { CHANGELOG_CURRENT } from '../../lib/changelog';
+import { CHANGELOG_HISTORY } from '../../lib/changelog';
 import { D, slideInY } from '../../lib/animations';
 
 // Le même dégradé 4 couleurs que le launch splash / Confetti : signature
@@ -24,13 +24,24 @@ const MODE_COLORS = ['#FF5454', '#FFC933', '#1FC777', '#9575FF'];
  * - 'pending' : une mise à jour est déjà téléchargée, CTA "Redémarrer".
  * - 'info'    : pas de mise à jour en attente, juste "quoi de neuf" sur la
  *               version en cours, CTA "Compris" (ferme, ne redémarre rien).
+ *
+ * `showHistory` : ajoute une ligne de résumé pour l'avant-dernière version
+ * (lib/changelog.js, CHANGELOG_HISTORY[1]) sous la liste. Réservé à
+ * l'ouverture manuelle depuis Paramètres > Version — le popup automatique
+ * (UpdateGate) reste volontairement centré sur la seule nouveauté du
+ * moment, sans historique.
  */
-export default function UpdateSheet({ screenH, mode = 'pending', onRestart, onClose }) {
+export default function UpdateSheet({ screenH, mode = 'pending', showHistory = false, onRestart, onClose }) {
   useEffect(() => {
     haptic.light();
   }, []);
 
   const isPending = mode === 'pending';
+  const [latest, previous] = CHANGELOG_HISTORY;
+  // La liste peut dépasser la hauteur de la feuille (8 items ou plus avec
+  // des textes longs) : sans borne, BottomSheet grandit vers le haut sans
+  // limite et déborde au-dessus de l'écran (constaté sur v11.1.0, 8 items).
+  const listMaxHeight = Math.min(300, screenH * 0.36);
 
   return (
     <BottomSheet screenH={screenH} onClose={onClose} zIndex={120}>
@@ -64,8 +75,12 @@ export default function UpdateSheet({ screenH, mode = 'pending', onRestart, onCl
               : "Voici ce que Flex Timer a appris récemment."}
           </Animated.Text>
 
-          <View style={styles.list}>
-            {CHANGELOG_CURRENT.map((item, i) => (
+          <ScrollView
+            style={[styles.list, { maxHeight: listMaxHeight }]}
+            contentContainerStyle={styles.listContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {latest.items.map((item, i) => (
               <Animated.View
                 key={i}
                 entering={slideInY(12, D.base, 220 + i * 70)}
@@ -75,9 +90,18 @@ export default function UpdateSheet({ screenH, mode = 'pending', onRestart, onCl
                 <Text style={styles.itemText}>{item.text}</Text>
               </Animated.View>
             ))}
-          </View>
 
-          <Animated.View entering={slideInY(14, D.base, 220 + CHANGELOG_CURRENT.length * 70)}>
+            {showHistory && !!previous && (
+              <View style={styles.historyRow}>
+                <Text style={styles.historyLabel}>
+                  AVANT ÇA · V{previous.version}
+                </Text>
+                <Text style={styles.historyText}>{previous.summary}</Text>
+              </View>
+            )}
+          </ScrollView>
+
+          <Animated.View entering={slideInY(14, D.base, 220 + latest.items.length * 70)}>
             <PressTap
               onPress={() => {
                 haptic.medium();
@@ -155,8 +179,11 @@ const styles = StyleSheet.create({
   },
 
   list: {
-    gap: 10,
     marginBottom: 24,
+  },
+  listContent: {
+    gap: 10,
+    paddingBottom: 2,
   },
   item: {
     flexDirection: 'row',
@@ -176,6 +203,26 @@ const styles = StyleSheet.create({
     fontSize: 13.5,
     lineHeight: 20,
     color: 'rgba(255,255,255,0.90)',
+  },
+
+  historyRow: {
+    marginTop: 4,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+  },
+  historyLabel: {
+    fontFamily: fonts.monoBold,
+    fontSize: 9.5,
+    letterSpacing: 1.6,
+    color: 'rgba(255,255,255,0.35)',
+    marginBottom: 4,
+  },
+  historyText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
+    lineHeight: 17,
+    color: 'rgba(255,255,255,0.50)',
   },
 
   cta: {

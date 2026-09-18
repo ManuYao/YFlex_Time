@@ -62,17 +62,42 @@ changer.
 Le script s'arrête et te demande d'ouvrir un fichier :
 `lib/changelog.js`
 
-Ouvre-le dans VS Code, et modifie la liste `CHANGELOG_CURRENT` pour
-décrire ce qui change VRAIMENT dans cette version. C'est ce texte que les
-gens verront dans le popup "Nouvelle version" sur leur téléphone.
+Ouvre-le dans VS Code. Tu verras `CHANGELOG_HISTORY`, une liste où chaque
+entrée est une version (la plus récente en premier). **Ajoute une nouvelle
+entrée tout en haut de la liste** pour décrire ce qui change VRAIMENT dans
+cette version :
 
-Exemple de ligne à écrire :
 ```js
-{
-  icon: '🎨',
-  text: "Le bouton Lancer est maintenant plus visible sur fond jaune.",
-},
+export const CHANGELOG_HISTORY = [
+  {
+    version: '10.5.0',
+    date: '20 sept. 2026',
+    summary: "Le bouton Lancer est plus visible sur fond jaune.",
+    items: [
+      {
+        icon: '🎨',
+        text: "Le bouton Lancer est maintenant plus visible sur fond jaune.",
+      },
+    ],
+  },
+  {
+    version: '10.4.0',   // ← l'ancienne entrée la plus récente, gardée
+    date: '18 sept. 2026',
+    summary: "...",
+    items: [ /* ... */ ],
+  },
+];
 ```
+
+- `summary` : une phrase, affichée en petit dans Paramètres > Version pour
+  rappeler ce qu'il y avait dans l'avant-dernière mise à jour.
+- `items` : la liste détaillée (icône + texte), affichée en grand pour la
+  dernière version — c'est elle que les gens voient dans le popup
+  "Nouvelle version".
+
+**Ne garde jamais plus de 2 entrées** : rien au-delà de l'avant-dernière ne
+s'affiche nulle part dans l'app, donc si la liste en compte 3 après ton
+ajout, supprime la plus ancienne (celle du bas).
 
 Une fois le fichier sauvegardé (Ctrl+S), reviens dans le terminal et
 appuie sur **Entrée** pour continuer.

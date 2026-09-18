@@ -95,7 +95,9 @@ async function main() {
   console.log('');
   console.log('─────────────────────────────────────────────────────────');
   console.log(`Ouvre maintenant lib/changelog.js dans VS Code et mets à`);
-  console.log(`jour la liste CHANGELOG_CURRENT avec ce qui change vraiment`);
+  console.log(`jour CHANGELOG_HISTORY avec ce qui change vraiment (nouvelle`);
+  console.log(`entrée en haut de la liste, et supprime la plus ancienne si`);
+  console.log(`ça dépasse 2 entrées)`);
   console.log(`dans cette version — c'est ce texte que verront les gens`);
   console.log(`dans le popup "Nouvelle version".`);
   console.log('─────────────────────────────────────────────────────────');

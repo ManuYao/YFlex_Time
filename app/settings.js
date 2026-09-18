@@ -407,6 +407,7 @@ export default function Settings() {
           <UpdateSheet
             screenH={screenH}
             mode={updateSheet}
+            showHistory
             onRestart={() => {
               if (updateCandidate) markUpdatePopupSeen(updateCandidate.id);
               restart();
