@@ -202,6 +202,14 @@ la prochaine APK, où tu changeras juste le numéro et le lien.
    demande « autoriser cette source » la première fois, puis « installer ».
    Un lien « Télécharger dans le navigateur » reste dessous en secours.
 
+### Qui reçoit quoi, selon la version installée
+
+| Version installée | Ce que la personne verra |
+|---|---|
+| **11.0.0** | L'écran rouge complet, avec le bouton « Installer la mise à jour » (installation directe) + lien navigateur. |
+| **10.1.2 / 10.2.0** | Une fenêtre « Nouvelle version disponible » avec ton message, un bouton « Télécharger la nouvelle version » (ouvre le lien dans le navigateur) et « Plus tard ». Elle revient à chaque ouverture de l'app tant que la personne n'a pas installé la nouvelle version. Ces APK n'avaient pas le système Gist : une mise à jour automatique de secours leur a été envoyée le 18/09/2026 pour l'ajouter. |
+| **8.0.5** (les tout premiers APK partagés, 14–15 sept.) | **Rien, jamais.** Ces APK n'avaient aucun système de mise à jour. Il faut leur envoyer le lien par message, il n'y a pas d'autre moyen. |
+
 ### Délais à prévoir
 
 - L'app relit le Gist **au plus une fois par 24 h**. Un testeur qui a ouvert
