@@ -88,7 +88,6 @@ export default function Running() {
       lastPhaseRef.current = state.phaseLabel;
       if (!state.isComplete) {
         haptic.medium();
-        sound.playPhase();
       }
     }
   }, [state.phaseLabel, state.isComplete]);
@@ -97,7 +96,7 @@ export default function Running() {
     if (state.isComplete && !navigatedRef.current) {
       navigatedRef.current = true;
       haptic.success();
-      sound.playComplete();
+      sound.playGo();
       setTimeout(() => haptic.success(), 220);
       const realElapsed = Math.max(
         0,
@@ -216,6 +215,23 @@ export default function Running() {
     ? Math.floor(state.phaseSecondsLeft)
     : Math.ceil(state.phaseSecondsLeft);
   const centerLabel = isWorkInfinite ? 'ÉCOULÉ' : 'RESTANT';
+
+  // Decompte sonore des trois dernieres secondes d'une phase (sons 1/2/3
+  // dans l'ordre de lecture : le 1 a T-3s, le 3 a T-1s — ce dernier dure
+  // 1,5 s et couvre donc la bascule elle-meme, d'ou l'absence de son propre
+  // au changement de phase). Pas de decompte quand le temps monte (BASIC en
+  // travail libre n'a pas de fin prevue) ni en pause.
+  const lastCueRef = useRef(null);
+  useEffect(() => {
+    if (isPaused || isWorkInfinite || state.isComplete) return;
+    if (displaySeconds < 1 || displaySeconds > 3) return;
+    // La cle inclut le tour : deux tours d'affilee portent le meme libelle de
+    // phase (BASIC, EMOM), et sans lui le decompte ne sonnerait qu'au premier.
+    const cue = `${state.currentRound}:${state.phaseLabel}:${displaySeconds}`;
+    if (lastCueRef.current === cue) return;
+    lastCueRef.current = cue;
+    sound.playNextPhase(4 - displaySeconds);
+  }, [displaySeconds, isPaused, isWorkInfinite, state.isComplete, state.currentRound, state.phaseLabel]);
   const ctaLabel = isPaused ? 'EN PAUSE' : 'EN COURS';
 
   // Libellé du 3ᵉ bouton de la notification : "Passer" partout, sauf BASIC en

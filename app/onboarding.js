@@ -11,7 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import notifee from '@notifee/react-native';
+import notifee, { hasNotifee } from '../lib/notifee';
 import Svg, { Path } from 'react-native-svg';
 
 import GradientBackground from '../components/common/GradientBackground';
@@ -95,7 +95,7 @@ export default function Onboarding() {
     // moment où il lance sa première séance).
     if (Platform.OS === 'android') {
       try {
-        await notifee.requestPermission();
+        if (hasNotifee()) await notifee.requestPermission();
       } catch {}
     }
     router.replace('/home');

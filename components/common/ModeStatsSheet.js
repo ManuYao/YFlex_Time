@@ -11,8 +11,11 @@ import Animated, {
 
 import PressTap from './PressTap';
 import HowToSheet from './HowToSheet';
+import BadgeDetailSheet from './BadgeDetailSheet';
 import { fonts } from '../../lib/fonts';
+import { haptic } from '../../hooks/useHaptic';
 import { getBadgeProgress } from '../../lib/badges';
+import BadgeMedal, { TIER_PALETTE } from './BadgeMedal';
 import { D, easeImpact, springSheet } from '../../lib/animations';
 
 const MODE_EMOJI = { amrap: '🔥', basic: '⏱️', emom: '⚡', tabata: '⏲️', mix: '🔀' };
@@ -35,12 +38,6 @@ const HOWTO_COLOR = '#0A0A0A';
 // recommencer à montrer du banding visible.
 const BLUR_INTENSITY = 20;
 
-const TIER_COLORS = {
-  bronze: { bg: 'rgba(205,127,50,0.55)', border: 'rgba(232,168,99,0.7)', emoji: '🥉' },
-  argent: { bg: 'rgba(196,201,209,0.55)', border: 'rgba(228,231,236,0.7)', emoji: '🥈' },
-  or: { bg: 'rgba(240,201,84,0.55)', border: 'rgba(247,215,120,0.7)', emoji: '🥇' },
-};
-
 /**
  * Panneau stats/badges (appui long sur le cercle central de Home). Reprend
  * exactement la structure de PickerSheet (app/home.js) — feuille qui remonte
@@ -54,6 +51,7 @@ export default function ModeStatsSheet({ timer, stats, screenH, blurTargetRef, o
   const translateY = useSharedValue(screenH);
   const backdropOpacity = useSharedValue(0);
   const [showHowTo, setShowHowTo] = useState(false);
+  const [detailTier, setDetailTier] = useState(null);
 
   useEffect(() => {
     backdropOpacity.value = withTiming(1, { duration: D.big, easing: easeImpact });
@@ -140,7 +138,7 @@ export default function ModeStatsSheet({ timer, stats, screenH, blurTargetRef, o
 
         <View style={styles.medalsRow}>
           {tiers.map((tier) => (
-            <Medal key={tier.key} tier={tier} />
+            <Medal key={tier.key} tier={tier} onPress={() => setDetailTier(tier)} />
           ))}
         </View>
 
@@ -156,7 +154,7 @@ export default function ModeStatsSheet({ timer, stats, screenH, blurTargetRef, o
                   styles.progressFill,
                   {
                     width: `${Math.round(progressPct * 100)}%`,
-                    backgroundColor: TIER_COLORS[nextTier.key].border,
+                    backgroundColor: TIER_PALETTE[nextTier.key].hi,
                   },
                 ]}
               />
@@ -180,6 +178,16 @@ export default function ModeStatsSheet({ timer, stats, screenH, blurTargetRef, o
         </View>
       </Animated.View>
 
+      {detailTier && (
+        <BadgeDetailSheet
+          screenH={screenH}
+          timer={timer}
+          tier={detailTier}
+          sessionCount={count}
+          onClose={() => setDetailTier(null)}
+        />
+      )}
+
       {showHowTo && (
         <HowToSheet
           timer={timer}
@@ -191,32 +199,27 @@ export default function ModeStatsSheet({ timer, stats, screenH, blurTargetRef, o
   );
 }
 
-function Medal({ tier }) {
-  const palette = TIER_COLORS[tier.key];
-
-  if (!tier.unlocked) {
-    return (
-      <View style={styles.medalItem}>
-        <View style={[styles.medalCircle, styles.medalLocked]}>
-          <Text style={styles.medalLockEmoji}>🔒</Text>
-        </View>
-        <Text style={[styles.medalLabel, styles.medalLabelLocked]}>{tier.label}</Text>
-      </View>
-    );
-  }
-
+function Medal({ tier, onPress }) {
   return (
-    <View style={styles.medalItem}>
-      <View
-        style={[
-          styles.medalCircle,
-          { backgroundColor: palette.bg, borderColor: palette.border },
-        ]}
-      >
-        <Text style={styles.medalEmoji}>{palette.emoji}</Text>
-      </View>
-      <Text style={styles.medalLabel}>{tier.label}</Text>
-    </View>
+    <PressTap
+      style={styles.medalItem}
+      onPress={() => {
+        haptic.light();
+        onPress?.();
+      }}
+      accessibilityLabel={`Trophée ${tier.label}`}
+    >
+      <BadgeMedal
+        tier={tier.key}
+        size={66}
+        locked={!tier.unlocked}
+        progress={tier.progress}
+        value={tier.threshold}
+      />
+      <Text style={[styles.medalLabel, !tier.unlocked && styles.medalLabelLocked]}>
+        {tier.label}
+      </Text>
+    </PressTap>
   );
 }
 
@@ -312,23 +315,13 @@ const styles = StyleSheet.create({
   medalsRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
+    alignItems: 'flex-start',
     marginBottom: 18,
   },
-  medalItem: { alignItems: 'center' },
-  medalCircle: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    borderWidth: 1.5,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  medalLocked: {
-    borderStyle: 'dashed',
-    borderColor: 'rgba(255,255,255,0.4)',
-  },
-  medalEmoji: { fontSize: 24 },
-  medalLockEmoji: { fontSize: 20, opacity: 0.5 },
+  // Largeur fixe : sans elle, chaque colonne se dimensionne sur son libellé
+  // ('OR' est bien plus court que 'ARGENT') et les trois anneaux ne sont plus
+  // à intervalle régulier.
+  medalItem: { alignItems: 'center', width: 88 },
   medalLabel: {
     fontFamily: fonts.sansBold,
     fontSize: 10,

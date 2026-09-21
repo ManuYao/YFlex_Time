@@ -31,7 +31,11 @@ import TickRing from '../components/common/TickRing';
 import WheelPicker from '../components/common/WheelPicker';
 import PressTap from '../components/common/PressTap';
 import ModeStatsSheet from '../components/common/ModeStatsSheet';
+import { playSound } from '../lib/sounds';
 import ProgressionSheet from '../components/common/ProgressionSheet';
+import BadgeUnlockSheet from '../components/common/BadgeUnlockSheet';
+import { pendingBadges, markBadgeSeen } from '../lib/badgeCelebration';
+import { loadHistory, countSessionsByTimer } from '../lib/history';
 import { getTimerHero, getTimerDescription } from '../lib/timers-config';
 import { loadArchives, loadPlanning } from '../lib/planning';
 import {
@@ -50,7 +54,7 @@ import { useTimerHeat } from '../hooks/useTimerHeat';
 import { useLongPress } from '../hooks/useLongPress';
 import { useCooldown } from '../hooks/useCooldown';
 import { usePremium } from '../hooks/usePremium';
-import { FREE_USES_PER_DAY } from '../lib/cooldown';
+import { FREE_USES } from '../lib/cooldown';
 import {
   D,
   easeImpact,
@@ -123,7 +127,7 @@ export default function Home() {
   const getCooldownStatus = useCallback(
     (timerId) => {
       if (isPremium) {
-        return { limited: false, isLocked: false, remaining: Infinity, usesToday: 0, lockoutLevel: 0, lockedUntil: null };
+        return { limited: false, isLocked: false, remaining: Infinity, uses: 0, lockoutLevel: 0, lockedUntil: null };
       }
       return getCooldownStatusRaw(timerId);
     },
@@ -157,8 +161,18 @@ export default function Home() {
   // séance part), on laisse tomber pour ce lancement plutôt que d'empiler
   // deux feuilles — ou pire, d'en ouvrir une derrière /countdown, dont le
   // BackHandler capturerait alors le retour Android pendant le chrono.
+  const [badgeQueue, setBadgeQueue] = useState([]);
+  // Total figé au remplissage : sans lui, « 1 / 3 » deviendrait « 1 / 2 » puis
+  // « 1 / 1 » au fil des fermetures au lieu d'avancer.
+  const badgeTotalRef = useRef(0);
+  const closeBadge = useCallback(async () => {
+    const current = badgeQueue[0];
+    if (current) await markBadgeSeen(current.timerId, current.tier);
+    setBadgeQueue((q) => q.slice(1));
+  }, [badgeQueue]);
+
   const overlayBusyRef = useRef(false);
-  overlayBusyRef.current = isLaunching || statsOpen || !!picker;
+  overlayBusyRef.current = isLaunching || statsOpen || !!picker || badgeQueue.length > 0;
 
   useEffect(() => {
     if (!hydrated || progressionCheckedThisLaunch) return;
@@ -169,6 +183,19 @@ export default function Home() {
         if (cancelled || progressionCheckedThisLaunch) return;
         progressionCheckedThisLaunch = true;
         if (overlayBusyRef.current) return;
+
+        // Rattrapage des trophées non vus (lib/badgeCelebration.js) : ils
+        // passent AVANT le conseil de surcharge. Une médaille est un moment
+        // gratifiant, le conseil de charge peut attendre le lancement
+        // suivant — et surtout on n'empile jamais deux feuilles.
+        const fresh = await pendingBadges(countSessionsByTimer(await loadHistory()));
+        if (cancelled || overlayBusyRef.current) return;
+        if (fresh.length) {
+          badgeTotalRef.current = fresh.length;
+          setBadgeQueue(fresh);
+          return;
+        }
+
         const [archives, seen] = await Promise.all([loadArchives(), loadProgressionSeen()]);
         if (cancelled || overlayBusyRef.current) return;
         const found = findProgressionSuggestion({ archives, seen });
@@ -235,6 +262,7 @@ export default function Home() {
     // Verrou cooldown (TABATA/MIX uniquement, voir lib/cooldown.js).
     if (getCooldownStatus(active.id).isLocked) {
       haptic.warning();
+      playSound('blockedTimer');
       router.push('/premium');
       return;
     }
@@ -453,6 +481,19 @@ export default function Home() {
           screenH={rootH}
           blurTargetRef={blurTargetRef}
           onClose={() => setStatsOpen(false)}
+        />
+      )}
+
+      {/* (T bis) Trophée débloqué — file d'attente : une feuille à la fois,
+          la suivante remonte à la fermeture de la précédente. */}
+      {badgeQueue.length > 0 && (
+        <BadgeUnlockSheet
+          screenH={rootH}
+          timer={timers.find((t) => t.id === badgeQueue[0].timerId) ?? timers[0]}
+          tier={badgeQueue[0].tier}
+          position={badgeTotalRef.current - badgeQueue.length + 1}
+          total={badgeTotalRef.current}
+          onClose={closeBadge}
         />
       )}
 
@@ -977,14 +1018,14 @@ function CooldownPips({ cooldown, t, onGoPremium }) {
 
   return (
     <View style={styles.cooldownRow}>
-      {Array.from({ length: FREE_USES_PER_DAY }).map((_, i) => (
+      {Array.from({ length: FREE_USES }).map((_, i) => (
         <View
           key={i}
           style={[
             styles.cooldownPip,
             {
               borderColor: t.ringInactive,
-              backgroundColor: i < cooldown.usesToday ? t.primary : 'transparent',
+              backgroundColor: i < cooldown.uses ? t.primary : 'transparent',
             },
           ]}
         />

@@ -13,6 +13,7 @@ import Animated, {
 import TickRing from './TickRing';
 import { fonts } from '../../lib/fonts';
 import { easeImpact } from '../../lib/animations';
+import { playSound } from '../../lib/sounds';
 
 const PALETTE = ['#FFFFFF', '#FF5454', '#1FC777', '#FFC933', '#9575FF'];
 const ICON_SIZE = 150;
@@ -40,6 +41,7 @@ export default function LaunchSplash({ onDone }) {
   const iconOpacity = useSharedValue(0);
 
   useEffect(() => {
+    playSound('intro');
     iconOpacity.value = withTiming(1, { duration: 220 });
     rootOpacity.value = withDelay(
       HOLD_MS,

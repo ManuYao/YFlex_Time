@@ -1,12 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { setHapticEnabled } from '../hooks/useHaptic';
+import { setHapticEnabled, setHapticStrength } from '../hooks/useHaptic';
+import { configureSounds } from '../lib/sounds';
 
 const STORAGE_KEY = 'flexTimer_settings';
 
 const DEFAULTS = {
   sound: true,
   vibrate: true,
+  vibrateStrength: 'medium',
   volume: 75,
   autoStart: false,
   keepScreenOn: true,
@@ -34,6 +36,14 @@ export function SettingsProvider({ children }) {
   useEffect(() => {
     setHapticEnabled(settings.vibrate);
   }, [settings.vibrate]);
+
+  useEffect(() => {
+    setHapticStrength(settings.vibrateStrength);
+  }, [settings.vibrateStrength]);
+
+  useEffect(() => {
+    configureSounds({ enabled: settings.sound, volume: (settings.volume ?? 75) / 100 });
+  }, [settings.sound, settings.volume]);
 
   const persist = useCallback(async (next) => {
     try {

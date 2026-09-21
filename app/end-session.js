@@ -37,6 +37,9 @@ import { fonts } from '../lib/fonts';
 import { haptic } from '../hooks/useHaptic';
 import { loadCooldownMap, saveCooldownMap, getCooldownStatus, consumeLaunch } from '../lib/cooldown';
 import { loadIsPremium } from '../lib/premium';
+import BadgeUnlockSheet from '../components/common/BadgeUnlockSheet';
+import { pendingBadges, markBadgeSeen } from '../lib/badgeCelebration';
+import { countSessionsByTimer } from '../lib/history';
 
 const springEnergetic = { stiffness: 380, damping: 22, mass: 1 };
 
@@ -100,6 +103,9 @@ export default function EndSession() {
     } catch {}
   }
 
+  const [badgeQueue, setBadgeQueue] = useState([]);
+  const badgeTotalRef = useRef(0);
+
   const stats = timer
     ? computeSessionStats(timer, elapsedNum, ctx)
     : { roundsLabel: '—', workTotal: 0, restTotal: 0, completedRounds: 0, totalRounds: 0 };
@@ -125,9 +131,24 @@ export default function EndSession() {
           date: new Date().toISOString(),
         });
         await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(list));
+
+        // Paliers de badge franchis PAR cette séance : le comptage se fait
+        // sur la liste qu'on vient d'écrire, pas sur une relecture — inutile
+        // de repasser par AsyncStorage pour une valeur qu'on a en main.
+        const fresh = await pendingBadges(countSessionsByTimer(list));
+        if (fresh.length) {
+          badgeTotalRef.current = fresh.length;
+          setBadgeQueue(fresh);
+        }
       } catch {}
     })();
   }, []);
+
+  const closeBadge = async () => {
+    const current = badgeQueue[0];
+    if (current) await markBadgeSeen(current.timerId, current.tier);
+    setBadgeQueue((q) => q.slice(1));
+  };
 
   useEffect(() => {
     if (!timer) {
@@ -365,7 +386,21 @@ export default function EndSession() {
       </View>
       </SafeAreaView>
 
-      {batterySheet && (
+      {/* Trophée(s) débloqué(s) par CETTE séance. Passe avant la proposition
+          batterie : jamais deux feuilles empilées, et la médaille est le
+          moment fort de l'écran. */}
+      {badgeQueue.length > 0 && (
+        <BadgeUnlockSheet
+          screenH={screenH}
+          timer={timer}
+          tier={badgeQueue[0].tier}
+          position={badgeTotalRef.current - badgeQueue.length + 1}
+          total={badgeTotalRef.current}
+          onClose={closeBadge}
+        />
+      )}
+
+      {batterySheet && badgeQueue.length === 0 && (
         <ConfirmSheet
           screenH={screenH}
           title="Chrono en arrière-plan"

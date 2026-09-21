@@ -28,12 +28,18 @@ export default function Countdown() {
   const { timers } = useTimers();
 
   const timer = timers.find((t) => t.id === timerId) ?? timers[0];
+
+  useEffect(() => {
+    ['countdown1', 'countdown2', 'countdown3', 'go'].forEach(sound.preload);
+  }, []);
   const [count, setCount] = useState(COUNTDOWN_FROM);
   const [isGo, setIsGo] = useState(false);
 
   useEffect(() => {
     haptic.medium();
-    sound.playTick();
+    // count 3/2/1 -> bips 1/2/3 : les fichiers sont nommes dans l'ordre de
+    // lecture, pas d'apres le chiffre affiche.
+    sound.playCountdown(COUNTDOWN_FROM - count + 1);
     if (count > 1) {
       const id = setTimeout(() => setCount((c) => c - 1), 1000);
       return () => clearTimeout(id);
@@ -48,7 +54,7 @@ export default function Countdown() {
   useEffect(() => {
     if (!isGo) return undefined;
     haptic.success();
-    sound.playComplete();
+    sound.playGo();
     // 850ms : laisse l'overshoot du GO se terminer (400+400ms) puis Stack fade prend le relais
     const id = setTimeout(() => {
       router.replace({ pathname: '/running', params: { timerId: timer.id } });

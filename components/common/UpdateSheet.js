@@ -7,6 +7,7 @@ import BottomSheet from './BottomSheet';
 import PressTap from './PressTap';
 import { fonts } from '../../lib/fonts';
 import { haptic } from '../../hooks/useHaptic';
+import { playSound } from '../../lib/sounds';
 import { CHANGELOG_HISTORY } from '../../lib/changelog';
 import { D, slideInY } from '../../lib/animations';
 
@@ -34,6 +35,7 @@ const MODE_COLORS = ['#FF5454', '#FFC933', '#1FC777', '#9575FF'];
 export default function UpdateSheet({ screenH, mode = 'pending', showHistory = false, onRestart, onClose }) {
   useEffect(() => {
     haptic.light();
+    playSound('update');
   }, []);
 
   const isPending = mode === 'pending';

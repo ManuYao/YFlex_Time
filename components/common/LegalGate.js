@@ -20,6 +20,7 @@ import PageDots from './PageDots';
 import PressTap from './PressTap';
 import { fonts } from '../../lib/fonts';
 import { haptic } from '../../hooks/useHaptic';
+import { playDenied } from '../../lib/sounds';
 import { D, easeImpact, springBouncy, springSheet } from '../../lib/animations';
 import { setLegalAccepted } from '../../lib/legalConsent';
 
@@ -296,6 +297,7 @@ export default function LegalGate({ onAccept }) {
 
   const deny = useCallback(() => {
     haptic.error();
+    playDenied();
     shake();
     setDenied(true);
     clearTimeout(deniedTimer.current);

@@ -37,7 +37,10 @@ import { useOtaUpdate } from '../hooks/useOtaUpdate';
 import { markUpdatePopupSeen, resolveUpdateCandidate } from '../lib/updatePopup';
 import { useAPKCheck } from '../hooks/useAPKCheck';
 import { FORCE_CHECK_LIMIT } from '../lib/apkVersionCheck';
-import { haptic } from '../hooks/useHaptic';
+import { haptic, setHapticStrength } from '../hooks/useHaptic';
+import { playDenied } from '../lib/sounds';
+import BadgeUnlockSheet from '../components/common/BadgeUnlockSheet';
+import { BADGE_TIERS, BADGE_THRESHOLDS } from '../lib/badges';
 import { fonts } from '../lib/fonts';
 
 const CONTACT_EMAIL = 'yaomanuit@gmail.com';
@@ -70,7 +73,7 @@ const DENY_RED = '#FF5454';
 export default function Settings() {
   const router = useRouter();
   const { settings, update, reset } = useSettings();
-  const { resetAll: resetAllTimers } = useTimers();
+  const { timers, resetAll: resetAllTimers } = useTimers();
   const { isPremium } = usePremium();
   const [premiumDenied, setPremiumDenied] = useState(false);
   const { height: screenH } = useWindowDimensions();
@@ -95,6 +98,7 @@ export default function Settings() {
   // UpdateGate (app/_layout.js) affiche dès qu'une version pas encore vue est détectée ;
   // ici accessible à tout moment depuis la ligne "Version".
   const [updateSheet, setUpdateSheet] = useState(null);
+  const [badgePreview, setBadgePreview] = useState(null);
   const [contactSheet, setContactSheet] = useState(false);
   const [resetConfirm, setResetConfirm] = useState(false);
   // null = pas encore lu : on n'affiche la validation juridique qu'une fois
@@ -136,6 +140,7 @@ export default function Settings() {
   // /premium, juste un refus visuel + haptique clair.
   const handlePremiumPress = () => {
     haptic.error();
+    playDenied();
     setPremiumDenied(true);
     setTimeout(() => setPremiumDenied(false), 350);
   };
@@ -188,6 +193,11 @@ export default function Settings() {
         // Rappel mensuel notifications (lib/notificationPrompt.js) : reparti
         // à zéro après un reset, comme les autres rappels ci-dessus.
         'flexTimer_notificationPromptLastShown',
+        // Compteur et date de lancement (lib/splash.js) : après un reset
+        // l'app redevient une première ouverture, donc la cinématique est
+        // rejouée et le cycle de 8 repart de zéro.
+        'flexTimer_launchCount',
+        'flexTimer_lastOpen',
       ]);
     } catch {}
     // Le cache mémoire des catégories perso survivrait à la purge du
@@ -292,8 +302,20 @@ export default function Settings() {
           <Section title="Audio et haptique">
             <Row
               label="Sons"
-              sub="Bips de phases et d'alertes · fichiers audio à venir"
-              control={<Toggle value={false} onChange={() => {}} disabled />}
+              sub="Décompte, changements de phase et fin de séance"
+              control={<Toggle value={settings.sound} onChange={(v) => update('sound', v)} />}
+            />
+            <Row
+              label="Volume"
+              sub="Indépendant de ta musique : elle baisse le temps du bip, puis remonte"
+              control={
+                <Slider
+                  value={settings.volume}
+                  onChange={(v) => update('volume', v)}
+                  color="#1FC777"
+                  disabled={!settings.sound}
+                />
+              }
             />
             <Row
               label="Vibrations"
@@ -301,14 +323,15 @@ export default function Settings() {
               control={<Toggle value={settings.vibrate} onChange={(v) => update('vibrate', v)} />}
             />
             <Row
-              label="Volume"
-              sub="Désactivé tant que les sons ne sont pas disponibles"
+              label="Intensité"
+              sub="Touche un niveau pour le sentir"
               control={
-                <Slider
-                  value={settings.volume}
-                  onChange={(v) => update('volume', v)}
-                  color="#1FC777"
-                  disabled
+                <Choice
+                  value={settings.vibrateStrength}
+                  options={STRENGTH_OPTIONS}
+                  onChange={(v) => update('vibrateStrength', v)}
+                  color="#9575FF"
+                  disabled={!settings.vibrate}
                 />
               }
               isLast
@@ -436,6 +459,25 @@ export default function Settings() {
             />
           </Section>
 
+          {/* TEMP, à retirer avant publication comme les deux blocs ci-dessus.
+              Les paliers réels sont à 10/50/150 séances : sans ça, impossible
+              de voir la célébration avant d'avoir vraiment fait 10 séances
+              sur un mode. */}
+          <Section title="Aperçu des trophées (test)">
+            {BADGE_TIERS.map((t, i) => (
+              <LinkRow
+                key={t.key}
+                label={`Voir le trophée ${t.label}`}
+                sub={`${timers[0]?.name ?? 'AMRAP'} · palier ${BADGE_THRESHOLDS.amrap[i]} séances`}
+                onPress={() => {
+                  haptic.light();
+                  setBadgePreview(t.key);
+                }}
+                isLast={i === BADGE_TIERS.length - 1}
+              />
+            ))}
+          </Section>
+
           <Pressable
             onPress={handleResetAll}
             style={({ pressed }) => [
@@ -446,6 +488,17 @@ export default function Settings() {
             <Text style={styles.resetText}>Réinitialiser l'application</Text>
           </Pressable>
         </ScrollView>
+
+        {badgePreview && (
+          <BadgeUnlockSheet
+            screenH={screenH}
+            timer={timers[0]}
+            tier={badgePreview}
+            position={1}
+            total={1}
+            onClose={() => setBadgePreview(null)}
+          />
+        )}
 
         {updateSheet && (
           <UpdateSheet
@@ -537,6 +590,49 @@ function DiagLine({ label, value, isError }) {
       <Text style={[styles.diagValue, isError && styles.diagValueError]} numberOfLines={2}>
         {value}
       </Text>
+    </View>
+  );
+}
+
+const STRENGTH_OPTIONS = [
+  { value: 'light', label: 'LÉGER' },
+  { value: 'medium', label: 'MOYEN' },
+  { value: 'strong', label: 'FORT' },
+];
+
+/**
+ * Sélecteur à crans pour un réglage qui n'a que quelques valeurs nommées —
+ * un curseur continu laisserait croire à une amplitude libre, alors
+ * qu'expo-haptics n'expose que trois styles d'impact.
+ * Le tap joue l'intensité choisie : on la sent au moment où on la choisit,
+ * plutôt que d'avoir à relancer une séance pour comparer.
+ */
+function Choice({ value, options, onChange, color = '#FFFFFF', disabled = false }) {
+  return (
+    <View style={[styles.choiceWrap, disabled && styles.sliderWrapDisabled]}>
+      {options.map((opt) => {
+        const active = opt.value === value;
+        return (
+          <Pressable
+            key={opt.value}
+            disabled={disabled}
+            onPress={() => {
+              onChange(opt.value);
+              setHapticStrength(opt.value);
+              haptic.medium();
+            }}
+            style={[
+              styles.choiceItem,
+              active && { backgroundColor: color, borderColor: color },
+            ]}
+            hitSlop={4}
+          >
+            <Text style={[styles.choiceLabel, active && styles.choiceLabelActive]}>
+              {opt.label}
+            </Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
@@ -736,6 +832,27 @@ const styles = StyleSheet.create({
   },
   diagValueError: {
     color: '#FF5454',
+  },
+
+  choiceWrap: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  choiceItem: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
+  },
+  choiceLabel: {
+    fontFamily: fonts.sansBold,
+    fontSize: 10,
+    letterSpacing: 0.6,
+    color: 'rgba(255,255,255,0.6)',
+  },
+  choiceLabelActive: {
+    color: '#0A0A0A',
   },
 
   sliderWrap: {

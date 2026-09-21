@@ -50,7 +50,12 @@ setAudioModeAsync({
   // verrouillage, jamais demandées ici).
   shouldPlayInBackground: true,
   shouldRouteThroughEarpiece: false,
-  interruptionMode: 'mixWithOthers',
+  // duckOthers, pas mixWithOthers : un bip superpose a de la musique a fort
+  // volume est inaudible. Avec le ducking, l'app demande le focus audio et le
+  // lecteur de l'utilisateur baisse tout seul pendant le bip, puis remonte —
+  // le reglage Volume des Parametres ne pilote que nos propres lecteurs, donc
+  // les deux volumes restent independants.
+  interruptionMode: 'duckOthers',
 }).catch(() => {});
 
 export default function RootLayout() {

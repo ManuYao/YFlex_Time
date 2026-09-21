@@ -392,6 +392,7 @@ export default function HistoryPage({
           caption={SCOPE_CAPTION[countScope]}
           color="#FFFFFF"
           shimmerKey={shimmerTick}
+          pulseKey={scope}
           onLongPress={startScopeCarousel}
         />
         <HeroStat
@@ -400,6 +401,7 @@ export default function HistoryPage({
           caption={SCOPE_CAPTION[timeScope]}
           color="#1FC777"
           shimmerKey={shimmerTick}
+          pulseKey={scope}
           onLongPress={startScopeCarousel}
         />
         <HeroStat
@@ -408,6 +410,9 @@ export default function HistoryPage({
           unit="j"
           caption="D'AFFILÉE"
           color="#FFC933"
+          shimmerKey={shimmerTick}
+          pulseKey={scope}
+          onLongPress={startScopeCarousel}
         />
       </View>
 
@@ -585,7 +590,7 @@ export default function HistoryPage({
   );
 }
 
-function HeroStat({ label, value, unit, color, caption, shimmerKey, onLongPress }) {
+function HeroStat({ label, value, unit, color, caption, shimmerKey, pulseKey, onLongPress }) {
   const [cardW, setCardW] = useState(0);
   const { isPressing, progress, start, cancel } = useLongPress(onLongPress, SCOPE_HOLD_MS);
 
@@ -597,6 +602,11 @@ function HeroStat({ label, value, unit, color, caption, shimmerKey, onLongPress 
   // On pulse à la place le halo coloré déjà présent derrière la carte —
   // seule l'opacité bouge, aucun risque sur la mise en page du texte, qui
   // reste maintenant totalement statique.
+  // `pulseKey` (la portée courante) en plus de value/caption : Streak affiche
+  // le même nombre de jours quelle que soit la portée, donc sans lui sa carte
+  // resterait inerte pendant que les deux autres pulsent — l'incohérence que
+  // l'ajout de l'appui long sur cette carte devait justement faire
+  // disparaître.
   const blobPulse = useSharedValue(0);
   useEffect(() => {
     blobPulse.value = 0;
@@ -604,7 +614,7 @@ function HeroStat({ label, value, unit, color, caption, shimmerKey, onLongPress 
       withTiming(1, { duration: 160, easing: easeImpact }),
       withTiming(0, { duration: 500, easing: easeImpact })
     );
-  }, [value, caption]);
+  }, [value, caption, pulseKey]);
   const blobStyle = useAnimatedStyle(() => ({
     opacity: 0.18 + blobPulse.value * 0.42,
   }));
@@ -897,7 +907,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   heroCard: {
-    flex: 1,
+    // `flexGrow`, surtout PAS `flex: 1` : ce raccourci pose flexBasis 0, donc
+    // une hauteur de base nulle. Dans le Pressable (axe vertical), plus rien
+    // ne donne alors sa hauteur à la rangée — les trois cartes s'écrasent au
+    // seul padding et `overflow: hidden` coupe le texte. Tant qu'une carte
+    // échappait au Pressable elle servait de gabarit et masquait le problème.
+    // Ici flexBasis reste `auto` : le contenu fixe la hauteur, et grow ne sert
+    // qu'à égaliser les trois cartes sur la plus haute.
+    flexGrow: 1,
     paddingVertical: 16,
     paddingHorizontal: 8,
     borderRadius: 18,
