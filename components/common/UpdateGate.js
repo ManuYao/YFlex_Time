@@ -5,6 +5,7 @@ import { usePathname } from 'expo-router';
 import UpdateSheet from './UpdateSheet';
 import { useOtaUpdate } from '../../hooks/useOtaUpdate';
 import { hasSeenUpdatePopup, markUpdatePopupSeen, resolveUpdateCandidate } from '../../lib/updatePopup';
+import { markUpdateGateSettled } from '../../lib/updateGateSignal';
 
 // Seule exception à l'affichage immédiat : jamais par-dessus un chrono en
 // cours, le compte à rebours, l'écran de redirection initial, ou le
@@ -42,10 +43,21 @@ export default function UpdateGate() {
   const candidateId = candidate?.id;
 
   useEffect(() => {
-    if (!candidate || sheet || HIDDEN_ROUTES.has(pathname)) return;
+    // Rien à montrer : le signal se lève tout de suite, `app/home.js` n'a
+    // pas à attendre une feuille qui n'existe pas.
+    if (!candidate) {
+      markUpdateGateSettled();
+      return;
+    }
+    if (sheet || HIDDEN_ROUTES.has(pathname)) return;
     let cancelled = false;
-    hasSeenUpdatePopup(candidate.id).then((seen) => {
-      if (!cancelled && !seen) setSheet(candidate);
+    hasSeenUpdatePopup(candidate.id, candidate.mode).then((seen) => {
+      if (cancelled) return;
+      if (seen) {
+        markUpdateGateSettled();
+        return;
+      }
+      setSheet(candidate);
     });
     return () => {
       cancelled = true;
@@ -55,8 +67,13 @@ export default function UpdateGate() {
   if (!sheet) return null;
 
   const confirm = () => {
-    markUpdatePopupSeen(sheet.id);
+    markUpdatePopupSeen(sheet.id, sheet.mode);
     setSheet(null);
+    // Le signal ne se lève qu'ICI, à la fermeture réelle — pas à l'ouverture.
+    // C'est ce qui garantit l'ordre demandé : un trophée en attente
+    // (app/home.js) ne peut jamais apparaître avant que cette feuille n'ait
+    // été vue et fermée.
+    markUpdateGateSettled();
   };
 
   return (
@@ -64,7 +81,8 @@ export default function UpdateGate() {
       screenH={height}
       mode={sheet.mode}
       onRestart={() => {
-        markUpdatePopupSeen(sheet.id);
+        markUpdatePopupSeen(sheet.id, sheet.mode);
+        markUpdateGateSettled();
         restart();
       }}
       onClose={confirm}

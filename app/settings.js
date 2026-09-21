@@ -38,7 +38,7 @@ import { markUpdatePopupSeen, resolveUpdateCandidate } from '../lib/updatePopup'
 import { useAPKCheck } from '../hooks/useAPKCheck';
 import { FORCE_CHECK_LIMIT } from '../lib/apkVersionCheck';
 import { haptic, setHapticStrength } from '../hooks/useHaptic';
-import { playDenied } from '../lib/sounds';
+import { playDenied, previewSound } from '../lib/sounds';
 import BadgeUnlockSheet from '../components/common/BadgeUnlockSheet';
 import { BADGE_TIERS, BADGE_THRESHOLDS } from '../lib/badges';
 import { fonts } from '../lib/fonts';
@@ -311,7 +311,12 @@ export default function Settings() {
               control={
                 <Slider
                   value={settings.volume}
-                  onChange={(v) => update('volume', v)}
+                  onChange={(v) => {
+                    update('volume', v);
+                    // Bip de test au niveau choisi : sans lui, régler le
+                    // volume se faisait à l'aveugle (retour utilisateur).
+                    previewSound('countdown1', v / 100);
+                  }}
                   color="#1FC777"
                   disabled={!settings.sound}
                 />
@@ -506,11 +511,11 @@ export default function Settings() {
             mode={updateSheet}
             showHistory
             onRestart={() => {
-              if (updateCandidate) markUpdatePopupSeen(updateCandidate.id);
+              if (updateCandidate) markUpdatePopupSeen(updateCandidate.id, updateCandidate.mode);
               restart();
             }}
             onClose={() => {
-              if (updateCandidate) markUpdatePopupSeen(updateCandidate.id);
+              if (updateCandidate) markUpdatePopupSeen(updateCandidate.id, updateCandidate.mode);
               setUpdateSheet(null);
             }}
           />

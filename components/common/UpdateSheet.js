@@ -73,37 +73,54 @@ export default function UpdateSheet({ screenH, mode = 'pending', showHistory = f
 
           <Animated.Text entering={slideInY(12, D.base, 180)} style={styles.body}>
             {isPending
-              ? "Flex Timer s'est mis à jour en arrière-plan. Redémarre l'app pour en profiter — ça prend une seconde."
+              ? "Flex Timer s'est mis à jour en arrière-plan. Redémarre l'app pour l'installer — ça prend une seconde."
               : "Voici ce que Flex Timer a appris récemment."}
           </Animated.Text>
 
-          <ScrollView
-            style={[styles.list, { maxHeight: listMaxHeight }]}
-            contentContainerStyle={styles.listContent}
-            showsVerticalScrollIndicator={false}
-          >
-            {latest.items.map((item, i) => (
-              <Animated.View
-                key={i}
-                entering={slideInY(12, D.base, 220 + i * 70)}
-                style={styles.item}
-              >
-                <Text style={styles.itemIcon}>{item.icon}</Text>
-                <Text style={styles.itemText}>{item.text}</Text>
-              </Animated.View>
-            ))}
+          {/* Pas de liste de nouveautés en mode 'pending' : le contenu de la
+              mise à jour téléchargée ne peut PAS être lu avant que son propre
+              JS n'ait tourné une première fois — `latest` ici décrit encore
+              la version EN COURS D'EXÉCUTION, pas celle qui arrive. L'afficher
+              sous un titre "NOUVELLE VERSION" laissait croire que c'était le
+              contenu à venir, alors que c'était l'ancien (confusion signalée
+              par l'utilisateur le 22/09/2026). Le vrai contenu, lu depuis le
+              bundle correctement rebooté, s'affiche au lancement suivant en
+              mode 'info' — voir lib/updatePopup.js (suivi par mode) et
+              lib/updateGateSignal.js pour la garantie qu'il ne sera pas
+              escamoté. */}
+          {isPending ? (
+            <Animated.Text entering={slideInY(12, D.base, 220)} style={styles.pendingHint}>
+              Le détail de cette mise à jour s'affichera juste après le redémarrage.
+            </Animated.Text>
+          ) : (
+            <ScrollView
+              style={[styles.list, { maxHeight: listMaxHeight }]}
+              contentContainerStyle={styles.listContent}
+              showsVerticalScrollIndicator={false}
+            >
+              {latest.items.map((item, i) => (
+                <Animated.View
+                  key={i}
+                  entering={slideInY(12, D.base, 220 + i * 70)}
+                  style={styles.item}
+                >
+                  <Text style={styles.itemIcon}>{item.icon}</Text>
+                  <Text style={styles.itemText}>{item.text}</Text>
+                </Animated.View>
+              ))}
 
-            {showHistory && !!previous && (
-              <View style={styles.historyRow}>
-                <Text style={styles.historyLabel}>
-                  AVANT ÇA · V{previous.version}
-                </Text>
-                <Text style={styles.historyText}>{previous.summary}</Text>
-              </View>
-            )}
-          </ScrollView>
+              {showHistory && !!previous && (
+                <View style={styles.historyRow}>
+                  <Text style={styles.historyLabel}>
+                    AVANT ÇA · V{previous.version}
+                  </Text>
+                  <Text style={styles.historyText}>{previous.summary}</Text>
+                </View>
+              )}
+            </ScrollView>
+          )}
 
-          <Animated.View entering={slideInY(14, D.base, 220 + latest.items.length * 70)}>
+          <Animated.View entering={slideInY(14, D.base, isPending ? 300 : 220 + latest.items.length * 70)}>
             <PressTap
               onPress={() => {
                 haptic.medium();
@@ -178,6 +195,13 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     color: 'rgba(255,255,255,0.70)',
     marginBottom: 20,
+  },
+  pendingHint: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
+    fontStyle: 'italic',
+    color: 'rgba(255,255,255,0.42)',
+    marginBottom: 28,
   },
 
   list: {

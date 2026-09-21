@@ -45,6 +45,7 @@ import {
   markProgressionSuggested,
 } from '../lib/progression';
 import { onSplashCleared } from '../lib/splash';
+import { waitForUpdateGateSettled } from '../lib/updateGateSignal';
 import { formatValue } from '../lib/formatters';
 import { getTokens } from '../lib/tokens';
 import { fonts } from '../lib/fonts';
@@ -183,6 +184,15 @@ export default function Home() {
         if (cancelled || progressionCheckedThisLaunch) return;
         progressionCheckedThisLaunch = true;
         if (overlayBusyRef.current) return;
+
+        // "Quoi de neuf" (UpdateGate, monté dans _layout.js) passe TOUJOURS
+        // avant un trophée, jamais l'inverse, jamais les deux en même temps —
+        // demande explicite de l'utilisateur après avoir vu les deux feuilles
+        // se chevaucher (chacune a son propre BackHandler). Le signal ne se
+        // lève qu'à la fermeture réelle de cette feuille, ou tout de suite
+        // s'il n'y avait rien à montrer (lib/updateGateSignal.js).
+        await waitForUpdateGateSettled();
+        if (cancelled || overlayBusyRef.current) return;
 
         // Rattrapage des trophées non vus (lib/badgeCelebration.js) : ils
         // passent AVANT le conseil de surcharge. Une médaille est un moment
