@@ -34,6 +34,7 @@ import ModeStatsSheet from '../components/common/ModeStatsSheet';
 import { playSound } from '../lib/sounds';
 import ProgressionSheet from '../components/common/ProgressionSheet';
 import BadgeUnlockSheet from '../components/common/BadgeUnlockSheet';
+import ConfirmSheet from '../components/common/ConfirmSheet';
 import { pendingBadges, markBadgeSeen } from '../lib/badgeCelebration';
 import { loadHistory, countSessionsByTimer } from '../lib/history';
 import { getTimerHero, getTimerDescription } from '../lib/timers-config';
@@ -55,7 +56,7 @@ import { useTimerHeat } from '../hooks/useTimerHeat';
 import { useLongPress } from '../hooks/useLongPress';
 import { useCooldown } from '../hooks/useCooldown';
 import { usePremium } from '../hooks/usePremium';
-import { FREE_USES } from '../lib/cooldown';
+
 import {
   D,
   easeImpact,
@@ -120,7 +121,7 @@ export default function Home() {
   const [ctaRect, setCtaRect] = useState(null);
   const { timers, updateStat, hydrated } = useTimers();
   const { heatMap, statsMap } = useTimerHeat();
-  const { getStatus: getCooldownStatusRaw, registerLaunch } = useCooldown();
+  const { getStatus: getCooldownStatusRaw, registerLaunch, registerBurn } = useCooldown();
   const { isPremium } = usePremium();
   // Premium débloque tout, sans jamais toucher au calcul de quota/lockout
   // lui-même (lib/cooldown.js reste ignorant de Premium) — le bypass se fait
@@ -128,7 +129,18 @@ export default function Home() {
   const getCooldownStatus = useCallback(
     (timerId) => {
       if (isPremium) {
-        return { limited: false, isLocked: false, remaining: Infinity, uses: 0, lockoutLevel: 0, lockedUntil: null };
+        return {
+          limited: false,
+          isLocked: false,
+          canBurn: false,
+          remaining: Infinity,
+          uses: 0,
+          quota: Infinity,
+          baseQuota: Infinity,
+          malus: 0,
+          lockoutLevel: 0,
+          lockedUntil: null,
+        };
       }
       return getCooldownStatusRaw(timerId);
     },
@@ -145,6 +157,8 @@ export default function Home() {
   const [statsOpen, setStatsOpen] = useState(false);
   const [isLaunching, setIsLaunching] = useState(false);
   const [progression, setProgression] = useState(null);
+  // Confirmation "cramer une place" (lib/cooldown.js) : { timerId, sourceRect } | null.
+  const [burnPrompt, setBurnPrompt] = useState(null);
   const activeIndexRef = useRef(initialIndex);
 
   const active = timers[activeIndex];
@@ -173,7 +187,7 @@ export default function Home() {
   }, [badgeQueue]);
 
   const overlayBusyRef = useRef(false);
-  overlayBusyRef.current = isLaunching || statsOpen || !!picker || badgeQueue.length > 0;
+  overlayBusyRef.current = isLaunching || statsOpen || !!picker || badgeQueue.length > 0 || !!burnPrompt;
 
   useEffect(() => {
     if (!hydrated || progressionCheckedThisLaunch) return;
@@ -260,29 +274,19 @@ export default function Home() {
     index: i,
   }), [rootW]);
 
-  const handleLaunch = useCallback((sourceRect) => {
-    // Éditer un mix vide n'est pas un "lancement" — toujours autorisé même
-    // si MIX est en cooldown, sinon l'utilisateur ne pourrait plus du tout
-    // construire son circuit pendant le verrou.
-    if (active.id === 'mix' && (!active._mix || active._mix.blocks.length === 0)) {
-      haptic.light();
-      router.push('/mix-builder');
-      return;
-    }
-    // Verrou cooldown (TABATA/MIX uniquement, voir lib/cooldown.js).
-    if (getCooldownStatus(active.id).isLocked) {
-      haptic.warning();
-      playSound('blockedTimer');
-      router.push('/premium');
-      return;
-    }
+  // Isolé de handleLaunch : appelé soit directement (mode déverrouillé), soit
+  // après confirmation de "cramer une place" (burnPrompt). registerLaunch
+  // n'est PAS appelé ici pour le cas cramé — burnLaunch (via registerBurn)
+  // a déjà consommé la place en trop, consommer une deuxième fois compterait
+  // le lancement en double.
+  const proceedLaunch = useCallback((sourceRect, { skipConsume = false } = {}) => {
     haptic.medium();
     // Le lancement est autorisé : on consomme un usage du quota du jour
     // maintenant (pas à la fin de la séance) — c'est la tentative de lancer
     // qui compte comme "utilisation", pas la complétion. Si Premium, on ne
     // touche même pas au compteur : pas de rattrapage surprise si l'usager
     // désactive Premium plus tard (mode test).
-    if (!isPremium) registerLaunch(active.id);
+    if (!isPremium && !skipConsume) registerLaunch(active.id);
     // sourceRect : fourni quand le lancement vient d'un autre bouton que le
     // CTA du bas (ex. le panneau stats/badges) — évite que le morph parte
     // toujours du bouton de la BottomBar alors que l'utilisateur a tapé
@@ -299,7 +303,51 @@ export default function Home() {
       setCtaRect({ x, y, width, height });
       setIsLaunching(true);
     });
-  }, [active, haptic, router, getCooldownStatus, registerLaunch, isPremium]);
+  }, [active, haptic, registerLaunch, isPremium]);
+
+  const handleLaunch = useCallback((sourceRect) => {
+    // Éditer un mix vide n'est pas un "lancement" — toujours autorisé même
+    // si MIX est en cooldown, sinon l'utilisateur ne pourrait plus du tout
+    // construire son circuit pendant le verrou.
+    if (active.id === 'mix' && (!active._mix || active._mix.blocks.length === 0)) {
+      haptic.light();
+      router.push('/mix-builder');
+      return;
+    }
+    // Verrou cooldown (TABATA/MIX uniquement, voir lib/cooldown.js).
+    const status = getCooldownStatus(active.id);
+    if (status.isLocked) {
+      haptic.warning();
+      // Une place à cramer est disponible sur CE verrou (jamais utilisée
+      // encore) : propose le choix plutôt que d'envoyer direct vers Premium.
+      if (status.canBurn) {
+        setBurnPrompt({ timerId: active.id, sourceRect });
+        return;
+      }
+      playSound('blockedTimer');
+      router.push('/premium');
+      return;
+    }
+    proceedLaunch(sourceRect);
+  }, [active, haptic, router, getCooldownStatus, proceedLaunch]);
+
+  // Confirmation de "cramer une place" (lib/cooldown.js, burnLaunch) :
+  // consomme la place en trop AVANT de lancer, puis lance directement avec
+  // skipConsume (la place cramée fait déjà office de lancement, la compter
+  // une deuxième fois via registerLaunch la ferait consommer en double).
+  const handleBurnConfirm = useCallback(() => {
+    if (!burnPrompt) return;
+    haptic.medium();
+    registerBurn(burnPrompt.timerId);
+    proceedLaunch(burnPrompt.sourceRect, { skipConsume: true });
+    setBurnPrompt(null);
+  }, [burnPrompt, haptic, registerBurn, proceedLaunch]);
+
+  const handleBurnCancel = useCallback(() => {
+    haptic.selection();
+    setBurnPrompt(null);
+    router.push('/premium');
+  }, [haptic, router]);
 
   const handleMorphComplete = useCallback(() => {
     router.replace({ pathname: '/countdown', params: { timerId: active.id } });
@@ -493,6 +541,27 @@ export default function Home() {
           onClose={() => setStatsOpen(false)}
         />
       )}
+
+      {/* (S bis) "Cramer une place" — dernier recours avant Premium quand le
+          mode est verrouillé mais qu'une place en trop est encore
+          disponible sur CE verrou. Coût explicite dans le texte : le
+          prochain cycle aura une place de moins. */}
+      {burnPrompt && (() => {
+        const st = getCooldownStatus(burnPrompt.timerId);
+        const timerName = timers.find((t) => t.id === burnPrompt.timerId)?.name ?? '';
+        return (
+          <ConfirmSheet
+            screenH={rootH}
+            title="Cramer une place ?"
+            body={`Tu es à 0 sur ${timerName}. Tu peux lancer une séance de plus maintenant, mais le prochain cycle aura une place en moins (${Math.max(1, st.baseQuota - 1)} au lieu de ${st.baseQuota}).`}
+            confirmLabel="Cramer et lancer"
+            cancelLabel="Voir Premium"
+            destructive={false}
+            onConfirm={handleBurnConfirm}
+            onClose={handleBurnCancel}
+          />
+        );
+      })()}
 
       {/* (T bis) Trophée débloqué — file d'attente : une feuille à la fois,
           la suivante remonte à la fermeture de la précédente. */}
@@ -1028,7 +1097,10 @@ function CooldownPips({ cooldown, t, onGoPremium }) {
 
   return (
     <View style={styles.cooldownRow}>
-      {Array.from({ length: FREE_USES }).map((_, i) => (
+      {/* cooldown.quota, pas une constante fixe : varie par mode (TABATA 6,
+          MIX 4) et se réduit d'une place le cycle qui suit un "cramé"
+          (lib/cooldown.js, malus). */}
+      {Array.from({ length: cooldown.quota }).map((_, i) => (
         <View
           key={i}
           style={[
