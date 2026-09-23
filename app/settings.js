@@ -35,12 +35,8 @@ import { useTimers } from '../contexts/TimersContext';
 import { usePremium } from '../hooks/usePremium';
 import { useOtaUpdate } from '../hooks/useOtaUpdate';
 import { markUpdatePopupSeen, resolveUpdateCandidate } from '../lib/updatePopup';
-import { useAPKCheck } from '../hooks/useAPKCheck';
-import { FORCE_CHECK_LIMIT } from '../lib/apkVersionCheck';
 import { haptic, setHapticStrength } from '../hooks/useHaptic';
 import { playDenied, previewSound } from '../lib/sounds';
-import BadgeUnlockSheet from '../components/common/BadgeUnlockSheet';
-import { BADGE_TIERS, BADGE_THRESHOLDS } from '../lib/badges';
 import { fonts } from '../lib/fonts';
 
 const CONTACT_EMAIL = 'yaomanuit@gmail.com';
@@ -50,14 +46,6 @@ const STATUS_LABEL = {
   checking: 'vérification…',
   'up-to-date': 'à jour',
   found: 'nouvelle version trouvée et téléchargée',
-  error: 'erreur',
-};
-
-const APK_FORCE_STATUS_LABEL = {
-  idle: 'pas encore vérifié',
-  checking: 'vérification…',
-  ok: 'terminé',
-  limited: 'limite atteinte',
   error: 'erreur',
 };
 
@@ -73,7 +61,7 @@ const DENY_RED = '#FF5454';
 export default function Settings() {
   const router = useRouter();
   const { settings, update, reset } = useSettings();
-  const { timers, resetAll: resetAllTimers } = useTimers();
+  const { resetAll: resetAllTimers } = useTimers();
   const { isPremium } = usePremium();
   const [premiumDenied, setPremiumDenied] = useState(false);
   const { height: screenH } = useWindowDimensions();
@@ -84,21 +72,10 @@ export default function Settings() {
   // sinon la feuille automatique revient quand même au lancement suivant alors
   // qu'aucune nouvelle version n'a été publiée entre-temps.
   const updateCandidate = resolveUpdateCandidate({ pending, updateId, runningUpdateId });
-  const {
-    isMaintenance,
-    isBlockedByForcedUpdate,
-    minVersion,
-    fromCache: apkFromCache,
-    error: apkError,
-    recheck: recheckAPK,
-    forceCheckStatus,
-    forceCheckQuota,
-  } = useAPKCheck();
   // null | 'pending' | 'info' — ouverture manuelle de la même feuille que
   // UpdateGate (app/_layout.js) affiche dès qu'une version pas encore vue est détectée ;
   // ici accessible à tout moment depuis la ligne "Version".
   const [updateSheet, setUpdateSheet] = useState(null);
-  const [badgePreview, setBadgePreview] = useState(null);
   const [contactSheet, setContactSheet] = useState(false);
   const [resetConfirm, setResetConfirm] = useState(false);
   // null = pas encore lu : on n'affiche la validation juridique qu'une fois
@@ -427,70 +404,6 @@ export default function Settings() {
             />
           </Section>
 
-          {/* TEMP — à retirer avant publication, même logique que le bloc OTA
-              ci-dessus. Vérification d'APK distante (Gist) : mise à jour
-              obligatoire + maintenance, voir lib/apkVersionCheck.js.
-              "Vérifier maintenant" est plafonné à 5 fois par heure glissante
-              (persisté, un redémarrage de l'app ne réinitialise pas le
-              compteur) — le bouton se grise une fois le quota épuisé. */}
-          <Section title="Diagnostic maintenance (test)">
-            <View style={styles.diagBox}>
-              <DiagLine label="Maintenance" value={isMaintenance ? 'oui' : 'non'} />
-              <DiagLine label="Blocage actif" value={isBlockedByForcedUpdate ? 'oui' : 'non'} />
-              <DiagLine label="Version minimale" value={minVersion || '—'} />
-              <DiagLine label="Réponse" value={apkFromCache ? 'cache' : 'réseau'} />
-              <DiagLine
-                label="Dernier check manuel"
-                value={APK_FORCE_STATUS_LABEL[forceCheckStatus] || forceCheckStatus}
-              />
-              <DiagLine
-                label="Quota restant"
-                value={
-                  forceCheckQuota.remaining === null
-                    ? '—'
-                    : `${forceCheckQuota.remaining}/${forceCheckQuota.limit} cette heure`
-                }
-              />
-              {!!forceCheckQuota.retryAt && (
-                <DiagLine
-                  label="Réessayer après"
-                  value={new Date(forceCheckQuota.retryAt).toLocaleTimeString('fr-FR')}
-                />
-              )}
-              {!!apkError && <DiagLine label="Erreur" value={apkError} isError />}
-            </View>
-            <LinkRow
-              label="Vérifier maintenant"
-              sub={
-                forceCheckQuota.remaining === 0
-                  ? `Limite atteinte — réessaie après ${new Date(forceCheckQuota.retryAt).toLocaleTimeString('fr-FR')}`
-                  : `Force une lecture du Gist (${forceCheckQuota.remaining ?? FORCE_CHECK_LIMIT}/${FORCE_CHECK_LIMIT} restantes cette heure)`
-              }
-              onPress={recheckAPK}
-              disabled={forceCheckQuota.remaining === 0 || forceCheckStatus === 'checking'}
-              isLast
-            />
-          </Section>
-
-          {/* TEMP, à retirer avant publication comme les deux blocs ci-dessus.
-              Les paliers réels sont à 10/50/150 séances : sans ça, impossible
-              de voir la célébration avant d'avoir vraiment fait 10 séances
-              sur un mode. */}
-          <Section title="Aperçu des trophées (test)">
-            {BADGE_TIERS.map((t, i) => (
-              <LinkRow
-                key={t.key}
-                label={`Voir le trophée ${t.label}`}
-                sub={`${timers[0]?.name ?? 'AMRAP'} · palier ${BADGE_THRESHOLDS.amrap[i]} séances`}
-                onPress={() => {
-                  haptic.light();
-                  setBadgePreview(t.key);
-                }}
-                isLast={i === BADGE_TIERS.length - 1}
-              />
-            ))}
-          </Section>
-
           <Pressable
             onPress={handleResetAll}
             style={({ pressed }) => [
@@ -502,16 +415,6 @@ export default function Settings() {
           </Pressable>
         </ScrollView>
 
-        {badgePreview && (
-          <BadgeUnlockSheet
-            screenH={screenH}
-            timer={timers[0]}
-            tier={badgePreview}
-            position={1}
-            total={1}
-            onClose={() => setBadgePreview(null)}
-          />
-        )}
 
         {updateSheet && (
           <UpdateSheet
