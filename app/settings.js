@@ -301,6 +301,11 @@ export default function Settings() {
               }
             />
             <Row
+              label="Voix du coach"
+              sub="Annonce les phases et les tours à voix haute, sans regarder l'écran"
+              control={<Toggle value={settings.voiceCoach} onChange={(v) => update('voiceCoach', v)} />}
+            />
+            <Row
               label="Vibrations"
               sub="Retour haptique sur les actions"
               control={<Toggle value={settings.vibrate} onChange={(v) => update('vibrate', v)} />}

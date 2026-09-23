@@ -38,6 +38,7 @@ import { useUiScale, scaled, useLayoutLevel } from '../lib/responsive';
 import { useHaptic } from '../hooks/useHaptic';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { useSound } from '../hooks/useSound';
+import { tickVoiceCoach, speakEnd, stopVoiceCoach } from '../lib/voiceCoach';
 import {
   TIMER_ACTIONS,
   onTimerNotificationAction,
@@ -99,6 +100,11 @@ export default function Running() {
   const lastPhaseRef = useRef(state.phaseLabel);
   const navigatedRef = useRef(false);
   const skippedRef = useRef(0);
+  // Photo précédente pour le coach vocal (lib/voiceCoach.js) : comparée à
+  // chaque tick pour détecter les changements de phase / seuils de
+  // progression. Ne dit rien si `enabled` est faux (réglage Paramètres) —
+  // pas besoin de le vérifier ici, tickVoiceCoach le fait lui-même.
+  const voicePrevRef = useRef(null);
 
   useEffect(() => {
     if (state.phaseLabel !== lastPhaseRef.current) {
@@ -110,10 +116,16 @@ export default function Running() {
   }, [state.phaseLabel, state.isComplete]);
 
   useEffect(() => {
+    if (isPaused || state.isComplete) return;
+    tickVoiceCoach(voicePrevRef, state, secondsElapsed, timer.id);
+  }, [secondsElapsed, isPaused, state.isComplete]);
+
+  useEffect(() => {
     if (state.isComplete && !navigatedRef.current) {
       navigatedRef.current = true;
       haptic.success();
       sound.playGo();
+      speakEnd();
       setTimeout(() => haptic.success(), 220);
       const realElapsed = Math.max(
         0,
@@ -159,6 +171,7 @@ export default function Running() {
     navigatedRef.current = false;
     lastPhaseRef.current = '';
     skippedRef.current = 0;
+    voicePrevRef.current = null;
     if (isManualBasic) setRestTriggers([]);
     if (isPaused) resume();
     seek(0);
@@ -268,6 +281,9 @@ export default function Running() {
     startTimerNotification();
     return () => {
       stopTimerNotification();
+      // Quitter Running en pleine phrase ne doit pas laisser le coach
+      // continuer à parler par-dessus l'écran suivant (Home, fin de séance…).
+      stopVoiceCoach();
     };
   }, []);
 

@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { setHapticEnabled, setHapticStrength } from '../hooks/useHaptic';
 import { configureSounds } from '../lib/sounds';
+import { configureVoiceCoach } from '../lib/voiceCoach';
 
 const STORAGE_KEY = 'flexTimer_settings';
 
@@ -10,6 +11,10 @@ const DEFAULTS = {
   vibrate: true,
   vibrateStrength: 'medium',
   volume: 75,
+  // Voix du coach (expo-speech, TTS) : OFF par défaut — les bips (`sound`)
+  // sont déjà allumés, ne pas cumuler deux systèmes sonores d'entrée. Coupe
+  // globalement, tous modes confondus (pas de réglage par mode/TABATA).
+  voiceCoach: false,
   autoStart: false,
   keepScreenOn: true,
   notifications: true,
@@ -44,6 +49,10 @@ export function SettingsProvider({ children }) {
   useEffect(() => {
     configureSounds({ enabled: settings.sound, volume: (settings.volume ?? 75) / 100 });
   }, [settings.sound, settings.volume]);
+
+  useEffect(() => {
+    configureVoiceCoach({ enabled: settings.voiceCoach });
+  }, [settings.voiceCoach]);
 
   const persist = useCallback(async (next) => {
     try {
