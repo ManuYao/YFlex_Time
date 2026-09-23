@@ -1,0 +1,178 @@
+FLEX TIMER — SCRIPT DES VOIX DU COACH (version 1)
+=================================================
+
+À QUOI SERVENT CES VOIX
+-----------------------
+Flex Timer est un chronomètre de sport (AMRAP, EMOM, TABATA, BASIC, MIX).
+Beaucoup de gens posent leur téléphone loin pendant l'effort : ils ne voient
+plus l'écran. Les voix leur disent où ils en sont, sans regarder.
+
+Chaque situation a PLUSIEURS VARIANTES : l'application en tire une au hasard,
+pour ne jamais répéter la même phrase à chaque fois.
+
+
+RÈGLES POUR TOUTES LES VOIX
+---------------------------
+- Une seule et même voix pour tout le pack.
+- Ton : énergique, chaleureux, on tutoie. Jamais crié, jamais robotique.
+- Langue : français. Pas d'anglais, sauf « Go » et les noms de modes
+  (AMRAP, EMOM, TABATA).
+- Durée maximum :
+    * signaux courts (Go, Repos, décompte) : 0,8 seconde
+    * phrases de progression : 1,5 seconde
+    * fin de séance : 2,5 secondes
+  Pourquoi : en TABATA une phase dure parfois 10 secondes. Une voix trop
+  longue déborde sur la phase suivante.
+- Format final : MP3, mono, 44,1 kHz, 128 kbps. Pas de musique de fond.
+- Silence : AUCUN blanc au début (sinon la voix arrive en retard sur le
+  chrono), très peu à la fin.
+- Volume : tous les fichiers au même niveau (dans Audacity :
+  Effet > Volume et compression > Normalisation de la sonie, -16 LUFS).
+- Nom de fichier : exactement celui indiqué ci-dessous, en minuscules,
+  sans accent ni espace. Exemple : voice_half_2.mp3
+
+Le mot utilisé pour les répétitions est « tour » (c'est le mot affiché dans
+l'application : « TOUR 2/8 »). Si tu préfères « série », change-le partout,
+mais garde le même mot dans tout le pack.
+
+★ = pack de départ (le minimum pour lancer la fonctionnalité).
+
+
+A. DÉCOMPTE DE LANCEMENT (avant chaque séance)
+----------------------------------------------
+★ voice_count_3.mp3        « Trois »
+★ voice_count_2.mp3        « Deux »
+★ voice_count_1.mp3        « Un »
+★ voice_go_1.mp3           « Go ! »
+  voice_go_2.mp3           « C'est parti ! »
+  voice_go_3.mp3           « Allez ! »
+
+
+B. CHANGEMENTS DE PHASE (tous les modes)
+----------------------------------------
+Début d'un effort :
+★ voice_work_1.mp3         « Go ! »
+  voice_work_2.mp3         « Au travail ! »
+  voice_work_3.mp3         « C'est reparti ! »
+
+Début d'un repos :
+★ voice_rest_1.mp3         « Repos. »
+  voice_rest_2.mp3         « Souffle. »
+  voice_rest_3.mp3         « Récupère. »
+
+Note : en TABATA, seules les versions les plus courtes seront jouées
+(voice_work_1 et voice_rest_1), au choix de l'utilisateur.
+
+
+C. PROGRESSION
+--------------
+Moitié de la séance :
+★ voice_half_1.mp3         « On est à la moitié ! »
+  voice_half_2.mp3         « La moitié est faite ! »
+  voice_half_3.mp3         « Mi-parcours, tiens bon ! »
+
+Dernier tour :
+★ voice_last_round_1.mp3   « Dernier tour ! »
+  voice_last_round_2.mp3   « Le dernier, à fond ! »
+  voice_last_round_3.mp3   « Dernier tour, tout donner ! »
+
+Tours restants (un fichier par nombre — assembler des morceaux sonne robotique) :
+  voice_remaining_2.mp3    « Encore deux tours »
+  voice_remaining_3.mp3    « Encore trois tours »
+  voice_remaining_4.mp3    « Encore quatre tours »
+  voice_remaining_5.mp3    « Encore cinq tours »
+  voice_remaining_6.mp3    « Encore six tours »
+  voice_remaining_7.mp3    « Encore sept tours »
+  voice_remaining_8.mp3    « Encore huit tours »
+  voice_remaining_9.mp3    « Encore neuf tours »
+  voice_remaining_10.mp3   « Encore dix tours »
+
+Presque fini :
+★ voice_almost_1.mp3       « On y est presque ! »
+  voice_almost_2.mp3       « Encore un petit effort ! »
+  voice_almost_3.mp3       « Plus que quelques secondes ! »
+
+Dix dernières secondes :
+  voice_last_10s_1.mp3     « Dix secondes ! »
+  voice_last_10s_2.mp3     « Plus que dix secondes ! »
+
+
+D. FIN DE SÉANCE
+----------------
+★ voice_end_1.mp3          « Terminé, bravo ! »
+  voice_end_2.mp3          « Séance validée, bien joué ! »
+  voice_end_3.mp3          « C'est fini, tu as tout donné ! »
+
+
+E. ENCOURAGEMENTS (efforts longs, AMRAP surtout — joués de temps en temps)
+--------------------------------------------------------------------------
+  voice_boost_1.mp3        « Garde le rythme ! »
+  voice_boost_2.mp3        « Tu gères ! »
+  voice_boost_3.mp3        « Respire, reste régulier. »
+  voice_boost_4.mp3        « Continue comme ça ! »
+  voice_boost_5.mp3        « Ne lâche rien ! »
+
+
+F. DÉBUT D'UN BLOC DANS UN MIX (selon le rôle du bloc)
+------------------------------------------------------
+Dans un MIX, chaque bloc a un rôle. La voix annonce le rôle quand le bloc
+commence.
+
+Échauffement :
+  voice_role_warmup_1.mp3     « Échauffement, on démarre en douceur. »
+  voice_role_warmup_2.mp3     « Échauffement, on réveille le corps. »
+Bloc principal :
+  voice_role_main_1.mp3       « Bloc principal, c'est le moment ! »
+  voice_role_main_2.mp3       « Place au gros morceau ! »
+Force :
+  voice_role_strength_1.mp3   « Bloc force, contrôle chaque mouvement. »
+  voice_role_strength_2.mp3   « Force, reste gainé. »
+Récupération :
+  voice_role_recovery_1.mp3   « Récup, laisse redescendre. »
+  voice_role_recovery_2.mp3   « Récupération, souffle profondément. »
+Retour au calme :
+  voice_role_cooldown_1.mp3   « Retour au calme, on relâche. »
+  voice_role_cooldown_2.mp3   « Retour au calme, étire-toi tranquillement. »
+Repos :
+  voice_role_rest_1.mp3       « Repos. »
+  voice_role_rest_2.mp3       « Pause, bois un coup. »
+
+
+G. IDÉES POUR UN PACK « FUN » (plus tard, débloqué par les trophées)
+--------------------------------------------------------------------
+Mêmes situations, ton plus drôle. Exemples pour lancer les idées :
+  Go             « Go go go ! »  /  « Allez, on ne traîne pas ! »
+  Moitié         « La moitié ! Le canapé attendra. »
+  Dernier tour   « Dernier tour, promis juré ! »
+  Repos          « Repos… mais pas trop longtemps. »
+  Fin            « Terminé ! Tu as le droit de t'effondrer. »
+Le pack fun utilisera les mêmes noms de fichiers, rangés dans un dossier à
+part (exemple : pack_fun/voice_half_1.mp3).
+
+
+RÉCAPITULATIF
+-------------
+Pack de départ (★) : 10 fichiers.
+Pack complet (A à F) : 52 fichiers.
+
+
+CONSIGNES POUR L'ASSISTANT IA
+-----------------------------
+Si tu m'aides à préparer ces voix :
+- propose d'autres variantes dans le même ton, en respectant les durées
+  maximum ci-dessus (une phrase courte se dit en moins d'une seconde) ;
+- garde le tutoiement et le vocabulaire du sport en français ;
+- ne change jamais les noms de fichiers : l'application les attend
+  exactement comme ils sont écrits ici.
+
+
+MÉTHODE CONSEILLÉE
+------------------
+1. Générer chaque phrase une par une avec la même voix (par exemple dans
+   Google AI Studio, génération de voix), avec une consigne de style du
+   type : « voix de coach sportif, énergique et chaleureuse, français ».
+2. Dans Audacity : couper le silence au début et à la fin, normaliser à
+   -16 LUFS, passer en mono, exporter en MP3 128 kbps.
+3. Nommer chaque fichier exactement comme dans ce document.
+4. Mettre tous les fichiers dans un même dossier et les donner à Claude,
+   qui les branche dans l'application.
