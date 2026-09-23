@@ -23,6 +23,7 @@ import UpdateSheet from '../components/common/UpdateSheet';
 import ContactSheet from '../components/common/ContactSheet';
 import ConfirmSheet from '../components/common/ConfirmSheet';
 import LegalGate from '../components/common/LegalGate';
+import PermissionPrimer from '../components/common/PermissionPrimer';
 import { loadContactNoticeHidden, setContactNoticeHidden } from '../lib/contactNotice';
 import {
   isBatteryOptimizationEnabled,
@@ -76,6 +77,7 @@ export default function Settings() {
   // UpdateGate (app/_layout.js) affiche dès qu'une version pas encore vue est détectée ;
   // ici accessible à tout moment depuis la ligne "Version".
   const [updateSheet, setUpdateSheet] = useState(null);
+  const [primerPreview, setPrimerPreview] = useState(false);
   const [contactSheet, setContactSheet] = useState(false);
   const [resetConfirm, setResetConfirm] = useState(false);
   // null = pas encore lu : on n'affiche la validation juridique qu'une fois
@@ -378,6 +380,16 @@ export default function Settings() {
                 router.push('/permissions');
               }}
             />
+            {/* TEMP — aperçu de la page du tutoriel, qui ne s'affiche plus
+                d'elle-même une fois le tutoriel fait ou les notifs activées. */}
+            <LinkRow
+              label="Aperçu de la page autorisations (test)"
+              sub="Telle qu'elle s'affiche à la fin du tutoriel"
+              onPress={() => {
+                haptic.light();
+                setPrimerPreview(true);
+              }}
+            />
             <LinkRow label="Contact" sub={CONTACT_EMAIL} onPress={handleContact} isLast />
           </Section>
 
@@ -417,6 +429,9 @@ export default function Settings() {
         </ScrollView>
 
 
+        {primerPreview && (
+          <PermissionPrimer preview moment="onboarding" onDone={() => setPrimerPreview(false)} />
+        )}
         {updateSheet && (
           <UpdateSheet
             screenH={screenH}
