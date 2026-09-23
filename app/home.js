@@ -36,6 +36,8 @@ import { playSound } from '../lib/sounds';
 import ProgressionSheet from '../components/common/ProgressionSheet';
 import BadgeUnlockSheet from '../components/common/BadgeUnlockSheet';
 import ConfirmSheet from '../components/common/ConfirmSheet';
+import PermissionPrimer from '../components/common/PermissionPrimer';
+import { shouldShowPermissionPrimer } from '../lib/permissionPrimer';
 import { pendingBadges, markBadgeSeen } from '../lib/badgeCelebration';
 import { loadHistory, countSessionsByTimer } from '../lib/history';
 import { getTimerHero, getTimerDescription } from '../lib/timers-config';
@@ -167,6 +169,10 @@ export default function Home() {
   const [progression, setProgression] = useState(null);
   // Confirmation "cramer une place" (lib/cooldown.js) : { timerId, sourceRect } | null.
   const [burnPrompt, setBurnPrompt] = useState(null);
+  // Page "chrono fiable" avant le 3-2-1 (lib/permissionPrimer.js, moment
+  // 'firstSession'). Calculée d'avance pour ne pas retarder le tap Lancer.
+  const [primerLaunch, setPrimerLaunch] = useState(null);
+  const primerDueRef = useRef(false);
   const activeIndexRef = useRef(initialIndex);
 
   const active = timers[activeIndex];
@@ -195,7 +201,14 @@ export default function Home() {
   }, [badgeQueue]);
 
   const overlayBusyRef = useRef(false);
-  overlayBusyRef.current = isLaunching || statsOpen || !!picker || badgeQueue.length > 0 || !!burnPrompt;
+  overlayBusyRef.current =
+    isLaunching || statsOpen || !!picker || badgeQueue.length > 0 || !!burnPrompt || !!primerLaunch;
+
+  useEffect(() => {
+    shouldShowPermissionPrimer('firstSession').then((due) => {
+      primerDueRef.current = due;
+    });
+  }, []);
 
   useEffect(() => {
     if (!hydrated || progressionCheckedThisLaunch) return;
@@ -336,8 +349,22 @@ export default function Home() {
       router.push('/premium');
       return;
     }
+    if (primerDueRef.current) {
+      primerDueRef.current = false;
+      haptic.light();
+      setPrimerLaunch({ sourceRect: sourceRect ?? null });
+      return;
+    }
     proceedLaunch(sourceRect);
   }, [active, haptic, router, getCooldownStatus, proceedLaunch]);
+
+  // Retour Android = on annule le lancement ; « Plus tard » ou « Activer »
+  // enchaînent sur la séance demandée.
+  const handlePrimerDone = useCallback((result) => {
+    const pending = primerLaunch;
+    setPrimerLaunch(null);
+    if (result !== 'dismissed' && pending) proceedLaunch(pending.sourceRect ?? undefined);
+  }, [primerLaunch, proceedLaunch]);
 
   // Confirmation de "cramer une place" (lib/cooldown.js, burnLaunch) :
   // consomme la place en trop AVANT de lancer, puis lance directement avec
@@ -554,6 +581,16 @@ export default function Home() {
           mode est verrouillé mais qu'une place en trop est encore
           disponible sur CE verrou. Coût explicite dans le texte : le
           prochain cycle aura une place de moins. */}
+      {primerLaunch && (
+        <PermissionPrimer
+          moment="firstSession"
+          accent={active.color}
+          mode={active.id}
+          modeName={active.name}
+          onDone={handlePrimerDone}
+        />
+      )}
+
       {burnPrompt && (() => {
         const st = getCooldownStatus(burnPrompt.timerId);
         const timerName = timers.find((t) => t.id === burnPrompt.timerId)?.name ?? '';

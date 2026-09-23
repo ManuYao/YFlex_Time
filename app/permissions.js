@@ -1,5 +1,5 @@
-import { useCallback, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, Platform, Linking } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { View, Text, ScrollView, StyleSheet, Platform, Linking, AppState } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import Svg, { Path, Circle, Rect, Line } from 'react-native-svg';
@@ -8,20 +8,17 @@ import GradientBackground from '../components/common/GradientBackground';
 import PressTap from '../components/common/PressTap';
 import { fonts } from '../lib/fonts';
 import { useHaptic } from '../hooks/useHaptic';
-import { isNotificationPermissionGranted, openNotificationSettings } from '../lib/notificationPrompt';
+import { isNotificationPermissionGranted } from '../lib/notificationPrompt';
+import { requestNotificationPermission } from '../lib/permissionPrimer';
 import { isBatteryOptimizationEnabled, openBatteryOptimizationSettings } from '../lib/batteryOptimization';
 
 const IS_ANDROID = Platform.OS === 'android';
 
 /**
- * Page d'explication des autorisations Android, ouverte AVANT que
- * l'utilisateur ne tombe sur le dialogue système brut (qui ne dit jamais
- * pourquoi). Volontairement séparée de tout déclenchement réel pour
- * l'instant : chaque bouton ouvre le réglage système correspondant (l'état
- * est déjà géré ailleurs dans l'app — onboarding pour les notifications,
- * ConfirmSheet de fin de séance pour la batterie), rien n'est décidé ici sur
- * QUAND on demande quoi. Cette page est la référence visuelle, "on met en
- * condition les choses" plus tard (demande explicite du 23/09/2026).
+ * Paramètres › Autorisations : état réel de chaque autorisation, relu au
+ * retour des réglages système. Une autorisation déjà accordée est grisée
+ * avec une coche (demande utilisateur du 24/09/2026) ; « Activer » passe par
+ * la même demande que la page du tutoriel (lib/permissionPrimer.js).
  */
 
 const ACCENT = '#FFFFFF';
@@ -112,10 +109,15 @@ export default function Permissions() {
     isBatteryOptimizationEnabled().then(setBatteryOptimized);
   }, []);
 
-  // Statuts relus à chaque retour au premier plan (ex. après être allé
-  // changer un réglage puis être revenu) — même logique que la ligne
-  // "Chrono en arrière-plan" des Paramètres.
+  // useFocusEffect ne se redéclenche pas au retour des réglages système
+  // (l'écran n'a jamais perdu le focus) : AppState prend le relais.
   useFocusEffect(refresh);
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') refresh();
+    });
+    return () => sub.remove();
+  }, [refresh]);
 
   return (
     <GradientBackground colors={['#1A1A1A', '#0A0A0A', '#000000']} ambient>
@@ -151,14 +153,16 @@ export default function Permissions() {
               Icon={BellIcon}
               title="Notifications"
               body="Pour afficher la phase et le temps qui défile pendant une séance, même écran éteint ou dans une autre appli. Sans elles, le chrono continue mais tu ne vois plus rien tant que tu n'as pas rouvert Flex Timer."
-              status={
-                notifGranted === null ? null : notifGranted ? 'Autorisé' : 'Non autorisé'
-              }
+              status={notifGranted === null ? null : notifGranted ? 'Activé' : 'Non autorisé'}
               statusOk={notifGranted}
-              actionLabel="Gérer"
-              onPress={() => {
+              granted={notifGranted === true}
+              actionLabel="Activer"
+              onPress={async () => {
                 haptic.light();
-                openNotificationSettings();
+                if ((await requestNotificationPermission()) === 'granted') {
+                  haptic.success();
+                  refresh();
+                }
               }}
             />
           )}
@@ -169,10 +173,11 @@ export default function Permissions() {
               title="Optimisation batterie"
               body="Certains téléphones (Xiaomi, Huawei, Samsung en mode économie…) coupent les applications en arrière-plan pour économiser la batterie — y compris ton chrono en cours. Exclure Flex Timer de cette optimisation garde la séance fiable, même en arrière-plan."
               status={
-                batteryOptimized === null ? null : batteryOptimized ? 'Optimisation active' : 'Exclu — parfait'
+                batteryOptimized === null ? null : batteryOptimized ? 'Optimisation active' : 'Activé'
               }
               statusOk={batteryOptimized === false}
-              actionLabel="Gérer"
+              granted={batteryOptimized === false}
+              actionLabel="Activer"
               onPress={() => {
                 haptic.light();
                 openBatteryOptimizationSettings();
@@ -204,8 +209,8 @@ export default function Permissions() {
           />
 
           <Text style={styles.footnote}>
-            Rien ici ne déclenche une vraie demande d'autorisation pour l'instant — cette page
-            explique simplement à quoi sert chaque autorisation avant qu'elle ne soit posée.
+            Une ligne grisée et cochée est déjà réglée. « Activer » ouvre la demande de ton
+            téléphone, ou le bon réglage si tu avais refusé avant.
           </Text>
         </ScrollView>
       </SafeAreaView>
@@ -213,15 +218,15 @@ export default function Permissions() {
   );
 }
 
-function PermissionCard({ Icon, title, body, status, statusOk, actionLabel, onPress, muted = false }) {
+function PermissionCard({ Icon, title, body, status, statusOk, actionLabel, onPress, muted = false, granted = false }) {
   return (
-    <View style={[styles.card, muted && styles.cardMuted]}>
+    <View style={[styles.card, muted && styles.cardMuted, granted && styles.cardGranted]}>
       <View style={styles.cardHead}>
         <View style={[styles.cardIconWrap, muted && styles.cardIconWrapMuted]}>
           <Icon color={muted ? 'rgba(255,255,255,0.45)' : ACCENT} />
         </View>
         <View style={styles.cardHeadText}>
-          <Text style={[styles.cardTitle, muted && styles.cardTitleMuted]}>{title}</Text>
+          <Text style={[styles.cardTitle, (muted || granted) && styles.cardTitleMuted]}>{title}</Text>
           {!!status && (
             <View style={styles.statusRow}>
               <View
@@ -234,11 +239,18 @@ function PermissionCard({ Icon, title, body, status, statusOk, actionLabel, onPr
             </View>
           )}
         </View>
+        {granted && (
+          <View style={styles.checkBadge}>
+            <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
+              <Path d="M2.5 7.2 5.6 10.2 11.5 3.8" stroke="#0A0A0A" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
+            </Svg>
+          </View>
+        )}
       </View>
 
       <Text style={styles.cardBody}>{body}</Text>
 
-      {!!onPress && (
+      {!!onPress && !granted && (
         <PressTap onPress={onPress} style={styles.cardCta} tapScale={0.97}>
           <Text style={styles.cardCtaText}>{actionLabel}</Text>
         </PressTap>
@@ -296,6 +308,17 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.05)',
     padding: 18,
     marginBottom: 14,
+  },
+  cardGranted: {
+    opacity: 0.55,
+  },
+  checkBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#1FC777',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   cardMuted: {
     backgroundColor: 'rgba(255,255,255,0.02)',

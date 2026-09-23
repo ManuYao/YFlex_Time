@@ -5,13 +5,11 @@ import {
   Pressable,
   FlatList,
   StyleSheet,
-  Platform,
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import notifee, { hasNotifee } from '../lib/notifee';
 import Svg, { Path } from 'react-native-svg';
 
 import GradientBackground from '../components/common/GradientBackground';
@@ -19,6 +17,8 @@ import TickRing from '../components/common/TickRing';
 import { fonts } from '../lib/fonts';
 import { useUiScale, scaled } from '../lib/responsive';
 import { useHaptic } from '../hooks/useHaptic';
+import PermissionPrimer from '../components/common/PermissionPrimer';
+import { shouldShowPermissionPrimer } from '../lib/permissionPrimer';
 
 const SLIDES = [
   {
@@ -64,6 +64,7 @@ export default function Onboarding() {
   const haptic = useHaptic();
   const flatListRef = useRef(null);
   const [index, setIndex] = useState(0);
+  const [primer, setPrimer] = useState(false);
   // Largeur relue en direct : en multi-fenetres l'utilisateur redimensionne
   // pendant que l'app tourne, une largeur figee au demarrage desynchroniserait
   // le carrousel (mauvaise page detectee, slides mal calees).
@@ -90,18 +91,17 @@ export default function Onboarding() {
   };
 
   const finish = async () => {
+    if (primer) return;
     haptic.success();
     try {
       await AsyncStorage.setItem('flexTimer_onboarded', '1');
     } catch {}
-    // Demandée ici plutôt qu'au premier lancement d'un chrono (app/running.js
-    // appelle aussi requestPermission, mais l'OS ne montre le dialogue système
-    // qu'une fois : le demander ici évite d'interrompre l'utilisateur pile au
-    // moment où il lance sa première séance).
-    if (Platform.OS === 'android') {
-      try {
-        if (hasNotifee()) await notifee.requestPermission();
-      } catch {}
+    // Page "chrono fiable" (lib/permissionPrimer.js) au lieu de la fenêtre
+    // système brute : Android ne la montre que deux fois, on ne la
+    // déclenche qu'après un "Activer" sur notre page.
+    if (await shouldShowPermissionPrimer('onboarding')) {
+      setPrimer(true);
+      return;
     }
     router.replace('/home');
   };
@@ -261,6 +261,13 @@ export default function Onboarding() {
           </View>
         </View>
       </SafeAreaView>
+      {primer && (
+        <PermissionPrimer
+          moment="onboarding"
+          accent={SLIDES[SLIDES.length - 1].bgColors[0]}
+          onDone={() => router.replace('/home')}
+        />
+      )}
     </GradientBackground>
   );
 }
