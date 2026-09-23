@@ -32,6 +32,7 @@ import {
   makeBlock,
 } from '../lib/mix-blocks';
 import { makeDefaultMix } from '../lib/mixes';
+import { getTimeRange } from '../lib/timeRanges';
 import { fonts } from '../lib/fonts';
 import { useLayoutLevel } from '../lib/responsive';
 import { useTimers } from '../contexts/TimersContext';
@@ -562,7 +563,7 @@ function EditBlockSheet({ block, onClose, onUpdate }) {
   if (!block) return null;
   const type = getBlockType(block.type);
 
-  const ranges = getRangesForType(block.type);
+  const ranges = getRangesForType(block.type, block);
   const showRest = block.type === 'tabata';
   const showRounds = block.type !== 'rest' && block.type !== 'amrap';
 
@@ -750,12 +751,18 @@ const range = (a, b, step = 1) => {
   return out;
 };
 
-const getRangesForType = (typeId) => {
+// Paliers progressifs (lib/timeRanges.js), comme sur l'accueil. La valeur
+// déjà enregistrée dans le bloc est toujours gardée dans la roue : un mix
+// créé avec l'ancien pas de 5s (125s, 305s...) ne doit pas perdre son réglage.
+// AMRAP garde ses paliers de 30s, déjà adaptés à une durée d'endurance.
+const getRangesForType = (typeId, block) => {
+  const d = block?.duration;
+  const r = block?.rest;
   if (typeId === 'amrap') return { duration: range(60, 1800, 30), rest: [], rounds: [] };
-  if (typeId === 'rest') return { duration: range(10, 600, 5), rest: [], rounds: [] };
-  if (typeId === 'tabata') return { duration: range(5, 60, 5), rest: range(5, 60, 5), rounds: range(1, 30) };
-  if (typeId === 'basic') return { duration: range(5, 600, 5), rest: [], rounds: range(1, 30) };
-  if (typeId === 'emom') return { duration: range(10, 300, 5), rest: [], rounds: range(1, 30) };
+  if (typeId === 'rest') return { duration: getTimeRange(10, 600, d), rest: [], rounds: [] };
+  if (typeId === 'tabata') return { duration: getTimeRange(5, 60, d), rest: getTimeRange(5, 60, r), rounds: range(1, 30) };
+  if (typeId === 'basic') return { duration: getTimeRange(5, 600, d), rest: [], rounds: range(1, 30) };
+  if (typeId === 'emom') return { duration: getTimeRange(10, 300, d), rest: [], rounds: range(1, 30) };
   return { duration: range(10, 300), rest: [], rounds: [] };
 };
 

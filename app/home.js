@@ -49,6 +49,7 @@ import {
 import { onSplashCleared } from '../lib/splash';
 import { waitForUpdateGateSettled } from '../lib/updateGateSignal';
 import { formatValue } from '../lib/formatters';
+import { getTimeRange } from '../lib/timeRanges';
 import { getTokens } from '../lib/tokens';
 import { fonts } from '../lib/fonts';
 import { useUiScale, scaled, useLayoutLevel } from '../lib/responsive';
@@ -1725,8 +1726,18 @@ function PickerSheet({ stat, accentColor, textMode, onClose, onValidate, screenH
   // 3 valeurs au lieu de 5 : ~104 dp gagnés, l'essentiel du débordement.
   const wheelItems = isReduced ? 3 : 5;
 
-  const values = [];
-  for (let i = stat.range[0]; i <= stat.range[1]; i++) values.push(i);
+  // (V) Roues en secondes (TABATA travail/repos, EMOM intervalle, BASIC
+  // repos) : incréments progressifs — seconde par seconde sous 30s, puis
+  // paliers qui s'élargissent pour défiler vite au-delà (lib/timeRanges.js).
+  // Le reste (tours, minutes d'AMRAP) garde le pas de 1, ce qui a du sens
+  // pour un compte entier de tours ou une durée d'endurance en minutes.
+  const values =
+    stat.type === 'seconds'
+      ? getTimeRange(stat.range[0], stat.range[1], stat.value)
+      : Array.from(
+          { length: stat.range[1] - stat.range[0] + 1 },
+          (_, i) => stat.range[0] + i
+        );
 
   const translateY = useSharedValue(screenH);
   const backdropOpacity = useSharedValue(0);
