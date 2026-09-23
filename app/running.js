@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -32,7 +32,9 @@ import { computeState, skipToNextPhaseElapsed } from '../lib/timer-engine';
 import { getTokens } from '../lib/tokens';
 import { fonts } from '../lib/fonts';
 import { formatDuration } from '../lib/formatters';
+import { restGradient } from '../lib/phase-colors';
 import { useTimer } from '../hooks/useTimer';
+import { useUiScale, scaled, useLayoutLevel } from '../lib/responsive';
 import { useHaptic } from '../hooks/useHaptic';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { useSound } from '../hooks/useSound';
@@ -56,6 +58,21 @@ export default function Running() {
 
   const timer = timers.find((t) => t.id === timerId) ?? timers[0];
   const t = getTokens(timer.textMode);
+
+  // Vaut 1 sur un telephone normal : rien ne bouge. Ne se reduit qu'en
+  // fenetre flottante / split-screen (voir lib/responsive.js).
+  const ui = useUiScale();
+
+  // (V) Mise en page réduite. C'est ici qu'elle compte le plus : on réduit
+  // la fenêtre pendant la séance, pour garder son programme visible à côté.
+  // Le chrono doit rester lisible et pilotable dans une bande étroite, donc
+  // en mini l'anneau disparaît au profit du temps — la seule chose qu'on
+  // regarde vraiment en plein effort.
+  const level = useLayoutLevel();
+  const isMini = level === 'mini';
+  const isReduced = isMini || level === 'compact';
+  const ring = scaled(level === 'compact' ? 260 : 320, ui);
+  const bigTimeSize = isMini ? scaled(64, ui) : scaled(level === 'compact' ? 62 : 76, ui);
 
   const {
     secondsElapsed,
@@ -142,7 +159,6 @@ export default function Running() {
     navigatedRef.current = false;
     lastPhaseRef.current = '';
     skippedRef.current = 0;
-    pendingPhaseBeepRef.current = false;
     if (isManualBasic) setRestTriggers([]);
     if (isPaused) resume();
     seek(0);
@@ -357,15 +373,43 @@ export default function Running() {
     transform: [{ scale: timeScale.value }],
   }));
 
+  // (V) Repos = la couleur du mode, éteinte. Dérivée une fois par mode, pas
+  // une palette écrite à la main : un mode ajouté plus tard est couvert seul.
+  const restColors = useMemo(
+    () => restGradient(timer.bgColors, { textMode: timer.textMode }),
+    [timer.bgColors, timer.textMode]
+  );
+
+  // Le fondu est lent (700 ms) : une bascule instantanée se lirait comme un
+  // bug d'affichage, alors qu'un fondu se lit comme "on redescend".
+  const restVeil = useSharedValue(state.isRest ? 1 : 0);
+  useEffect(() => {
+    restVeil.value = withTiming(state.isRest ? 1 : 0, {
+      duration: 700,
+      easing: easeImpact,
+    });
+  }, [state.isRest]);
+
   return (
-    <GradientBackground colors={timer.bgColors} textMode={timer.textMode}>
-      {/* Pulse ambiant */}
+    // (V) Le fond ne change pas de couleur : c'est la MÊME couleur, éteinte,
+    // fondue par-dessus pendant l'inter-série (voir lib/phase-colors.js).
+    // Le mode garde donc son identité, il baisse juste d'intensité le temps
+    // de souffler. Passer par GradientBackground plutôt que par un calque
+    // peint ici garantit que les deux couches ont la même géométrie radiale.
+    <GradientBackground
+      colors={timer.bgColors}
+      textMode={timer.textMode}
+      overlayColors={restColors}
+      overlayOpacity={restVeil}
+    >
+      {/* Pulse ambiant — suit la phase, sinon il repeindrait la couleur
+          pleine par-dessus le repos toutes les deux secondes. */}
       <Animated.View
         pointerEvents="none"
         style={[StyleSheet.absoluteFill, pulseStyle]}
       >
         <LinearGradient
-          colors={timer.bgColors}
+          colors={state.isRest ? restColors : timer.bgColors}
           locations={[0, 0.45, 1]}
           start={{ x: 0.5, y: 0 }}
           end={{ x: 0.5, y: 1 }}
@@ -385,35 +429,81 @@ export default function Running() {
           isPaused={isPaused}
         />
 
-        <View style={styles.center}>
-          <Animated.View style={[styles.ringWrap, ringStyle]}>
-            <TickRing
-              progress={state.ringProgress}
-              size={320}
-              colorActive={t.ringActive}
-              colorInactive={t.ringInactive}
-            />
-            <View style={styles.ringCenter} pointerEvents="none">
+        <View style={[styles.center, isReduced && styles.centerReduced]}>
+          {isMini ? (
+            /* (V) Mini — le temps, la phase, rien d'autre. L'anneau dit la
+               même chose que la barre de progression déjà en haut, mais
+               coûte toute la hauteur dont le chrono a besoin pour rester
+               lisible à distance. */
+            <Animated.View style={[styles.miniCenter, timeStyle]}>
               <Animated.Text
                 style={[
                   styles.phaseLabel,
+                  styles.miniPhaseLabel,
                   { color: t.tertiary },
-                  state.phaseLabel.length > 16 && { fontSize: 9, letterSpacing: 2.5 },
                   phaseLabelStyle,
                 ]}
                 numberOfLines={1}
-                adjustsFontSizeToFit
               >
                 {state.phaseLabel}
               </Animated.Text>
-              <Animated.Text style={[styles.bigTime, { color: t.primary }, timeStyle]}>
+              <Text
+                style={[
+                  styles.bigTime,
+                  { color: t.primary, fontSize: bigTimeSize, lineHeight: Math.round(bigTimeSize * 1.05) },
+                ]}
+                numberOfLines={1}
+              >
                 {formatDuration(displaySeconds)}
-              </Animated.Text>
-              <Text style={[styles.restantLabel, { color: t.tertiary }]}>{centerLabel}</Text>
-            </View>
-          </Animated.View>
+              </Text>
+              <Text style={[styles.restantLabel, styles.miniRestantLabel, { color: t.tertiary }]} numberOfLines={1}>
+                {centerLabel}
+              </Text>
+            </Animated.View>
+          ) : (
+            <Animated.View
+              style={[
+                styles.ringWrap,
+                { width: ring, height: ring, marginBottom: scaled(isReduced ? 14 : 32, ui) },
+                ringStyle,
+              ]}
+            >
+              <TickRing
+                progress={state.ringProgress}
+                size={ring}
+                colorActive={t.ringActive}
+                colorInactive={t.ringInactive}
+              />
+              <View style={styles.ringCenter} pointerEvents="none">
+                <Animated.Text
+                  style={[
+                    styles.phaseLabel,
+                    { color: t.tertiary },
+                    state.phaseLabel.length > 16 && { fontSize: 9, letterSpacing: 2.5 },
+                    phaseLabelStyle,
+                  ]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                >
+                  {state.phaseLabel}
+                </Animated.Text>
+                <Animated.Text
+                  style={[
+                    styles.bigTime,
+                    { color: t.primary, fontSize: bigTimeSize, lineHeight: Math.round(bigTimeSize * 1.05) },
+                    timeStyle,
+                  ]}
+                >
+                  {formatDuration(displaySeconds)}
+                </Animated.Text>
+                <Text style={[styles.restantLabel, { color: t.tertiary }]}>{centerLabel}</Text>
+              </View>
+            </Animated.View>
+          )}
 
-          <PhasesPills phases={state.phasesList} timer={timer} tokens={t} />
+          {/* Le déroulé des phases est un repère de confort : premier bloc
+              sacrifié quand la hauteur manque. */}
+          {!isReduced && <PhasesPills phases={state.phasesList} timer={timer} tokens={t} />}
         </View>
 
         <BottomControls
@@ -666,8 +756,12 @@ function BottomControls({
   showFinish,
   onFinish,
 }) {
+  // (V) Les commandes gardent leur taille de cible (on les vise en plein
+  // effort, parfois en sueur) : seule la marge autour se resserre.
+  const level = useLayoutLevel();
+  const isReduced = level === 'mini' || level === 'compact';
   return (
-    <View style={styles.bottom}>
+    <View style={[styles.bottom, isReduced && styles.bottomReduced]}>
       <View style={styles.bottomRow}>
         <LongPressButton
           label="Reset"
@@ -942,6 +1036,26 @@ const styles = StyleSheet.create({
     // SafeAreaView.
     paddingBottom: 36,
     paddingTop: 12,
+  },
+  // (V) Mise en page réduite — voir lib/responsive.js
+  bottomReduced: {
+    paddingBottom: 12,
+    paddingTop: 6,
+  },
+  centerReduced: {
+    paddingHorizontal: 12,
+  },
+  miniCenter: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  miniPhaseLabel: {
+    fontSize: 10,
+    letterSpacing: 3,
+    marginBottom: 2,
+  },
+  miniRestantLabel: {
+    marginTop: 2,
   },
   bottomRow: {
     flexDirection: 'row',

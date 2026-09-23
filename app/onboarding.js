@@ -4,9 +4,9 @@ import {
   Text,
   Pressable,
   FlatList,
-  Dimensions,
   StyleSheet,
   Platform,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -17,9 +17,8 @@ import Svg, { Path } from 'react-native-svg';
 import GradientBackground from '../components/common/GradientBackground';
 import TickRing from '../components/common/TickRing';
 import { fonts } from '../lib/fonts';
+import { useUiScale, scaled } from '../lib/responsive';
 import { useHaptic } from '../hooks/useHaptic';
-
-const { width: SCREEN_W } = Dimensions.get('window');
 
 const SLIDES = [
   {
@@ -65,6 +64,12 @@ export default function Onboarding() {
   const haptic = useHaptic();
   const flatListRef = useRef(null);
   const [index, setIndex] = useState(0);
+  // Largeur relue en direct : en multi-fenetres l'utilisateur redimensionne
+  // pendant que l'app tourne, une largeur figee au demarrage desynchroniserait
+  // le carrousel (mauvaise page detectee, slides mal calees).
+  const { width: screenW } = useWindowDimensions();
+  const ui = useUiScale();
+  const ring = scaled(280, ui);
 
   const slide = SLIDES[index];
   const isLast = index === SLIDES.length - 1;
@@ -102,7 +107,7 @@ export default function Onboarding() {
   };
 
   const handleMomentumEnd = (e) => {
-    const i = Math.round(e.nativeEvent.contentOffset.x / SCREEN_W);
+    const i = Math.round(e.nativeEvent.contentOffset.x / screenW);
     if (i !== index) {
       setIndex(i);
       haptic.selection();
@@ -132,8 +137,8 @@ export default function Onboarding() {
           onMomentumScrollEnd={handleMomentumEnd}
           keyExtractor={(item) => item.id}
           getItemLayout={(_, i) => ({
-            length: SCREEN_W,
-            offset: SCREEN_W * i,
+            length: screenW,
+            offset: screenW * i,
             index: i,
           })}
           renderItem={({ item, index: i }) => {
@@ -144,13 +149,18 @@ export default function Onboarding() {
             const slideBody = slideIsDark ? 'rgba(10,10,10,0.75)' : 'rgba(255,255,255,0.80)';
 
             return (
-              <View style={styles.slide}>
+              <View style={[styles.slide, { width: screenW }]}>
                 <Text style={[styles.tag, { color: slideMuted }]}>{item.tag}</Text>
 
-                <View style={styles.ringWrap}>
+                <View
+                  style={[
+                    styles.ringWrap,
+                    { width: ring, height: ring, marginBottom: scaled(32, ui) },
+                  ]}
+                >
                   <TickRing
                     progress={(i + 1) / SLIDES.length}
-                    size={280}
+                    size={ring}
                     colorActive={slideText}
                     colorInactive={slideDim}
                   />
@@ -160,8 +170,8 @@ export default function Onboarding() {
                         styles.title,
                         {
                           color: slideText,
-                          fontSize: item.title.length > 4 ? 72 : 92,
-                          lineHeight: item.title.length > 4 ? 72 : 92,
+                          fontSize: scaled(item.title.length > 4 ? 72 : 92, ui),
+                          lineHeight: scaled(item.title.length > 4 ? 72 : 92, ui),
                         },
                       ]}
                     >
@@ -275,7 +285,6 @@ const styles = StyleSheet.create({
   },
 
   slide: {
-    width: SCREEN_W,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 32,

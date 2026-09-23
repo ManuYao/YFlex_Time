@@ -4,6 +4,7 @@ import {
   Text,
   Pressable,
   FlatList,
+  ScrollView,
   Dimensions,
   StyleSheet,
 } from 'react-native';
@@ -50,6 +51,7 @@ import { waitForUpdateGateSettled } from '../lib/updateGateSignal';
 import { formatValue } from '../lib/formatters';
 import { getTokens } from '../lib/tokens';
 import { fonts } from '../lib/fonts';
+import { useUiScale, scaled, useLayoutLevel } from '../lib/responsive';
 import { useTimers } from '../contexts/TimersContext';
 import { useHaptic } from '../hooks/useHaptic';
 import { useTimerHeat } from '../hooks/useTimerHeat';
@@ -89,6 +91,11 @@ const STREAK_THRESHOLD = 3;
 
 // Appui long sur le cercle central — ouvre le panneau stats/badges (T).
 const STATS_HOLD_MS = 1500;
+
+// (V) Largeur minimale d'un chip de réglage (label + valeur) pour rester
+// lisible en row. En dessous, statsRow bascule en liste verticale — voir
+// TimerCard.
+const MIN_STAT_CHIP_W = 92;
 const HOLD_RING_RADIUS = 156;
 const HOLD_RING_STROKE = 4;
 const HOLD_RING_CIRCUMFERENCE = 2 * Math.PI * HOLD_RING_RADIUS;
@@ -851,26 +858,100 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
   const t = getTokens(timer.textMode);
   const hero = getTimerHero(timer);
   const description = getTimerDescription(timer);
-  const heroFontSize = hero.number.length > 3 ? 110 : 140;
+  // ui vaut 1 sur un telephone normal : les tailles ci-dessous restent celles
+  // du design. Ne se reduit qu'en fenetre flottante (voir lib/responsive.js).
+  const ui = useUiScale();
   const isMix = timer.id === 'mix';
   const { isPressing, progress, start, cancel } = useLongPress(onOpenStats, STATS_HOLD_MS);
 
-  return (
-    <View style={[styles.card, { width: cardWidth }]}>
-      {/* (E) Description */}
+  // (V) Mise en page réduite — voir lib/responsive.js. En fenêtre courte,
+  // rétrécir ne suffit pas : le bas de la carte (réglages, déroulé) sortait
+  // de l'écran, donc on change la mise en page au lieu de l'échelle.
+  const level = useLayoutLevel();
+  const isMini = level === 'mini';
+  const isCompact = level === 'compact';
+  const isReduced = isMini || isCompact;
+
+  // L'anneau perd sa raison d'être bien avant de devenir illisible : en
+  // mini, le chiffre passe en ligne et récupère toute la hauteur gagnée.
+  const ring = scaled(isCompact ? 260 : 320, ui);
+  const heroBase = hero.number.length > 3 ? 110 : 140;
+  const heroFontSize = scaled(isCompact ? Math.round(heroBase * 0.62) : heroBase, ui);
+
+  // (V) Réglages : sous ce seuil de largeur par chip, le label/la valeur
+  // (ex: "01:30 min") n'a plus la place de rester lisible en row — bascule
+  // en liste verticale pleine largeur, un réglage par ligne. Forcé en mini,
+  // où la largeur est de toute façon trop juste pour deux colonnes.
+  const statsUsableWidth = cardWidth - 48; // paddingHorizontal 24*2 de .card
+  const statsCompact =
+    isMini ||
+    (timer.stats.length > 0 && statsUsableWidth / timer.stats.length < MIN_STAT_CHIP_W);
+
+  const content = (
+    <>
+      {/* (E) Description — en mise en page réduite elle est bornée à une
+          ligne : sans ça la hauteur qui manque la coupait en plein mot
+          ("EN 1 MINUTE" tronqué à "MINU"), sans ellipse ni moyen de lire
+          la suite. */}
       {isActive ? (
         <Animated.Text
           key={`full-${timer.id}`}
           entering={slideInY(10, D.big, 100)}
           exiting={slideOutY(-10, D.base)}
-          style={[styles.description, { color: t.tertiary }]}
+          numberOfLines={isReduced ? 1 : undefined}
+          style={[styles.description, isReduced && styles.descriptionReduced, { color: t.tertiary }]}
         >
           {description}
         </Animated.Text>
       ) : (
-        <Text style={[styles.description, { color: t.tertiary }]}>{description}</Text>
+        <Text
+          numberOfLines={isReduced ? 1 : undefined}
+          style={[styles.description, isReduced && styles.descriptionReduced, { color: t.tertiary }]}
+        >
+          {description}
+        </Text>
       )}
 
+      {/* (V) Mini — plus d'anneau : il mangeait toute la hauteur pour une
+          information que le chiffre porte déjà. Nom + valeur sur une ligne,
+          mêmes gestes que sur l'anneau (appui long → stats, tap → premium
+          si verrouillé). */}
+      {isMini ? (
+        <View style={[styles.miniHero, cooldown?.isLocked && styles.ringOuterLocked]}>
+          <Pressable
+            onPressIn={isActive ? start : undefined}
+            onPressOut={isActive ? cancel : undefined}
+            onPress={isActive && cooldown?.isLocked ? onGoPremium : undefined}
+            disabled={!isActive}
+            hitSlop={8}
+            style={styles.miniHeroRow}
+          >
+            <Text style={[styles.miniTimerName, { color: t.primary }]} numberOfLines={1}>
+              {timer.name}
+            </Text>
+            <View style={[styles.miniDivider, { backgroundColor: t.ringInactive }]} />
+            <Text style={[styles.miniHeroNumber, { color: t.primary }]} numberOfLines={1}>
+              {hero.number}
+            </Text>
+            <Text style={[styles.miniHeroUnit, { color: t.tertiary }]} numberOfLines={1}>
+              {hero.unit}
+            </Text>
+            {cooldown?.isLocked && <Text style={styles.miniLockEmoji}>👑</Text>}
+          </Pressable>
+          {/* Retour visuel de l'appui long, en barre plutôt qu'en anneau */}
+          {isActive && isPressing && (
+            <View style={[styles.miniHoldTrack, { backgroundColor: t.ringInactive }]}>
+              <View
+                style={[
+                  styles.miniHoldFill,
+                  { backgroundColor: t.ringActive, width: `${Math.round(progress * 100)}%` },
+                ]}
+              />
+            </View>
+          )}
+        </View>
+      ) : (
+      <>
       {/* (F+G) TickRing breathing + draw stagger + (T) appui long → stats */}
       <View style={[styles.ringOuter, cooldown?.isLocked && styles.ringOuterLocked]}>
       <Pressable
@@ -880,7 +961,13 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
         disabled={!isActive}
         hitSlop={4}
       >
-      <BreathingRing isActive={isActive} t={t} timerId={timer.id}>
+      <BreathingRing
+        isActive={isActive}
+        t={t}
+        timerId={timer.id}
+        size={ring}
+        gap={scaled(24, ui)}
+      >
         <View style={styles.ringCenter} pointerEvents="none">
           {/* (H) Hero unit */}
           {isActive && (
@@ -940,8 +1027,8 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
       </BreathingRing>
       </Pressable>
       {isActive && isPressing && (
-        <View style={styles.holdOverlay} pointerEvents="none">
-          <Svg width={320} height={320} viewBox="0 0 320 320">
+        <View style={[styles.holdOverlay, { width: ring, height: ring }]} pointerEvents="none">
+          <Svg width={ring} height={ring} viewBox="0 0 320 320">
             <Circle
               cx={160}
               cy={160}
@@ -962,7 +1049,7 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
         <StreakBadge heatCount={heatCount} isActive={isActive} t={t} timerId={timer.id} />
       )}
       {cooldown?.isLocked && (
-        <View style={styles.lockOverlay} pointerEvents="none">
+        <View style={[styles.lockOverlay, { width: ring, height: ring }]} pointerEvents="none">
           <Text style={styles.lockEmoji}>👑</Text>
         </View>
       )}
@@ -972,13 +1059,20 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
         </Pressable>
       )}
       </View>
+      </>
+      )}
 
       {/* (U) Cooldown — pips = usages du jour restants + aperçu du verrou,
           ou bandeau "Premium requis" une fois verrouillé */}
       <CooldownPips cooldown={cooldown} t={t} onGoPremium={onGoPremium} />
 
       {/* (K) Stats chips avec stagger */}
-      <View style={styles.statsRow}>
+      <View
+        style={[
+          statsCompact ? styles.statsRowCompact : styles.statsRow,
+          isReduced && styles.statsRowReduced,
+        ]}
+      >
         {timer.stats.map((stat, k) => {
           const editable = stat.editable;
           const tappable = editable && !isMix;
@@ -987,6 +1081,7 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
             : isMix
             ? onMixEdit
             : undefined;
+          const chipStyle = statsCompact ? styles.statChipCompact : styles.statChip;
 
           if (isActive) {
             return (
@@ -994,19 +1089,16 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
                 key={`stat-${timer.id}-${stat.key}`}
                 entering={popIn(0.9, D.big, 400 + k * 80)}
                 exiting={slideOutY(-12, D.base)}
-                style={{ flex: 1 }}
+                style={statsCompact ? styles.statWrapCompact : { flex: 1 }}
               >
                 <PressTap
                   disabled={!onPress}
                   onPress={onPress}
                   tapScale={0.94}
                   onHapticIn={tappable || isMix ? onStatHaptic : undefined}
-                  style={[
-                    styles.statChip,
-                    { backgroundColor: t.chipBg, borderColor: t.chipBorder },
-                  ]}
+                  style={[chipStyle, { backgroundColor: t.chipBg, borderColor: t.chipBorder }]}
                 >
-                  <StatChipContent stat={stat} t={t} editable={editable || isMix} />
+                  <StatChipContent stat={stat} t={t} editable={editable || isMix} compact={statsCompact} />
                 </PressTap>
               </Animated.View>
             );
@@ -1015,18 +1107,20 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
             <View
               key={`stat-${timer.id}-${stat.key}`}
               style={[
-                styles.statChip,
-                { backgroundColor: t.chipBg, borderColor: t.chipBorder, flex: 1 },
+                chipStyle,
+                { backgroundColor: t.chipBg, borderColor: t.chipBorder },
+                statsCompact ? styles.statWrapCompact : { flex: 1 },
               ]}
             >
-              <StatChipContent stat={stat} t={t} editable={editable || isMix} />
+              <StatChipContent stat={stat} t={t} editable={editable || isMix} compact={statsCompact} />
             </View>
           );
         })}
       </View>
 
-      {/* (L) Phases */}
-      {isActive ? (
+      {/* (L) Phases — purement informatif : premier bloc sacrifié en mise en
+          page réduite, c'est lui qui poussait les réglages hors de l'écran. */}
+      {isReduced ? null : isActive ? (
         <>
           <Animated.Text
             key={`phases-label-${timer.id}`}
@@ -1073,8 +1167,26 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
           </View>
         </>
       )}
-    </View>
+    </>
   );
+
+  // (V) En mise en page réduite la carte défile. Les seuils ci-dessus font
+  // rentrer l'essentiel sans défilement, mais ils ne peuvent pas couvrir
+  // toutes les tailles de fenêtre : le défilement garantit que RIEN n'est
+  // inatteignable, quelle que soit la hauteur. Défilement vertical dans une
+  // FlatList horizontale : axes différents, aucun conflit de geste.
+  if (isReduced) {
+    return (
+      <ScrollView
+        style={{ width: cardWidth }}
+        contentContainerStyle={[styles.card, styles.cardReduced, styles.cardScroll]}
+      >
+        {content}
+      </ScrollView>
+    );
+  }
+
+  return <View style={[styles.card, { width: cardWidth }]}>{content}</View>;
 });
 
 /* ─────────────────────────────────────────────────────────────────
@@ -1149,7 +1261,7 @@ function StreakBadge({ heatCount, isActive, t, timerId }) {
   );
 }
 
-function StatChipContent({ stat, t, editable }) {
+function StatChipContent({ stat, t, editable, compact }) {
   // Les stats de type 'seconds' (REPOS/INTERV./TRAVAIL) passent par
   // formatValue pour rester cohérentes avec la roue de sélection : au-delà
   // de 60, "67" + "s" devient "1 min 07" (voir lib/formatters.js). Les
@@ -1158,6 +1270,37 @@ function StatChipContent({ stat, t, editable }) {
   const fmt = stat.type === 'seconds' ? formatValue(stat.value, stat.type) : null;
   const displayValue = fmt ? fmt.main : stat.value;
   const displayUnit = fmt ? fmt.unit : stat.unit;
+
+  // Mode compact (V) : fenêtre trop étroite pour 2-3 chips côte à côte sans
+  // écraser le texte (mode fenêtre flottante Android, voir lib/responsive.js).
+  // Layout "ligne de réglage" — label à gauche, valeur à droite — plutôt que
+  // le chip carré empilé, pour rester lisible et tapable à pleine largeur.
+  if (compact) {
+    return (
+      <>
+        <Text style={[styles.statLabelCompact, { color: t.tertiary }]}>{stat.label}</Text>
+        <View style={styles.statValueRow}>
+          <Text style={[styles.statValueCompact, { color: t.primary }]} numberOfLines={1}>
+            {displayValue}
+          </Text>
+          {!!displayUnit && (
+            <Text style={[styles.statUnit, { color: t.tertiary }]}>{displayUnit}</Text>
+          )}
+          {editable && (
+            <Svg width={7} height={7} viewBox="0 0 7 7" fill="none" style={styles.statChevronCompact}>
+              <Path
+                d="M1 2l2.5 3L6 2"
+                stroke={t.tertiary}
+                strokeWidth={1.3}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </Svg>
+          )}
+        </View>
+      </>
+    );
+  }
 
   return (
     <>
@@ -1190,7 +1333,7 @@ function StatChipContent({ stat, t, editable }) {
 /* ─────────────────────────────────────────────────────────────────
    (F) Breathing ring — scale [1, 1.008, 1] loop sur card active
    ────────────────────────────────────────────────────────────────*/
-function BreathingRing({ isActive, t, timerId, children }) {
+function BreathingRing({ isActive, t, timerId, size = 320, gap = 24, children }) {
   const scale = useSharedValue(1);
 
   useEffect(() => {
@@ -1214,10 +1357,12 @@ function BreathingRing({ isActive, t, timerId, children }) {
   }));
 
   return (
-    <Animated.View style={[styles.ringWrap, animStyle]}>
+    <Animated.View
+      style={[styles.ringWrap, { width: size, height: size, marginBottom: gap }, animStyle]}
+    >
       <TickRing
         progress={0.75}
-        size={320}
+        size={size}
         colorActive={t.ringActive}
         colorInactive={t.ringInactive}
         triggerKey={isActive ? timerId : undefined}
@@ -1232,6 +1377,12 @@ function BreathingRing({ isActive, t, timerId, children }) {
    ────────────────────────────────────────────────────────────────*/
 function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onDotPress, onLaunch, isLaunching }) {
   const isLocked = !!cooldown?.isLocked;
+  // (V) En fenêtre courte, chaque bloc compte : le rappel de swipe part en
+  // premier (le geste s'apprend au premier essai, les points restent) et le
+  // bouton se resserre — mais jamais sous 44 px, sinon il devient imprécis.
+  const level = useLayoutLevel();
+  const isMini = level === 'mini';
+  const isReduced = isMini || level === 'compact';
   const ctaBg = isLocked ? 'rgba(255,255,255,0.14)' : active.color;
   const ctaTextColor = isLocked ? 'rgba(255,255,255,0.6)' : active.textMode === 'dark' ? '#0A0A0A' : '#FFFFFF';
 
@@ -1264,9 +1415,9 @@ function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onDo
       entering={slideInY(80, D.slow, 300)}
       pointerEvents={isLaunching ? 'none' : 'auto'}
     >
-      <Animated.View style={[styles.bottomBar, fadeStyle]}>
+      <Animated.View style={[styles.bottomBar, isReduced && styles.bottomBarReduced, fadeStyle]}>
       {/* (N) Indicators dots */}
-      <View style={styles.indicatorRow}>
+      <View style={[styles.indicatorRow, isReduced && styles.indicatorRowReduced]}>
         {timers.map((timer, i) => (
           <IndicatorDot
             key={timer.id}
@@ -1286,7 +1437,7 @@ function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onDo
         <PressTap
           onPress={onLaunch}
           tapScale={0.96}
-          style={[styles.cta, { backgroundColor: ctaBg }]}
+          style={[styles.cta, isReduced && styles.ctaReduced, { backgroundColor: ctaBg }]}
         >
           {isLocked ? (
             <Text style={styles.ctaLockEmoji}>👑</Text>
@@ -1308,9 +1459,11 @@ function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onDo
         </PressTap>
       </View>
 
-      <Text style={[styles.hint, { color: tokens.muted }]}>
-        ← Glisse ou tape les points →
-      </Text>
+      {!isMini && (
+        <Text style={[styles.hint, isReduced && styles.hintReduced, { color: tokens.muted }]}>
+          ← Glisse ou tape les points →
+        </Text>
+      )}
       </Animated.View>
     </Animated.View>
   );
@@ -1560,6 +1713,18 @@ function PickerSheet({ stat, accentColor, textMode, onClose, onValidate, screenH
   const [draft, setDraft] = useState(stat.value);
   const ctaText = textMode === 'dark' ? '#0A0A0A' : '#FFFFFF';
 
+  // (V) La feuille grandit vers le haut sans limite (sheetRoot en
+  // justifyContent:'flex-end'). Son empilement complet réclame ~490 dp :
+  // en fenêtre courte elle sortait par le haut, la roue se retrouvait
+  // derrière la barre de statut et le rappel « fais défiler » par-dessus
+  // le bouton Lancer. Même piège que BottomSheet/UpdateSheet, autre
+  // composant. On réduit donc le contenu au lieu de le laisser déborder.
+  const level = useLayoutLevel();
+  const isMini = level === 'mini';
+  const isReduced = isMini || level === 'compact';
+  // 3 valeurs au lieu de 5 : ~104 dp gagnés, l'essentiel du débordement.
+  const wheelItems = isReduced ? 3 : 5;
+
   const values = [];
   for (let i = stat.range[0]; i <= stat.range[1]; i++) values.push(i);
 
@@ -1600,7 +1765,16 @@ function PickerSheet({ stat, accentColor, textMode, onClose, onValidate, screenH
       </Animated.View>
       <Pressable style={styles.sheetTap} onPress={handleClose} />
 
-      <Animated.View style={[styles.sheet, sheetStyle]}>
+      <Animated.View
+        style={[
+          styles.sheet,
+          isReduced && styles.sheetReduced,
+          // Ceinture : même bien dimensionnée, la feuille ne doit jamais
+          // pouvoir sortir de l'écran par le haut.
+          { maxHeight: Math.round(screenH * 0.94) },
+          sheetStyle,
+        ]}
+      >
         <Animated.View
           entering={FadeIn.delay(100).duration(D.base).easing(easeImpact).withInitialValues({
             transform: [{ scaleX: 0.3 }],
@@ -1612,15 +1786,17 @@ function PickerSheet({ stat, accentColor, textMode, onClose, onValidate, screenH
 
         <Animated.View
           entering={slideInY(20, D.slow, 150)}
-          style={styles.pickerHeader}
+          style={[styles.pickerHeader, isReduced && styles.pickerHeaderReduced]}
         >
-          <Text style={styles.pickerKicker}>MODIFIER</Text>
+          {/* Le titre porte déjà le réglage concerné : le kicker est le
+              premier texte sacrifié quand la hauteur manque. */}
+          {!isReduced && <Text style={styles.pickerKicker}>MODIFIER</Text>}
           <Text style={styles.pickerTitle}>{stat.label}</Text>
         </Animated.View>
 
         <Animated.View
           entering={popIn(0.9, D.slow, 200)}
-          style={styles.pickerWheelWrap}
+          style={[styles.pickerWheelWrap, isReduced && styles.pickerWheelWrapReduced]}
         >
           <WheelPicker
             values={values}
@@ -1628,6 +1804,7 @@ function PickerSheet({ stat, accentColor, textMode, onClose, onValidate, screenH
             type={stat.type}
             accentColor={accentColor || '#FFFFFF'}
             onChange={(v) => setDraft(v)}
+            visibleItems={wheelItems}
           />
         </Animated.View>
 
@@ -1636,7 +1813,11 @@ function PickerSheet({ stat, accentColor, textMode, onClose, onValidate, screenH
           <PressTap
             onPress={handleValidate}
             tapScale={0.97}
-            style={[styles.pickerCta, { backgroundColor: accentColor || '#FFFFFF' }]}
+            style={[
+              styles.pickerCta,
+              isReduced && styles.pickerCtaReduced,
+              { backgroundColor: accentColor || '#FFFFFF' },
+            ]}
           >
             <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
               <Path
@@ -1652,12 +1833,16 @@ function PickerSheet({ stat, accentColor, textMode, onClose, onValidate, screenH
           </View>
         </Animated.View>
 
-        <Animated.Text
-          entering={FadeIn.delay(500).duration(D.base)}
-          style={styles.sheetFooter}
-        >
-          Fais défiler pour choisir
-        </Animated.Text>
+        {/* Le rappel disparaît en mini : la roue est alors le seul élément
+            au-dessus du bouton, le geste est évident. */}
+        {!isMini && (
+          <Animated.Text
+            entering={FadeIn.delay(500).duration(D.base)}
+            style={[styles.sheetFooter, isReduced && styles.sheetFooterReduced]}
+          >
+            Fais défiler pour choisir
+          </Animated.Text>
+        )}
       </Animated.View>
     </View>
   );
@@ -1911,6 +2096,122 @@ const styles = StyleSheet.create({
     fontFamily: fonts.monoRegular,
     fontSize: 11,
     marginLeft: 2,
+  },
+
+  // (V) Mise en page réduite — voir lib/responsive.js
+  descriptionReduced: {
+    marginBottom: 12,
+  },
+  miniHero: {
+    width: '100%',
+    maxWidth: 320,
+    marginBottom: 14,
+  },
+  miniHeroRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  miniTimerName: {
+    fontFamily: fonts.sansBold,
+    fontSize: 20,
+    letterSpacing: -0.4,
+  },
+  miniDivider: {
+    width: 1,
+    height: 22,
+  },
+  miniHeroNumber: {
+    fontFamily: fonts.display,
+    fontSize: 40,
+    lineHeight: 44,
+    letterSpacing: -1.5,
+    includeFontPadding: false,
+  },
+  miniHeroUnit: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 10,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+  },
+  miniLockEmoji: {
+    fontSize: 16,
+  },
+  miniHoldTrack: {
+    height: 2,
+    borderRadius: 1,
+    marginTop: 8,
+    overflow: 'hidden',
+  },
+  miniHoldFill: {
+    height: 2,
+    borderRadius: 1,
+  },
+  statsRowReduced: {
+    marginBottom: 4,
+    gap: 6,
+  },
+  cardReduced: {
+    paddingTop: 6,
+  },
+  // contentContainerStyle du ScrollView : flexGrow (pas flex) pour que le
+  // contenu court reste en haut au lieu d'être étiré, et que le contenu
+  // long puisse dépasser — c'est ce dépassement qui rend le défilement utile.
+  cardScroll: {
+    flexGrow: 1,
+    width: '100%',
+    paddingBottom: 10,
+  },
+  bottomBarReduced: {
+    paddingTop: 2,
+    paddingBottom: 4,
+  },
+  indicatorRowReduced: {
+    marginBottom: 8,
+  },
+  ctaReduced: {
+    height: 46,
+  },
+  hintReduced: {
+    marginTop: 6,
+  },
+
+  // (V) Stats — mode compact (fenêtre trop étroite pour des chips en row,
+  // voir TimerCard/statsCompact). Une ligne de réglage par stat, pleine
+  // largeur : label à gauche, valeur à droite — jamais écrasé.
+  statsRowCompact: {
+    flexDirection: 'column',
+    width: '100%',
+    maxWidth: 320,
+    gap: 8,
+    marginBottom: 24,
+  },
+  statWrapCompact: {
+    width: '100%',
+  },
+  statChipCompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderRadius: 14,
+  },
+  statLabelCompact: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 11,
+    letterSpacing: 1.4,
+    textTransform: 'uppercase',
+  },
+  statValueCompact: {
+    fontFamily: fonts.monoBold,
+    fontSize: 17,
+  },
+  statChevronCompact: {
+    marginLeft: 8,
   },
 
   // Phases
@@ -2187,6 +2488,23 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.40)',
     textAlign: 'center',
     marginTop: 18,
+  },
+  // (V) Feuille de sélection en fenêtre réduite — voir PickerSheet
+  sheetReduced: {
+    paddingTop: 8,
+    paddingBottom: 14,
+  },
+  pickerHeaderReduced: {
+    marginBottom: 10,
+  },
+  pickerWheelWrapReduced: {
+    marginBottom: 12,
+  },
+  pickerCtaReduced: {
+    height: 48,
+  },
+  sheetFooterReduced: {
+    marginTop: 10,
   },
 
   // Picker

@@ -392,6 +392,14 @@ export default function Settings() {
             />
             <LinkRow label="Conditions d'utilisation" onPress={() => router.push('/terms')} />
             <LinkRow label="Politique de confidentialité" onPress={() => router.push('/privacy')} />
+            <LinkRow
+              label="Autorisations"
+              sub="Ce que l'app peut te demander, et pourquoi"
+              onPress={() => {
+                haptic.light();
+                router.push('/permissions');
+              }}
+            />
             <LinkRow label="Contact" sub={CONTACT_EMAIL} onPress={handleContact} isLast />
           </Section>
 

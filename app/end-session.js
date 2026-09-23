@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { View, Text, Pressable, StyleSheet, useWindowDimensions } from 'react-native';
+import { View, Text, Pressable, ScrollView, StyleSheet, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -34,6 +34,7 @@ import { useTimers } from '../contexts/TimersContext';
 import { computeSessionStats } from '../lib/timer-engine';
 import { formatDuration } from '../lib/formatters';
 import { fonts } from '../lib/fonts';
+import { useUiScale, scaled, useLayoutLevel } from '../lib/responsive';
 import { haptic } from '../hooks/useHaptic';
 import { loadCooldownMap, saveCooldownMap, getCooldownStatus, consumeLaunch } from '../lib/cooldown';
 import { loadIsPremium } from '../lib/premium';
@@ -53,6 +54,29 @@ export default function EndSession() {
   const elapsedNum = Number(elapsed) || 0;
   const savedRef = useRef(false);
   const { height: screenH } = useWindowDimensions();
+  const ui = useUiScale();
+
+  // (V) Mise en page réduite — voir lib/responsive.js. Le bilan de séance
+  // empile beaucoup (badge, BRAVO, anneau, 3 stats) au-dessus de boutons
+  // qui doivent rester atteignables : en réduit le contenu défile et les
+  // actions restent fixes en bas.
+  const level = useLayoutLevel();
+  const isMini = level === 'mini';
+  const isReduced = isMini || level === 'compact';
+  const ring = scaled(isMini ? 150 : level === 'compact' ? 200 : 260, ui);
+  const bravoSize = scaled(isMini ? 44 : level === 'compact' ? 66 : 92, ui);
+
+  // (V) Le temps au centre de l'anneau était figé à 56 px quelle que soit la
+  // taille de l'anneau : dans un anneau réduit, "00:12" ne tenait plus sur
+  // la largeur et repassait à la ligne au milieu du cercle. Le facteur vient
+  // de la place réelle : 5 caractères de mono à ~0,6 em, dans le diamètre
+  // utile (~72 % du cercle). Plafonné à 56 pour que le plein écran ne bouge
+  // pas d'un pixel.
+  const durationSize = Math.min(56, Math.round(ring * 0.22));
+  // Idem pour "DURÉE TOTALE" : à 10 px avec 3 px d'interlettrage, le libellé
+  // dépassait le cercle et se coupait en deux lignes.
+  const durationLabelSize = ring < 210 ? 9 : 10;
+  const durationLabelSpacing = ring < 210 ? 1.4 : 3;
 
   // Une seule fois, à la fin de la première séance (jamais pendant l'effort,
   // jamais au lancement) : proposer d'exclure l'app de l'optimisation
@@ -300,7 +324,7 @@ export default function EndSession() {
           </Animated.Text>
         </View>
 
-        <View style={styles.body}>
+        <BodyContainer isReduced={isReduced}>
           <Animated.View style={[styles.badge, badgeStyle]}>
           <Animated.View style={[styles.badgeDot, { backgroundColor: timer.color }, dotStyle]} />
           <Text style={[styles.badgeName, { color: timer.color }]}>
@@ -310,7 +334,19 @@ export default function EndSession() {
         </Animated.View>
 
         <Animated.Text
-          style={[styles.bravo, { textShadowColor: timer.color + '88' }, bravoStyle]}
+          style={[
+            styles.bravo,
+            {
+              textShadowColor: timer.color + '88',
+              fontSize: bravoSize,
+              // Anton monte plus haut et descend plus bas que sa taille
+              // nominale : avec lineHeight = fontSize la boîte est trop
+              // courte, Android rogne le glyphe et le laisse déborder sur
+              // les textes voisins (même cause que le saut du WheelPicker).
+              lineHeight: Math.round(bravoSize * 1.18),
+            },
+            bravoStyle,
+          ]}
         >
           BRAVO
         </Animated.Text>
@@ -318,24 +354,50 @@ export default function EndSession() {
           Tu l'as fait jusqu'au bout
         </Animated.Text>
 
-        <Animated.View style={[styles.ringWrap, ringStyle]}>
+        <Animated.View
+          style={[
+            styles.ringWrap,
+            { width: ring, height: ring, marginBottom: scaled(28, ui) },
+            ringStyle,
+          ]}
+        >
           <TickRing
             progress={1}
-            size={260}
+            size={ring}
             colorActive={timer.color}
             colorInactive="rgba(255,255,255,0.12)"
             animateIn
           />
           <View style={styles.ringCenter} pointerEvents="none">
-            <Text style={styles.durationLabel}>DURÉE TOTALE</Text>
-            <Text style={styles.durationValue}>{formatDuration(elapsedNum)}</Text>
-            <View style={styles.intensityRow}>
-              <View style={[styles.intensityBar, { backgroundColor: timer.color }]} />
-              <Text style={[styles.intensityText, { color: timer.color }]}>
-                {timer.tag}
-              </Text>
-              <View style={[styles.intensityBar, { backgroundColor: timer.color }]} />
-            </View>
+            <Text
+              numberOfLines={1}
+              style={[
+                styles.durationLabel,
+                { fontSize: durationLabelSize, letterSpacing: durationLabelSpacing },
+              ]}
+            >
+              DURÉE TOTALE
+            </Text>
+            <Text
+              numberOfLines={1}
+              style={[
+                styles.durationValue,
+                { fontSize: durationSize, lineHeight: Math.round(durationSize * 1.1) },
+              ]}
+            >
+              {formatDuration(elapsedNum)}
+            </Text>
+            {/* Le tag du mode est de l'informatif : c'est ce qui saute en
+                premier quand le cercle devient trop petit pour tout loger. */}
+            {!isMini && (
+              <View style={styles.intensityRow}>
+                <View style={[styles.intensityBar, { backgroundColor: timer.color }]} />
+                <Text style={[styles.intensityText, { color: timer.color }]} numberOfLines={1}>
+                  {timer.tag}
+                </Text>
+                <View style={[styles.intensityBar, { backgroundColor: timer.color }]} />
+              </View>
+            )}
           </View>
         </Animated.View>
 
@@ -344,7 +406,7 @@ export default function EndSession() {
           <StatCell index={1} label="TRAVAIL" value={workValue} color="#1FC777" />
           <StatCell index={2} label="REPOS" value={restValue} color="#4A90FF" />
         </View>
-      </View>
+      </BodyContainer>
 
       <View style={styles.actions}>
         <Pressable
@@ -451,6 +513,19 @@ function StatCell({ index, label, value, color }) {
   );
 }
 
+/* (V) Le bilan défile en fenêtre réduite, pas en plein écran : centré et
+   figé quand tout rentre (c'est un écran de récompense, il doit se poser),
+   défilant dès que la hauteur manque — sinon l'anneau et les stats passent
+   sous les boutons d'action, qui eux restent fixes en bas. */
+function BodyContainer({ isReduced, children }) {
+  if (!isReduced) return <View style={styles.body}>{children}</View>;
+  return (
+    <ScrollView style={styles.bodyScroll} contentContainerStyle={styles.bodyScrollContent}>
+      {children}
+    </ScrollView>
+  );
+}
+
 const formatDateLabel = (d) => {
   const hh = String(d.getHours()).padStart(2, '0');
   const mm = String(d.getMinutes()).padStart(2, '0');
@@ -477,6 +552,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 24,
+  },
+  // (V) Mise en page réduite — voir lib/responsive.js
+  bodyScroll: {
+    flex: 1,
+  },
+  bodyScrollContent: {
+    flexGrow: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
   },
 
   badge: {
@@ -533,6 +619,11 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
+    // Le contenu est centré dans un CERCLE : sans marge latérale il se pose
+    // sur les graduations, et sans overflow caché un texte trop long
+    // déborderait par-dessus le tagline au-dessus de l'anneau.
+    paddingHorizontal: '14%',
+    overflow: 'hidden',
   },
   durationLabel: {
     fontFamily: fonts.sansBold,

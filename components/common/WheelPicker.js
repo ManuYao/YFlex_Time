@@ -8,7 +8,6 @@ import { haptic } from '../../hooks/useHaptic';
 
 const ITEM_HEIGHT = 52;
 const VISIBLE_ITEMS = 5;
-const PADDING_ITEMS = Math.floor(VISIBLE_ITEMS / 2);
 // En dessous de cet écart (px) on ne recale pas : c'est du bruit d'arrondi dp -> px.
 const SNAP_EPSILON = 1;
 
@@ -18,7 +17,15 @@ export default function WheelPicker({
   type = 'rounds',
   accentColor = '#FFFFFF',
   onChange,
+  // (V) La roue tient 5 valeurs par défaut. En fenêtre réduite la feuille
+  // ne peut pas les loger : elle passe à 3 et reste utilisable (une valeur
+  // au-dessus, une en dessous — assez pour comprendre qu'on peut défiler).
+  // ITEM_HEIGHT ne bouge PAS : tout le centrage et le recalage en dépendent.
+  // Impair uniquement, sinon la valeur sélectionnée n'a pas de ligne centrale.
+  visibleItems = VISIBLE_ITEMS,
 }) {
+  const visible = visibleItems % 2 === 0 ? visibleItems - 1 : visibleItems;
+  const paddingItems = Math.floor(visible / 2);
   const scrollRef = useRef(null);
   const lastIdxRef = useRef(values.indexOf(selectedValue));
   // true = le scroll en cours est notre recalage, pas le doigt de l'utilisateur
@@ -75,8 +82,8 @@ export default function WheelPicker({
     }
   };
 
-  const totalHeight = ITEM_HEIGHT * VISIBLE_ITEMS;
-  const railTop = ITEM_HEIGHT * PADDING_ITEMS;
+  const totalHeight = ITEM_HEIGHT * visible;
+  const railTop = ITEM_HEIGHT * paddingItems;
 
   return (
     <View style={[styles.root, { height: totalHeight }]}>

@@ -2,7 +2,7 @@
   "expo": {
     "name": "Flex Timer",
     "slug": "flex-timer",
-    "version": "12.3.2",
+    "version": "13.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -41,7 +41,8 @@
         }
       ],
       "expo-mail-composer",
-      "./plugins/withTimerForegroundService"
+      "./plugins/withTimerForegroundService",
+      "./plugins/withMinWindowSize"
     ],
     "experiments": {
       "typedRoutes": false

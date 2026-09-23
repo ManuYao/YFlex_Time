@@ -33,6 +33,7 @@ import {
 } from '../lib/mix-blocks';
 import { makeDefaultMix } from '../lib/mixes';
 import { fonts } from '../lib/fonts';
+import { useLayoutLevel } from '../lib/responsive';
 import { useTimers } from '../contexts/TimersContext';
 import { useHaptic } from '../hooks/useHaptic';
 
@@ -548,6 +549,12 @@ function AddBlockSheet({ visible, onClose, onPick }) {
 function EditBlockSheet({ block, onClose, onUpdate }) {
   const [labelDraft, setLabelDraft] = useState('');
 
+  // (V) Même contrainte que PickerSheet : en fenêtre réduite les roues
+  // passent à 3 valeurs, sinon la feuille dépasse par le haut. Les trois
+  // sont côte à côte, donc c'est bien la hauteur d'une seule qui compte.
+  const level = useLayoutLevel();
+  const wheelItems = level === 'full' ? 5 : 3;
+
   useEffect(() => {
     setLabelDraft(block?.label || '');
   }, [block?.id]);
@@ -605,6 +612,7 @@ function EditBlockSheet({ block, onClose, onUpdate }) {
                 type="seconds"
                 accentColor={type.color}
                 onChange={(v) => onUpdate({ duration: v })}
+                visibleItems={wheelItems}
               />
             </View>
 
@@ -617,6 +625,7 @@ function EditBlockSheet({ block, onClose, onUpdate }) {
                   type="seconds"
                   accentColor={type.color}
                   onChange={(v) => onUpdate({ rest: v })}
+                  visibleItems={wheelItems}
                 />
               </View>
             )}
@@ -630,6 +639,7 @@ function EditBlockSheet({ block, onClose, onUpdate }) {
                   type="rounds"
                   accentColor={type.color}
                   onChange={(v) => onUpdate({ rounds: v })}
+                  visibleItems={wheelItems}
                 />
               </View>
             )}

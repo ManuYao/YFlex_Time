@@ -14,6 +14,7 @@ import Animated, {
 import GradientBackground from '../components/common/GradientBackground';
 import { useTimers } from '../contexts/TimersContext';
 import { fonts } from '../lib/fonts';
+import { useUiScale, scaled, useLayoutLevel } from '../lib/responsive';
 import { useHaptic } from '../hooks/useHaptic';
 import { useSound } from '../hooks/useSound';
 
@@ -72,6 +73,12 @@ export default function Countdown() {
     }
   };
 
+  // (V) Mise en page réduite — voir lib/responsive.js. Les 80 dp de marge
+  // haute/basse sont du confort : ils passent en premier quand la fenêtre
+  // est courte, avant de toucher au chiffre lui-même.
+  const level = useLayoutLevel();
+  const isReduced = level === 'mini' || level === 'compact';
+
   const isDark = timer.textMode === 'dark';
   const textColor = isDark ? '#0A0A0A' : '#FFFFFF';
   const dimColor = isDark ? 'rgba(10,10,10,0.65)' : 'rgba(255,255,255,0.75)';
@@ -107,7 +114,7 @@ export default function Countdown() {
         ]}
       />
 
-      <Pressable style={styles.full} onPress={handleCancel}>
+      <Pressable style={[styles.full, isReduced && styles.fullReduced]} onPress={handleCancel}>
         <View style={styles.topLabel} pointerEvents="none">
           <Text style={[styles.prepLabel, { color: dimColor }]}>PRÉPARE-TOI</Text>
           <View style={[styles.bar, { backgroundColor: dimColor }]} />
@@ -139,6 +146,12 @@ export default function Countdown() {
 function HeroDigit({ value, color, isGo }) {
   const scale = useSharedValue(0.3);
   const opacity = useSharedValue(0);
+  const ui = useUiScale();
+  // (V) Le chiffre du décompte est ce qu'on regarde de loin en se mettant en
+  // place : il ne tombe qu'au palier mini, et pas plus bas que nécessaire.
+  const level = useLayoutLevel();
+  const base = isGo ? 200 : 240;
+  const size = scaled(level === 'mini' ? Math.round(base * 0.5) : level === 'compact' ? Math.round(base * 0.72) : base, ui);
 
   useEffect(() => {
     scale.value = withSequence(
@@ -160,8 +173,8 @@ function HeroDigit({ value, color, isGo }) {
           styles.heroNumber,
           {
             color,
-            fontSize: isGo ? 200 : 240,
-            lineHeight: isGo ? 200 : 240,
+            fontSize: size,
+            lineHeight: size,
           },
           aStyle,
         ]}
@@ -207,6 +220,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: 80,
+  },
+  // (V) Mise en page réduite — voir lib/responsive.js
+  fullReduced: {
+    paddingVertical: 20,
   },
   wave: {
     position: 'absolute',

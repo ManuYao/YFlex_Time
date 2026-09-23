@@ -7,6 +7,7 @@ import PressTap from './PressTap';
 import WheelPicker from './WheelPicker';
 import { fonts } from '../../lib/fonts';
 import { getCategory } from '../../lib/exercises';
+import { useLayoutLevel } from '../../lib/responsive';
 import { haptic } from '../../hooks/useHaptic';
 
 const range = (from, to, step) => {
@@ -30,6 +31,11 @@ export default function ExerciseDetailSheet({
   onSave,
   onRemove,
 }) {
+  // (V) Même contrainte que PickerSheet : en fenêtre réduite la roue passe
+  // à 3 valeurs, sinon la feuille dépasse par le haut (voir lib/responsive.js).
+  const level = useLayoutLevel();
+  const wheelItems = level === 'full' ? 5 : 3;
+
   // Copie figée à l'ouverture : "Retirer cet exercice" supprime l'étiquette du
   // planning avant la fin de l'animation de fermeture, donc la prop `tag`
   // devient undefined alors que la feuille est encore à l'écran.
@@ -99,6 +105,7 @@ export default function ExerciseDetailSheet({
                 type={field.pickerType}
                 accentColor={category.color}
                 onChange={(v) => setDraft((prev) => ({ ...prev, [field.key]: v }))}
+                visibleItems={wheelItems}
               />
 
               <PressTap

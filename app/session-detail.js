@@ -9,6 +9,7 @@ import TickRing from '../components/common/TickRing';
 import { loadHistory } from '../lib/history';
 import { formatDuration } from '../lib/formatters';
 import { fonts } from '../lib/fonts';
+import { useUiScale, scaled } from '../lib/responsive';
 import { haptic } from '../hooks/useHaptic';
 import { loadCooldownMap, saveCooldownMap, getCooldownStatus, consumeLaunch } from '../lib/cooldown';
 import { loadIsPremium } from '../lib/premium';
@@ -17,6 +18,11 @@ export default function SessionDetail() {
   const router = useRouter();
   const { id } = useLocalSearchParams();
   const [session, setSession] = useState(null);
+  const ui = useUiScale();
+  const ring = scaled(240, ui);
+  // (V) Même correctif que /end-session : le temps au centre était figé alors
+  // que l'anneau, lui, rétrécit — "00:12" repassait à la ligne dans le cercle.
+  const durationSize = Math.min(50, Math.round(ring * 0.22));
 
   // Même contournement que end-session.js : ce bouton renvoyait direct vers
   // /countdown sans jamais passer par handleLaunch de Home.
@@ -94,17 +100,31 @@ export default function SessionDetail() {
             <Text style={styles.badgeDate}>· {dateLabel}</Text>
           </View>
 
-          <View style={styles.ringWrap}>
+          <View style={[styles.ringWrap, { width: ring, height: ring, marginBottom: scaled(28, ui) }]}>
             <TickRing
               progress={1}
-              size={240}
+              size={ring}
               colorActive={session.color || '#FFFFFF'}
               colorInactive="rgba(255,255,255,0.12)"
               animateIn
             />
             <View style={styles.ringCenter} pointerEvents="none">
-              <Text style={styles.durationLabel}>DURÉE TOTALE</Text>
-              <Text style={styles.durationValue}>
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.durationLabel,
+                  ring < 210 && { fontSize: 9, letterSpacing: 1.4 },
+                ]}
+              >
+                DURÉE TOTALE
+              </Text>
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.durationValue,
+                  { fontSize: durationSize, lineHeight: Math.round(durationSize * 1.1) },
+                ]}
+              >
                 {formatDuration(session.durationSeconds || 0)}
               </Text>
               <View style={styles.intensityRow}>
@@ -240,6 +260,11 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
+    // Contenu centré dans un CERCLE : marge latérale pour ne pas toucher les
+    // graduations, overflow caché pour qu'un texte trop long ne déborde pas
+    // au-dessus de l'anneau.
+    paddingHorizontal: '14%',
+    overflow: 'hidden',
   },
   durationLabel: {
     fontFamily: fonts.sansBold,
