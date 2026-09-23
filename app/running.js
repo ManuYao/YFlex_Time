@@ -281,6 +281,7 @@ export default function Running() {
       phaseLabel: state.phaseLabel,
       roundLabel: state.roundLabel,
       seconds: displaySeconds,
+      phaseTotal: state.phaseSecondsTotal,
       countUp: isWorkInfinite,
       isPaused,
       skipLabel: notifSkipLabel,
