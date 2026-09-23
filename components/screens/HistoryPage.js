@@ -23,6 +23,7 @@ import { TIMERS } from '../../lib/timers-config';
 import {
   loadHistory,
   removeSession,
+  keepSession,
   groupByDay,
   computeStreak,
   computeScopedTotals,
@@ -308,6 +309,19 @@ export default function HistoryPage({
     setSessions(next ?? sessions.filter((s) => s.id !== id));
   };
 
+  const handleKeep = async (id) => {
+    haptic.success();
+    const next = await keepSession(id);
+    setSessions(
+      next ??
+        sessions.map((s) => {
+          if (s.id !== id) return s;
+          const { pendingDelete, ...rest } = s;
+          return rest;
+        })
+    );
+  };
+
   const filtered =
     filter === 'TOUS' ? sessions : sessions.filter((s) => s.name === filter);
 
@@ -544,6 +558,7 @@ export default function HistoryPage({
                         router.push({ pathname: '/session-detail', params: { id: s.id } })
                       }
                       onDelete={() => handleDelete(s.id)}
+                      onKeep={() => handleKeep(s.id)}
                     />
                   </View>
                 ))}
@@ -717,7 +732,15 @@ function BreakdownSegment({ count, color }) {
   );
 }
 
-function SessionRow({ session, hinting = false, onPress, onDelete }) {
+// Délai avant l'ouverture automatique d'une carte en sursis : laisse l'écran
+// se poser pour que le glissement se voie, au lieu d'arriver déjà ouvert.
+const PENDING_OPEN_DELAY_MS = 450;
+
+function SessionRow({ session, hinting = false, onPress, onDelete, onKeep }) {
+  // Séance arrêtée avant 6 s (lib/history.js) : la carte arrive déjà glissée
+  // du côté opposé à la suppression, sur « Annuler la suppression ». Pour la
+  // supprimer tout de suite, on la glisse dans l'autre sens comme une autre.
+  const pending = !!session.pendingDelete;
   const color = session.color || '#FFFFFF';
   const tag = session.intensity || '—';
   const roundsLabel =
@@ -749,6 +772,36 @@ function SessionRow({ session, hinting = false, onPress, onDelete }) {
     opacity: hintTint.value,
   }));
 
+  useEffect(() => {
+    if (!pending) return undefined;
+    const t = setTimeout(() => swipeRef.current?.openLeft(), PENDING_OPEN_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [pending]);
+
+  const renderLeftActions = () => (
+    <Pressable
+      onPress={() => {
+        swipeRef.current?.close();
+        onKeep?.();
+      }}
+      style={({ pressed }) => [
+        styles.keepAction,
+        pressed && { opacity: 0.85, transform: [{ scale: 0.96 }] },
+      ]}
+    >
+      <Svg width={18} height={18} viewBox="0 0 18 18" fill="none">
+        <Path
+          d="M6 3.5 3 6.5l3 3M3.5 6.5h7a4 4 0 0 1 0 8H7"
+          stroke="#0A0A0A"
+          strokeWidth={1.8}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </Svg>
+      <Text style={styles.keepLabel}>{'Annuler la\nsuppression'}</Text>
+    </Pressable>
+  );
+
   const renderRightActions = () => (
     <Pressable
       onPress={() => {
@@ -777,9 +830,12 @@ function SessionRow({ session, hinting = false, onPress, onDelete }) {
     <Swipeable
       ref={swipeRef}
       renderRightActions={renderRightActions}
+      renderLeftActions={pending ? renderLeftActions : undefined}
       overshootRight={false}
+      overshootLeft={false}
       friction={2}
       rightThreshold={40}
+      leftThreshold={40}
       containerStyle={styles.swipeContainer}
     >
       <Animated.View style={hintStyle}>
@@ -787,6 +843,7 @@ function SessionRow({ session, hinting = false, onPress, onDelete }) {
         onPress={onPress}
         style={({ pressed }) => [
           styles.row,
+          pending && styles.rowPending,
           pressed && { opacity: 0.7, transform: [{ scale: 0.98 }] },
         ]}
       >
@@ -1146,6 +1203,29 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 18,
     borderBottomRightRadius: 18,
     gap: 4,
+  },
+  keepAction: {
+    width: 116,
+    backgroundColor: '#1FC777',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderTopLeftRadius: 18,
+    borderBottomLeftRadius: 18,
+    gap: 5,
+    paddingHorizontal: 8,
+  },
+  keepLabel: {
+    color: '#0A0A0A',
+    fontFamily: fonts.sansExtraBold,
+    fontSize: 10,
+    lineHeight: 13,
+    letterSpacing: 1.1,
+    textTransform: 'uppercase',
+    textAlign: 'center',
+  },
+  // Carte en sursis : estompée tant qu'on ne l'a pas gardée.
+  rowPending: {
+    opacity: 0.55,
   },
   deleteLabel: {
     color: '#FFFFFF',

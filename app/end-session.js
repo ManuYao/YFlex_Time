@@ -40,7 +40,7 @@ import { loadCooldownMap, saveCooldownMap, getCooldownStatus, consumeLaunch } fr
 import { loadIsPremium } from '../lib/premium';
 import BadgeUnlockSheet from '../components/common/BadgeUnlockSheet';
 import { pendingBadges, markBadgeSeen } from '../lib/badgeCelebration';
-import { countSessionsByTimer } from '../lib/history';
+import { countSessionsByTimer, SHORT_SESSION_SECONDS } from '../lib/history';
 
 const springEnergetic = { stiffness: 380, damping: 22, mass: 1 };
 
@@ -153,6 +153,7 @@ export default function EndSession() {
           workTotal: stats.workTotal,
           restTotal: stats.restTotal,
           date: new Date().toISOString(),
+          ...(elapsedNum < SHORT_SESSION_SECONDS ? { pendingDelete: true } : {}),
         });
         await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(list));
 
