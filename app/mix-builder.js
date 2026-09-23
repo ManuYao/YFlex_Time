@@ -760,7 +760,7 @@ const getRangesForType = (typeId, block) => {
   const r = block?.rest;
   if (typeId === 'amrap') return { duration: range(60, 1800, 30), rest: [], rounds: [] };
   if (typeId === 'rest') return { duration: getTimeRange(10, 600, d), rest: [], rounds: [] };
-  if (typeId === 'tabata') return { duration: getTimeRange(5, 60, d), rest: getTimeRange(5, 60, r), rounds: range(1, 30) };
+  if (typeId === 'tabata') return { duration: getTimeRange(5, 300, d), rest: getTimeRange(5, 300, r), rounds: range(1, 30) };
   if (typeId === 'basic') return { duration: getTimeRange(5, 600, d), rest: [], rounds: range(1, 30) };
   if (typeId === 'emom') return { duration: getTimeRange(10, 300, d), rest: [], rounds: range(1, 30) };
   return { duration: range(10, 300), rest: [], rounds: [] };

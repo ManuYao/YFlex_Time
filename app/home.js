@@ -876,7 +876,8 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
   // L'anneau perd sa raison d'être bien avant de devenir illisible : en
   // mini, le chiffre passe en ligne et récupère toute la hauteur gagnée.
   const ring = scaled(isCompact ? 260 : 320, ui);
-  const heroBase = hero.number.length > 3 ? 110 : 140;
+  // HH:MM:SS (TABATA de plus d'une heure) ne tient pas dans l'anneau à 110.
+  const heroBase = hero.number.length > 5 ? 76 : hero.number.length > 3 ? 110 : 140;
   const heroFontSize = scaled(isCompact ? Math.round(heroBase * 0.62) : heroBase, ui);
 
   // (V) Réglages : sous ce seuil de largeur par chip, le label/la valeur
