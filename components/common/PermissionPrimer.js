@@ -300,8 +300,6 @@ function PermissionRow({ Icon, title, reason, tag, granted, loaded, onPress, hin
  * ScrollView Android.
  *
  * moment : 'onboarding' | 'firstSession' (textes + enregistrement "déjà vu").
- * preview : aperçu depuis Paramètres — n'enregistre rien (sinon l'ouvrir pour
- * voir couperait le vrai déclenchement du tutoriel / d'avant séance).
  * onDone(result) : 'done' (notifications actives) | 'later' | 'dismissed'
  * (bouton retour Android : à traiter comme une annulation).
  */
@@ -310,7 +308,6 @@ export default function PermissionPrimer({
   accent = '#FFC933',
   mode = 'tabata',
   modeName = 'TABATA',
-  preview = false,
   onDone,
 }) {
   const insets = useSafeAreaInsets();
@@ -340,7 +337,7 @@ export default function PermissionPrimer({
 
   useEffect(() => {
     veil.value = withTiming(1, { duration: D.base });
-    if (!preview) markPermissionPrimerShown(moment);
+    markPermissionPrimerShown(moment);
     refresh();
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') refresh();
