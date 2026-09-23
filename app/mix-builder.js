@@ -5,6 +5,7 @@ import {
   Pressable,
   TextInput,
   Modal,
+  ScrollView,
   StyleSheet,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -19,10 +20,15 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
+  withSpring,
+  withSequence,
+  interpolateColor,
 } from 'react-native-reanimated';
 
 import GradientBackground from '../components/common/GradientBackground';
 import WheelPicker from '../components/common/WheelPicker';
+import PressTap from '../components/common/PressTap';
+import BlockRoleIcon from '../components/common/BlockRoleIcon';
 import {
   BLOCK_TYPES,
   getBlockType,
@@ -32,8 +38,10 @@ import {
   makeBlock,
 } from '../lib/mix-blocks';
 import { makeDefaultMix } from '../lib/mixes';
+import { BLOCK_ROLES, getBlockRole, resolveBlockRole } from '../lib/blockRoles';
 import { getTimeRange } from '../lib/timeRanges';
 import { fonts } from '../lib/fonts';
+import { easeImpact, springBouncy } from '../lib/animations';
 import { useLayoutLevel } from '../lib/responsive';
 import { useTimers } from '../contexts/TimersContext';
 import { useHaptic } from '../hooks/useHaptic';
@@ -85,6 +93,8 @@ export default function MixBuilder() {
     const block = makeBlock(typeId);
     if (!block) return;
     haptic.light();
+    // Pas de rôle figé à la création : il suit le nom du bloc (resolveBlockRole)
+    // tant que l'utilisateur n'a pas touché une pastille.
     setDraft((d) => ({ ...d, blocks: [...d.blocks, block] }));
     setAddOpen(false);
   };
@@ -415,7 +425,12 @@ function BlockRow({ block, index, drag, isActive, onEdit, onDelete }) {
               </View>
               <Text style={styles.rowLabel} numberOfLines={1}>{block.label}</Text>
             </View>
-            <Text style={styles.rowSubtitle}>{formatBlockSubtitle(block)}</Text>
+            <View style={styles.rowMeta}>
+              <RoleBadge role={resolveBlockRole(block)} />
+              <Text style={styles.rowSubtitle} numberOfLines={1}>
+                {formatBlockSubtitle(block)}
+              </Text>
+            </View>
           </View>
 
           <View style={styles.dragHandle} pointerEvents="none">
@@ -431,6 +446,83 @@ function BlockRow({ block, index, drag, isActive, onEdit, onDelete }) {
         </Pressable>
       </Swipeable>
     </ScaleDecorator>
+  );
+}
+
+function RoleBadge({ role }) {
+  const info = getBlockRole(role);
+  const pop = useSharedValue(1);
+  const mountedRef = useRef(false);
+
+  useEffect(() => {
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      return;
+    }
+    pop.value = withSequence(
+      withTiming(1.14, { duration: 120 }),
+      withSpring(1, springBouncy)
+    );
+  }, [role]);
+
+  const popStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pop.value }],
+  }));
+
+  return (
+    <Animated.View style={[styles.roleBadge, popStyle]}>
+      <BlockRoleIcon role={role} size={11} opacity={0.85} />
+      <Text style={styles.roleBadgeText} numberOfLines={1}>{info?.short}</Text>
+    </Animated.View>
+  );
+}
+
+function RoleChip({ role, selected, onPress, onLayout }) {
+  const progress = useSharedValue(selected ? 1 : 0);
+  const pop = useSharedValue(1);
+  const mountedRef = useRef(false);
+
+  useEffect(() => {
+    progress.value = withTiming(selected ? 1 : 0, { duration: 200, easing: easeImpact });
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      return;
+    }
+    if (selected) {
+      pop.value = withSequence(
+        withTiming(1.1, { duration: 110 }),
+        withSpring(1, springBouncy)
+      );
+    }
+  }, [selected]);
+
+  const chipStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pop.value }],
+    borderColor: interpolateColor(
+      progress.value,
+      [0, 1],
+      ['rgba(255,255,255,0.16)', '#FFFFFF']
+    ),
+  }));
+
+  const onStyle = useAnimatedStyle(() => ({ opacity: progress.value }));
+
+  return (
+    // PressTap ne relaie pas onLayout : la mesure vit sur la View autour.
+    <View onLayout={onLayout}>
+      <PressTap onPress={onPress} tapScale={0.92} accessibilityLabel={role.label}>
+        <Animated.View style={[sheetStyles.roleChip, chipStyle]}>
+          <BlockRoleIcon role={role.id} size={14} opacity={0.7} />
+          <Text style={sheetStyles.roleChipText}>{role.label}</Text>
+          <Animated.View pointerEvents="none" style={[sheetStyles.roleChipOn, onStyle]}>
+            <BlockRoleIcon role={role.id} size={14} color="#0A0A0A" />
+            <Text style={[sheetStyles.roleChipText, sheetStyles.roleChipTextOn]}>
+              {role.label}
+            </Text>
+          </Animated.View>
+        </Animated.View>
+      </PressTap>
+    </View>
   );
 }
 
@@ -548,16 +640,22 @@ function AddBlockSheet({ visible, onClose, onPick }) {
 }
 
 function EditBlockSheet({ block, onClose, onUpdate }) {
+  const haptic = useHaptic();
   const [labelDraft, setLabelDraft] = useState('');
+  const roleScrollRef = useRef(null);
+  const roleRevealedFor = useRef(null);
 
   // (V) Même contrainte que PickerSheet : en fenêtre réduite les roues
   // passent à 3 valeurs, sinon la feuille dépasse par le haut. Les trois
   // sont côte à côte, donc c'est bien la hauteur d'une seule qui compte.
   const level = useLayoutLevel();
   const wheelItems = level === 'full' ? 5 : 3;
+  // En réduit, une seule rangée qui défile : trois rangées de chips feraient déborder la feuille.
+  const rolesInline = level !== 'full';
 
   useEffect(() => {
     setLabelDraft(block?.label || '');
+    roleRevealedFor.current = null;
   }, [block?.id]);
 
   if (!block) return null;
@@ -566,6 +664,30 @@ function EditBlockSheet({ block, onClose, onUpdate }) {
   const ranges = getRangesForType(block.type, block);
   const showRest = block.type === 'tabata';
   const showRounds = block.type !== 'rest' && block.type !== 'amrap';
+  const currentRole = resolveBlockRole(block);
+
+  const pickRole = (id) => {
+    haptic.selection();
+    if (block.role !== id) onUpdate({ role: id });
+  };
+
+  // Le rôle choisi peut être hors champ dans la rangée qui défile (REPOS est le dernier).
+  const revealRole = (id, e) => {
+    if (!rolesInline || id !== currentRole || roleRevealedFor.current === block.id) return;
+    roleRevealedFor.current = block.id;
+    const x = e.nativeEvent.layout.x;
+    roleScrollRef.current?.scrollTo({ x: Math.max(0, x - 20), animated: false });
+  };
+
+  const roleChips = BLOCK_ROLES.map((r) => (
+    <RoleChip
+      key={r.id}
+      role={r}
+      selected={r.id === currentRole}
+      onPress={() => pickRole(r.id)}
+      onLayout={(e) => revealRole(r.id, e)}
+    />
+  ));
 
   return (
     <Modal visible={!!block} transparent animationType="slide" onRequestClose={onClose}>
@@ -596,6 +718,23 @@ function EditBlockSheet({ block, onClose, onUpdate }) {
                 <Path d="M3 3l8 8M11 3l-8 8" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" />
               </Svg>
             </Pressable>
+          </View>
+
+          <View style={sheetStyles.roleSection}>
+            <Text style={sheetStyles.pickerLabel}>RÔLE</Text>
+            {rolesInline ? (
+              <ScrollView
+                ref={roleScrollRef}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={sheetStyles.roleScroll}
+                contentContainerStyle={sheetStyles.roleScrollContent}
+              >
+                {roleChips}
+              </ScrollView>
+            ) : (
+              <View style={sheetStyles.roleWrap}>{roleChips}</View>
+            )}
           </View>
 
           <View style={sheetStyles.pickersRow}>
@@ -986,7 +1125,32 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     letterSpacing: -0.2,
   },
+  rowMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  roleBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    flexShrink: 0,
+  },
+  roleBadgeText: {
+    fontFamily: fonts.sansBold,
+    fontSize: 9,
+    letterSpacing: 1.1,
+    color: 'rgba(255,255,255,0.78)',
+    textTransform: 'uppercase',
+  },
   rowSubtitle: {
+    flexShrink: 1,
     fontFamily: fonts.monoRegular,
     fontSize: 11,
     color: 'rgba(255,255,255,0.55)',
@@ -1223,6 +1387,51 @@ const sheetStyles = StyleSheet.create({
     fontSize: 9,
     letterSpacing: 1.4,
     textTransform: 'uppercase',
+  },
+
+  roleSection: {
+    marginBottom: 16,
+  },
+  roleWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  roleScroll: {
+    flexGrow: 0,
+    marginHorizontal: -20,
+  },
+  roleScrollContent: {
+    paddingHorizontal: 20,
+    gap: 6,
+  },
+  roleChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  roleChipOn: {
+    ...StyleSheet.absoluteFill,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#FFFFFF',
+  },
+  roleChipText: {
+    fontFamily: fonts.sansBold,
+    fontSize: 10,
+    letterSpacing: 1.1,
+    color: 'rgba(255,255,255,0.72)',
+    textTransform: 'uppercase',
+  },
+  roleChipTextOn: {
+    color: '#0A0A0A',
   },
 
   pickersRow: {
