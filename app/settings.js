@@ -37,7 +37,7 @@ import { useOtaUpdate } from '../hooks/useOtaUpdate';
 import { markUpdatePopupSeen, resolveUpdateCandidate } from '../lib/updatePopup';
 import { haptic, setHapticStrength } from '../hooks/useHaptic';
 import { playDenied, previewSound } from '../lib/sounds';
-import { previewVoiceGender } from '../lib/voiceCoach';
+import { detectVoices, previewVoiceGender } from '../lib/voiceCoach';
 import { fonts } from '../lib/fonts';
 
 const CONTACT_EMAIL = 'yaomanuit@gmail.com';
@@ -79,6 +79,18 @@ export default function Settings() {
   const [updateSheet, setUpdateSheet] = useState(null);
   const [contactSheet, setContactSheet] = useState(false);
   const [resetConfirm, setResetConfirm] = useState(false);
+  // Le choix Homme/Femme n'apparaît que si le téléphone a une vraie voix
+  // d'homme en français (lib/voiceCoach.js, detectVoices) — sinon on reste
+  // sur la voix femme, sans option (décision utilisateur).
+  const [maleVoiceAvailable, setMaleVoiceAvailable] = useState(false);
+  useEffect(() => {
+    if (!settings.voiceCoach) return undefined;
+    let alive = true;
+    detectVoices()
+      .then((r) => { if (alive) setMaleVoiceAvailable(r.male); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [settings.voiceCoach]);
   // null = pas encore lu : on n'affiche la validation juridique qu'une fois
   // sûr qu'elle manque, sinon elle flasherait à chaque ouverture chez ceux
   // qui ont déjà accepté. Relu à chaque montage de l'écran : après un reset
@@ -306,10 +318,10 @@ export default function Settings() {
               sub="Annonce les phases et les tours à voix haute, sans regarder l'écran"
               control={<Toggle value={settings.voiceCoach} onChange={(v) => update('voiceCoach', v)} />}
             />
-            {settings.voiceCoach && (
+            {settings.voiceCoach && maleVoiceAvailable && (
               <Row
                 label="Voix"
-                sub="Décalage de hauteur — dépend de la synthèse vocale de ton téléphone"
+                sub="Voix installées sur ton téléphone · touche pour écouter"
                 control={
                   <Choice
                     value={settings.voiceGender}
