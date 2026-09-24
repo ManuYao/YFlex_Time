@@ -7,12 +7,14 @@ import {
   Modal,
   ScrollView,
   StyleSheet,
+  Share,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useRouter } from 'expo-router';
+import * as Linking from 'expo-linking';
 import Svg, { Path } from 'react-native-svg';
 import DraggableFlatList, {
   ScaleDecorator,
@@ -42,6 +44,7 @@ import {
   makeBlock,
 } from '../lib/mix-blocks';
 import { makeDefaultMix } from '../lib/mixes';
+import { serializeMix } from '../lib/mixShare';
 import { BLOCK_ROLES, getBlockRole, resolveBlockRole } from '../lib/blockRoles';
 import { getTimeRange } from '../lib/timeRanges';
 import { fonts } from '../lib/fonts';
@@ -166,6 +169,28 @@ export default function MixBuilder() {
     await removeFromLibrary(mixId);
   };
 
+  // Partage SANS backend (voir CLAUDE.md, section MIX PARTAGE) : le mix est
+  // réduit à { name, blocks } (lib/mixShare.js, jamais les ids locaux),
+  // encodé dans un lien profond flextimer://import-mix?m=..., envoyé via la
+  // feuille de partage native — Instagram DM / WhatsApp / SMS, exactement
+  // les canaux déjà utilisés par les gens qui recevront un mix. app/import-mix.js
+  // fait le chemin inverse à l'ouverture du lien.
+  const handleShare = async (mix) => {
+    if (!mix?.blocks?.length) return;
+    haptic.light();
+    try {
+      const link = Linking.createURL('import-mix', {
+        queryParams: { m: serializeMix(mix) },
+      });
+      await Share.share({
+        message: `${mix.name || 'Mon mix'} — un enchaînement Flex Timer.\n${link}`,
+      });
+    } catch {
+      // Annulation de la feuille système ou échec réseau/partage : rien à
+      // signaler, ce n'est pas une vraie erreur applicative.
+    }
+  };
+
   const editingBlock = editingBlockId
     ? draft.blocks.find((b) => b.id === editingBlockId)
     : null;
@@ -250,17 +275,25 @@ export default function MixBuilder() {
         <View style={styles.topBar}>
           <IconButton icon="close" onPress={handleCancel} accessibilityLabel="Annuler" />
           <Text style={styles.topTitle}>Constructeur</Text>
-          <Button
-            variant="glass"
-            size="nav"
-            icon="list"
-            label={String(library.length)}
-            accessibilityLabel="Mes mix enregistrés"
-            onPress={() => {
-              haptic.light();
-              setLibraryOpen(true);
-            }}
-          />
+          <View style={styles.topBarRight}>
+            <IconButton
+              icon="share"
+              size={ROUND_SIZE.nav}
+              onPress={() => handleShare(draft)}
+              accessibilityLabel="Partager ce mix"
+            />
+            <Button
+              variant="glass"
+              size="nav"
+              icon="list"
+              label={String(library.length)}
+              accessibilityLabel="Mes mix enregistrés"
+              onPress={() => {
+                haptic.light();
+                setLibraryOpen(true);
+              }}
+            />
+          </View>
         </View>
 
         <View style={styles.listWrap}>
@@ -315,6 +348,7 @@ export default function MixBuilder() {
         onClose={() => setLibraryOpen(false)}
         onLoad={handleLoadMix}
         onDelete={handleDeleteMix}
+        onShare={handleShare}
       />
     </GradientBackground>
   );
@@ -800,7 +834,7 @@ function EditBlockSheet({ block, onClose, onUpdate }) {
   );
 }
 
-function LibrarySheet({ visible, library, onClose, onLoad, onDelete }) {
+function LibrarySheet({ visible, library, onClose, onLoad, onDelete, onShare }) {
   const haptic = useHaptic();
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -852,6 +886,16 @@ function LibrarySheet({ visible, library, onClose, onLoad, onDelete }) {
                         {(m.blocks?.length || 0)} blocs · {String(min).padStart(2, '0')}:{String(sec).padStart(2, '0')}
                       </Text>
                     </View>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => onShare(m)}
+                    style={({ pressed }) => [
+                      sheetStyles.libShare,
+                      pressed && { opacity: 0.7 },
+                    ]}
+                    hitSlop={10}
+                  >
+                    <AppIcon name="share" size={14} color="rgba(255,255,255,0.55)" />
                   </Pressable>
                   <Pressable
                     onPress={() => onDelete(m.id)}
@@ -936,6 +980,11 @@ const styles = StyleSheet.create({
     letterSpacing: 3,
     color: 'rgba(255,255,255,0.50)',
     textTransform: 'uppercase',
+  },
+  topBarRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
 
   listWrap: {
@@ -1443,6 +1492,15 @@ const sheetStyles = StyleSheet.create({
     fontSize: 10,
     color: 'rgba(255,255,255,0.55)',
     marginTop: 2,
+  },
+  libShare: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 6,
   },
   libDelete: {
     width: 36,

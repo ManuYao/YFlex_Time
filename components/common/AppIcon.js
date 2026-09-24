@@ -120,7 +120,7 @@ export const ICON_NAMES = [
   'voice', 'sliders', 'voices', 'bandage', 'headphones', 'speaker', 'drop', 'stop', 'progress',
   'infinity', 'no-ads', 'palette',
   'reset', 'play', 'pause', 'finish', 'skip',
-  'back', 'plus', 'gear', 'more', 'arrow', 'list',
+  'back', 'plus', 'gear', 'more', 'arrow', 'list', 'share',
 ];
 
 export default function AppIcon({ name, size = 20, color = '#FFFFFF', opacity = 1, strokeWidth, style }) {
@@ -314,6 +314,20 @@ export default function AppIcon({ name, size = 20, color = '#FFFFFF', opacity = 
           {...line}
           d="M10 14a4.24 4.24 0 0 0 6 0l3-3a4.24 4.24 0 0 0-6-6l-1 1M14 10a4.24 4.24 0 0 0-6 0l-3 3a4.24 4.24 0 0 0 6 6l1-1"
         />
+      );
+      break;
+    case 'share':
+      // Trois points reliés (le glyphe "partager" universel) : envoyer un
+      // mix vers l'extérieur de l'app, pas une action interne — d'où des
+      // noeuds pleins plutôt que le style purement filaire des autres icônes.
+      body = (
+        <>
+          <Line {...line} x1={7.2} y1={12} x2={16.4} y2={6.4} />
+          <Line {...line} x1={7.2} y1={12} x2={16.4} y2={17.6} />
+          <Circle {...solid} cx={5.6} cy={12} r={2.6} />
+          <Circle {...solid} cx={18} cy={6} r={2.6} />
+          <Circle {...solid} cx={18} cy={18} r={2.6} />
+        </>
       );
       break;
     case 'blocks':

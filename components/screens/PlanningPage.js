@@ -1,5 +1,5 @@
 import React, { useCallback, useRef, useState } from 'react';
-import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, Pressable, TextInput, ScrollView, StyleSheet } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -35,6 +35,7 @@ import {
   renameBlock,
   reopenBlock,
   reopenDay,
+  setDayNote,
   todayKey,
   updateTag,
 } from '../../lib/planning';
@@ -119,6 +120,14 @@ export default function PlanningPage({
     setPlanning(next);
   };
 
+  // Remonté sur perte de focus, pas à chaque frappe : éviter de marteler
+  // AsyncStorage. `key={dayKey}` sur le TextInput (plus bas) le remonte à
+  // chaque changement de jour, donc son texte affiché reste toujours celui
+  // du jour réellement sélectionné sans état local à synchroniser.
+  const handleNoteBlur = async (key, text) => {
+    setPlanning(await setDayNote(planning, key, text));
+  };
+
   return (
     <View style={[styles.page, { width, height }]}>
       <View style={styles.statusBar}>
@@ -199,6 +208,23 @@ export default function PlanningPage({
           <Text style={styles.archiveHint}>
             Appui long sur le jour pour le rouvrir et le modifier à nouveau.
           </Text>
+        )}
+
+        {archived ? (
+          !!dayState.note && <Text style={styles.noteReadOnly}>{dayState.note}</Text>
+        ) : (
+          <TextInput
+            key={dayKey}
+            defaultValue={dayState.note}
+            onEndEditing={(e) => handleNoteBlur(dayKey, e.nativeEvent.text)}
+            placeholder="Ajouter une note pour ce jour…"
+            placeholderTextColor="rgba(255,255,255,0.30)"
+            selectionColor="#FFFFFF"
+            multiline
+            textAlignVertical="top"
+            maxLength={280}
+            style={styles.noteInput}
+          />
         )}
 
         {dayState.blocks.length === 0 ? (
@@ -657,6 +683,32 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     color: 'rgba(255,255,255,0.35)',
     marginTop: -10,
+    marginBottom: 18,
+  },
+  // Même recette que le champ de BlockSheet.js / ExerciseLibrarySheet.js —
+  // dupliquée ici comme partout ailleurs dans le projet, pas de composant
+  // Input partagé.
+  noteInput: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    minHeight: 44,
+    fontFamily: fonts.sansSemibold,
+    fontSize: 14,
+    color: '#FFFFFF',
+    marginBottom: 18,
+  },
+  noteReadOnly: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 14,
+    lineHeight: 20,
+    color: 'rgba(255,255,255,0.55)',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 14,
+    padding: 14,
     marginBottom: 18,
   },
 
