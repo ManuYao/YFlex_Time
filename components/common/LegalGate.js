@@ -18,6 +18,7 @@ import Animated, {
 
 import PageDots from './PageDots';
 import PressTap from './PressTap';
+import Button from './Button';
 import { fonts } from '../../lib/fonts';
 import { haptic } from '../../hooks/useHaptic';
 import { playDenied } from '../../lib/sounds';
@@ -519,16 +520,18 @@ export default function LegalGate({ onAccept }) {
               </PressTap>
             </Animated.View>
 
-            <PressTap
+            {/* Jamais `disabled` : case non cochée, l'appui doit rester
+                possible pour déclencher le refus animé (handleConfirm). Le
+                verre signale seulement « pas encore ». Vibration : celle de
+                handleConfirm (erreur ou succès), pas de second haptique. */}
+            <Button
+              variant={checked ? 'solid' : 'glass'}
+              size="lg"
+              fullWidth
+              label="J'accepte et je continue"
               onPress={handleConfirm}
-              tapScale={0.97}
-              accessibilityLabel="J'accepte et je continue"
-              style={[styles.cta, !checked && styles.ctaDisabled]}
-            >
-              <Text style={[styles.ctaText, !checked && styles.ctaTextDisabled]}>
-                J'ACCEPTE ET JE CONTINUE
-              </Text>
-            </PressTap>
+              style={styles.cta}
+            />
           </View>
         </Animated.View>
       </View>
@@ -542,7 +545,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   veil: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(0,0,0,0.78)',
   },
 
@@ -739,22 +742,6 @@ const styles = StyleSheet.create({
   },
 
   cta: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    paddingVertical: 15,
-    alignItems: 'center',
     marginTop: 12,
-  },
-  ctaDisabled: {
-    backgroundColor: 'rgba(255,255,255,0.10)',
-  },
-  ctaText: {
-    fontFamily: fonts.sansBold,
-    fontSize: 13,
-    letterSpacing: 1.2,
-    color: '#0A0A0A',
-  },
-  ctaTextDisabled: {
-    color: 'rgba(255,255,255,0.35)',
   },
 });

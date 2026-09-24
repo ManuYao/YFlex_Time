@@ -2,7 +2,7 @@
   "expo": {
     "name": "Flex Timer",
     "slug": "flex-timer",
-    "version": "13.11.0",
+    "version": "14.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -14,7 +14,8 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#000000"
+        "backgroundColor": "#050505",
+        "monochromeImage": "./assets/adaptive-icon-monochrome.png"
       },
       "package": "com.flextimer.app",
       "permissions": [

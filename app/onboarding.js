@@ -2,7 +2,6 @@ import { useRef, useState } from 'react';
 import {
   View,
   Text,
-  Pressable,
   FlatList,
   StyleSheet,
   useWindowDimensions,
@@ -10,10 +9,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Svg, { Path } from 'react-native-svg';
 
 import GradientBackground from '../components/common/GradientBackground';
 import TickRing from '../components/common/TickRing';
+import Button from '../components/common/Button';
 import { fonts } from '../lib/fonts';
 import { useUiScale, scaled } from '../lib/responsive';
 import { useHaptic } from '../hooks/useHaptic';
@@ -120,9 +119,14 @@ export default function Onboarding() {
         <View style={styles.topBar}>
           <View style={styles.topGhost} />
           {!isLast ? (
-            <Pressable onPress={skip} hitSlop={8}>
-              <Text style={[styles.skip, { color: mutedColor }]}>PASSER</Text>
-            </Pressable>
+            <Button
+              variant="ghost"
+              size="sm"
+              tone={slide.textMode}
+              label="PASSER"
+              labelStyle={styles.skip}
+              onPress={skip}
+            />
           ) : (
             <View style={styles.topGhost} />
           )}
@@ -227,38 +231,19 @@ export default function Onboarding() {
             ))}
           </View>
 
-          <View style={[styles.ctaShadowWrap, { backgroundColor: textColor }]}>
-          <Pressable
+          {/* Porcelaine (lib/buttonTokens.js) ; noire sur la dernière slide,
+              au fond jaune TABATA. La flèche « suivant » reste à droite (elle
+              indique le sens), le triangle de lancement à gauche comme sur
+              le bouton Lancer de l'accueil. */}
+          <Button
+            variant="solid"
+            tone={slide.textMode}
+            fullWidth
+            label={isLast ? 'Lancer ma première séance' : 'Suivant'}
+            icon={isLast ? 'play' : 'arrow'}
+            iconPosition={isLast ? 'left' : 'right'}
             onPress={goNext}
-            style={({ pressed }) => [
-              styles.cta,
-              {
-                backgroundColor: textColor,
-                opacity: pressed ? 0.92 : 1,
-                transform: [{ scale: pressed ? 0.97 : 1 }],
-              },
-            ]}
-          >
-            <Text style={[styles.ctaText, { color: isDark ? '#FFFFFF' : '#0A0A0A' }]}>
-              {isLast ? 'Lancer ma première séance' : 'Suivant'}
-            </Text>
-            {isLast ? (
-              <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
-                <Path d="M3 2l8 5-8 5V2z" fill={isDark ? '#FFFFFF' : '#0A0A0A'} />
-              </Svg>
-            ) : (
-              <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
-                <Path
-                  d="M3 7h8M8 3l3 4-3 4"
-                  stroke={isDark ? '#FFFFFF' : '#0A0A0A'}
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </Svg>
-            )}
-          </Pressable>
-          </View>
+          />
         </View>
       </SafeAreaView>
       {primer && (
@@ -286,9 +271,8 @@ const styles = StyleSheet.create({
   topGhost: { width: 60, height: 24 },
   skip: {
     fontFamily: fonts.sansBold,
-    fontSize: 10,
-    letterSpacing: 2.5,
-    textTransform: 'uppercase',
+    fontSize: 11,
+    letterSpacing: 2.2,
   },
 
   slide: {
@@ -362,26 +346,5 @@ const styles = StyleSheet.create({
   dot: {
     height: 6,
     borderRadius: 3,
-  },
-  cta: {
-    height: 56,
-    borderRadius: 18,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-  },
-  ctaShadowWrap: {
-    borderRadius: 18,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.25,
-    shadowRadius: 16,
-    elevation: 8,
-  },
-  ctaText: {
-    fontFamily: fonts.sansBold,
-    fontSize: 15,
-    letterSpacing: -0.15,
   },
 });

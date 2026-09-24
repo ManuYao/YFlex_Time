@@ -5,7 +5,9 @@ import Svg, { Path } from 'react-native-svg';
 import BottomSheet from './BottomSheet';
 import ConfirmSheet from './ConfirmSheet';
 import PressTap from './PressTap';
+import Button from './Button';
 import { fonts } from '../../lib/fonts';
+import { DANGER, PAIR_GAP } from '../../lib/buttonTokens';
 import {
   CATEGORY_PALETTE,
   addCustomCategory,
@@ -240,40 +242,35 @@ export default function ExerciseLibrarySheet({ screenH, blockName, onClose, onPi
                 })}
               </View>
 
+              {/* « Annuler » en verre à la largeur de son texte, l'action prend
+                  le reste. Vibrations déjà dans les handlers : pas de `haptic`. */}
               <View style={styles.createActions}>
-                <PressTap
+                <Button
+                  variant="glass"
+                  label="Annuler"
                   onPress={() => {
                     haptic.light();
                     setView('list');
                   }}
-                  tapScale={0.96}
-                  style={styles.cancelBtn}
-                >
-                  <Text style={styles.cancelText}>Annuler</Text>
-                </PressTap>
-
-                <View style={styles.ctaWrap}>
-                  <PressTap
-                    onPress={submitCategory}
-                    disabled={!draftLabel}
-                    tapScale={0.97}
-                    style={[styles.cta, !draftLabel && styles.ctaDisabled]}
-                  >
-                    <Text style={styles.ctaText}>
-                      {draft.id ? 'ENREGISTRER' : 'CRÉER'}
-                    </Text>
-                  </PressTap>
-                </View>
+                />
+                <Button
+                  variant="solid"
+                  label={draft.id ? 'Enregistrer' : 'Créer'}
+                  disabled={!draftLabel}
+                  onPress={submitCategory}
+                  style={styles.ctaMain}
+                />
               </View>
 
               {!!draft.id && (
-                <PressTap
+                <Button
+                  variant="ghost"
+                  size="md"
+                  label="Supprimer ce groupe"
+                  labelStyle={styles.deleteText}
                   onPress={confirmDeleteCategory}
-                  tapScale={0.97}
-                  style={styles.deleteBtn}
-                >
-                  <Text style={styles.deleteText}>Supprimer ce groupe</Text>
-                </PressTap>
+                  style={styles.deleteLink}
+                />
               )}
             </View>
           ) : (
@@ -373,27 +370,21 @@ export default function ExerciseLibrarySheet({ screenH, blockName, onClose, onPi
                   </Text>
 
                   <View style={styles.createActions}>
-                    <PressTap
+                    <Button
+                      variant="glass"
+                      label="Annuler"
                       onPress={() => {
                         haptic.light();
                         setView('list');
                       }}
-                      tapScale={0.96}
-                      style={styles.cancelBtn}
-                    >
-                      <Text style={styles.cancelText}>Annuler</Text>
-                    </PressTap>
-
-                    <View style={styles.ctaWrap}>
-                      <PressTap
-                        onPress={() => submitCustom(close)}
-                        disabled={!trimmed}
-                        tapScale={0.97}
-                        style={[styles.cta, !trimmed && styles.ctaDisabled]}
-                      >
-                        <Text style={styles.ctaText}>AJOUTER</Text>
-                      </PressTap>
-                    </View>
+                    />
+                    <Button
+                      variant="solid"
+                      label="Ajouter"
+                      disabled={!trimmed}
+                      onPress={() => submitCustom(close)}
+                      style={styles.ctaMain}
+                    />
                   </View>
                 </View>
               ) : (
@@ -604,50 +595,19 @@ const styles = StyleSheet.create({
   createActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: PAIR_GAP,
     marginTop: 18,
   },
-  cancelBtn: {
-    paddingHorizontal: 18,
-    paddingVertical: 15,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.20)',
-  },
-  cancelText: {
-    fontFamily: fonts.sansSemibold,
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.70)',
-  },
-  // PressTap pose son style sur une vue interne : le flex doit vivre sur un
-  // wrapper, sinon le bouton se réduit à la largeur de son texte.
-  ctaWrap: {
+  // Placement seulement : le rendu des boutons vient de Button
+  // (lib/buttonTokens.js). `style` de Button est posé sur la zone d'appui,
+  // donc le `flex: 1` fait bien grandir l'action dans la rangée.
+  ctaMain: {
     flex: 1,
   },
-  cta: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    paddingVertical: 15,
-    alignItems: 'center',
-  },
-  ctaDisabled: {
-    opacity: 0.35,
-  },
-  ctaText: {
-    fontFamily: fonts.sansBold,
-    fontSize: 13,
-    letterSpacing: 1.2,
-    color: '#0A0A0A',
-  },
-  deleteBtn: {
-    marginTop: 14,
-    paddingVertical: 12,
-    alignItems: 'center',
+  deleteLink: {
+    marginTop: 10,
   },
   deleteText: {
-    fontFamily: fonts.sansBold,
-    fontSize: 12,
-    letterSpacing: 1.2,
-    color: '#FF5454',
+    color: DANGER,
   },
 });

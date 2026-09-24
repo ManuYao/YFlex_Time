@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react';
-import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 
 import GradientBackground from '../components/common/GradientBackground';
+import IconButton from '../components/common/IconButton';
 import { loadArchives, formatArchiveDate, getDay } from '../lib/planning';
 import { categoryChip } from '../lib/exercises';
 import { fonts } from '../lib/fonts';
+import { ROUND_SIZE } from '../lib/buttonTokens';
+import { haptic } from '../hooks/useHaptic';
 
 export default function ArchiveDetail() {
   const router = useRouter();
@@ -38,17 +41,12 @@ export default function ArchiveDetail() {
         </View>
 
         <View style={styles.topBar}>
-          <Pressable onPress={() => router.back()} style={styles.iconBtn} hitSlop={8}>
-            <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
-              <Path
-                d="M9 2L3 7l6 5"
-                stroke="#FFFFFF"
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </Svg>
-          </Pressable>
+          <IconButton
+            icon="back"
+            haptic={haptic.light}
+            onPress={() => router.back()}
+            accessibilityLabel="Retour"
+          />
 
           <View style={styles.topCenter}>
             {entry && (
@@ -170,18 +168,10 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 16,
   },
-  iconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.20)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  // Même largeur que le bouton retour (ROUND_SIZE.nav) : garde le titre centré.
   iconBtnGhost: {
-    width: 40,
-    height: 40,
+    width: ROUND_SIZE.nav,
+    height: ROUND_SIZE.nav,
   },
   topCenter: {
     flex: 1,

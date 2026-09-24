@@ -1,10 +1,12 @@
-import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import Svg, { Path } from 'react-native-svg';
 
 import GradientBackground from './GradientBackground';
+import IconButton from './IconButton';
 import { fonts } from '../../lib/fonts';
+import { ROUND_SIZE } from '../../lib/buttonTokens';
+import { haptic } from '../../hooks/useHaptic';
 
 export default function LegalScreen({ title, updatedAt, sections }) {
   const router = useRouter();
@@ -13,18 +15,14 @@ export default function LegalScreen({ title, updatedAt, sections }) {
     <GradientBackground colors={['#1A1A1A', '#0A0A0A', '#000000']} ambient>
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.topBar}>
-          <Pressable onPress={() => router.back()} style={styles.iconBtn} hitSlop={8}>
-            <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
-              <Path
-                d="M9 2L3 7l6 5"
-                stroke="#FFFFFF"
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </Svg>
-          </Pressable>
+          <IconButton
+            icon="back"
+            haptic={haptic.light}
+            onPress={() => router.back()}
+            accessibilityLabel="Retour"
+          />
           <Text style={styles.topTitle}>{title}</Text>
+          {/* Fantôme de la taille du bouton retour : garde le titre centré. */}
           <View style={styles.iconBtnGhost} />
         </View>
 
@@ -60,16 +58,7 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 16,
   },
-  iconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.20)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  iconBtnGhost: { width: 40, height: 40 },
+  iconBtnGhost: { width: ROUND_SIZE.nav, height: ROUND_SIZE.nav },
   topTitle: {
     fontFamily: fonts.sansExtraBold,
     fontSize: 18,

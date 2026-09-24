@@ -7,6 +7,8 @@ import Svg, { Circle, Path, Rect } from 'react-native-svg';
 
 import PressTap from '../common/PressTap';
 import PageDots from '../common/PageDots';
+import Button from '../common/Button';
+import IconButton from '../common/IconButton';
 import BlockSheet from '../common/BlockSheet';
 import ExerciseLibrarySheet from '../common/ExerciseLibrarySheet';
 import ExerciseDetailSheet from '../common/ExerciseDetailSheet';
@@ -123,38 +125,21 @@ export default function PlanningPage({
       </View>
 
       <View style={styles.topBar}>
-        <Pressable onPress={() => router.back()} style={styles.iconBtn} hitSlop={8}>
-          <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
-            <Path
-              d="M9 2L3 7l6 5"
-              stroke="#FFFFFF"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </Svg>
-        </Pressable>
+        <IconButton
+          icon="back"
+          haptic={haptic.light}
+          onPress={() => router.back()}
+          accessibilityLabel="Retour"
+        />
 
         <Text style={styles.topTitle}>Mon planning</Text>
 
-        <Pressable onPress={() => router.push('/settings')} style={styles.iconBtn} hitSlop={8}>
-          <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-            <Path
-              d="M12 15a3 3 0 100-6 3 3 0 000 6z"
-              stroke="#FFFFFF"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            <Path
-              d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"
-              stroke="#FFFFFF"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </Svg>
-        </Pressable>
+        <IconButton
+          icon="gear"
+          haptic={haptic.light}
+          onPress={() => router.push('/settings')}
+          accessibilityLabel="Réglages"
+        />
       </View>
 
       <ScrollView
@@ -241,34 +226,38 @@ export default function PlanningPage({
         )}
       </ScrollView>
 
+      {/* Le bouton d'abord, les points dessous : même padding bas et même
+          rangée de points (12 dp, PageDots) que la barre du bas de
+          HistoryPage, pour que les points ne sautent pas en glissant d'une
+          page à l'autre (ils étaient au-dessus du bouton, ~60 dp plus haut).
+          La vibration vient du handler de chaque bouton (une seule). */}
       <View style={[styles.bottom, { paddingBottom: 8 + insets.bottom }]}>
-        <PageDots count={2} activeIndex={pageIndex} onSelect={onSelectPage} />
-
         {archived ? (
-          <PressTap
+          <Button
+            variant="glass"
+            size="lg"
+            fullWidth
+            label={`Voir tous les ${day.long.toLowerCase()}s archivés`}
             onPress={() => {
               haptic.light();
               router.push({ pathname: '/day-archives', params: { day: dayKey } });
             }}
-            tapScale={0.97}
-            style={styles.ctaGhost}
-          >
-            <Text style={styles.ctaGhostText}>
-              VOIR TOUS LES {day.long.toUpperCase()}S ARCHIVÉS
-            </Text>
-          </PressTap>
+          />
         ) : (
-          <PressTap
+          <Button
+            variant="solid"
+            size="lg"
+            fullWidth
+            icon="plus"
+            label="Nouveau bloc"
             onPress={() => {
               haptic.light();
               openSheet({ type: 'block' });
             }}
-            tapScale={0.97}
-            style={styles.cta}
-          >
-            <Text style={styles.ctaText}>+ NOUVEAU BLOC</Text>
-          </PressTap>
+          />
         )}
+
+        <PageDots count={2} activeIndex={pageIndex} onSelect={onSelectPage} />
       </View>
 
       {sheet?.type === 'block' && screenH > 0 && (
@@ -359,19 +348,19 @@ function BlockCard({
           )}
         </View>
         {!dayArchived && (
-          <Pressable
+          <IconButton
+            icon="more"
+            variant="ghost"
+            size={32}
+            iconSize={16}
+            hitSlop={10}
+            accessibilityLabel="Options du bloc"
             onPress={() => {
               haptic.light();
               onRename();
             }}
-            hitSlop={10}
-          >
-            <Svg width={16} height={16} viewBox="0 0 16 16" fill="none">
-              <Circle cx={8} cy={3} r={1.4} fill="rgba(255,255,255,0.45)" />
-              <Circle cx={8} cy={8} r={1.4} fill="rgba(255,255,255,0.45)" />
-              <Circle cx={8} cy={13} r={1.4} fill="rgba(255,255,255,0.45)" />
-            </Svg>
-          </Pressable>
+            style={styles.blockMenu}
+          />
         )}
       </View>
 
@@ -586,15 +575,6 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 16,
   },
-  iconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.20)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   topTitle: {
     fontFamily: fonts.sansExtraBold,
     fontSize: 20,
@@ -732,6 +712,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#FFFFFF',
   },
+  // Menu ⋮ : bouton rond de 32 dp, mais qui n'occupe dans la mise en page
+  // que les 16 × 16 dp de l'ancienne icône (marges négatives de 8 dp de
+  // chaque côté) : l'en-tête de la carte garde sa hauteur, le titre sa
+  // largeur, et le glyphe reste à la même place.
+  blockMenu: {
+    margin: -8,
+  },
   tagsWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -779,35 +766,13 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.4)',
   },
 
+  // paddingBottom (8 + inset bas, posé en ligne) identique à celui de
+  // HistoryPage : les points tombent pile au même endroit sur les deux pages.
+  // 10 dp entre le bouton et la rangée de points.
   bottom: {
     paddingHorizontal: 24,
     paddingTop: 12,
     paddingBottom: 8,
-    gap: 14,
-  },
-  cta: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    paddingVertical: 15,
-    alignItems: 'center',
-  },
-  ctaText: {
-    fontFamily: fonts.sansBold,
-    fontSize: 13,
-    letterSpacing: 1.2,
-    color: '#0A0A0A',
-  },
-  ctaGhost: {
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.35)',
-    borderRadius: 16,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  ctaGhostText: {
-    fontFamily: fonts.sansBold,
-    fontSize: 12,
-    letterSpacing: 1,
-    color: '#FFFFFF',
+    gap: 10,
   },
 });

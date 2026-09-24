@@ -4,6 +4,7 @@ import Svg, { Path } from 'react-native-svg';
 
 import BottomSheet from './BottomSheet';
 import PressTap from './PressTap';
+import Button from './Button';
 import { fonts } from '../../lib/fonts';
 import { haptic } from '../../hooks/useHaptic';
 
@@ -78,21 +79,26 @@ export default function ContactSheet({ screenH, onClose, onOpenMail }) {
             <Text style={styles.checkLabel}>Ne plus afficher ce message</Text>
           </PressTap>
 
-          <PressTap
+          <Button
+            variant="solid"
+            fullWidth
+            label="Ouvrir mon mail"
             onPress={() => {
               haptic.medium();
               onOpenMail(dontShow);
               close();
             }}
-            tapScale={0.97}
             style={styles.cta}
-          >
-            <Text style={styles.ctaText}>OUVRIR MON MAIL</Text>
-          </PressTap>
+          />
 
-          <PressTap onPress={close} tapScale={0.97} style={styles.cancel}>
-            <Text style={styles.cancelText}>Plus tard</Text>
-          </PressTap>
+          <Button
+            variant="ghost"
+            size="md"
+            label="Plus tard"
+            haptic={haptic.light}
+            onPress={close}
+            style={styles.cancel}
+          />
         </View>
       )}
     </BottomSheet>
@@ -172,26 +178,9 @@ const styles = StyleSheet.create({
   },
 
   cta: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    paddingVertical: 15,
-    alignItems: 'center',
     marginTop: 18,
   },
-  ctaText: {
-    fontFamily: fonts.sansBold,
-    fontSize: 13,
-    letterSpacing: 1.2,
-    color: '#0A0A0A',
-  },
   cancel: {
-    paddingVertical: 14,
-    alignItems: 'center',
     marginTop: 4,
-  },
-  cancelText: {
-    fontFamily: fonts.sansSemibold,
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.50)',
   },
 });

@@ -13,7 +13,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import BottomSheet from './BottomSheet';
-import PressTap from './PressTap';
+import Button from './Button';
 import BadgeMedal, { TIER_PALETTE } from './BadgeMedal';
 import { fonts } from '../../lib/fonts';
 import { haptic } from '../../hooks/useHaptic';
@@ -125,17 +125,18 @@ export default function BadgeUnlockSheet({ screenH, timer, tier, position, total
             <Text style={styles.detail}>{threshold} séances terminées</Text>
           </Animated.View>
 
-          <PressTap
+          {/* La couleur du palier (bronze, argent, or) en capsule : dégradé,
+              lueur à sa couleur et reflet qui passe — le moment est une fête. */}
+          <Button
+            variant="accent"
+            color={palette.hi}
+            fullWidth
+            label={total > 1 && position < total ? 'Trophée suivant' : 'Continuer'}
             onPress={() => {
               haptic.light();
               close();
             }}
-            style={[styles.cta, { backgroundColor: palette.hi }]}
-          >
-            <Text style={styles.ctaText}>
-              {total > 1 && position < total ? 'TROPHÉE SUIVANT' : 'CONTINUER'}
-            </Text>
-          </PressTap>
+          />
         </>
       )}
     </BottomSheet>
@@ -185,16 +186,5 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 6,
     marginBottom: 24,
-  },
-  cta: {
-    borderRadius: 15,
-    paddingVertical: 16,
-    alignItems: 'center',
-  },
-  ctaText: {
-    fontFamily: fonts.sansExtraBold,
-    fontSize: 13,
-    letterSpacing: 1.6,
-    color: '#0A0A0A',
   },
 });

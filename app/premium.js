@@ -2,29 +2,31 @@ import { useState } from 'react';
 import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import Svg, { Path } from 'react-native-svg';
 
 import GradientBackground from '../components/common/GradientBackground';
-import PressTap from '../components/common/PressTap';
+import AppIcon from '../components/common/AppIcon';
+import Button from '../components/common/Button';
+import IconButton from '../components/common/IconButton';
 import { usePremium } from '../hooks/usePremium';
 import { useHaptic } from '../hooks/useHaptic';
 import { fonts } from '../lib/fonts';
+import { ROUND_SIZE } from '../lib/buttonTokens';
 
 const GOLD = '#F0C954';
 
 const BENEFITS = [
   {
-    emoji: '⚡',
+    icon: 'infinity',
     title: 'Lancements illimités',
     desc: 'Plus aucun verrou sur TABATA et MIX, même en usage intensif.',
   },
   {
-    emoji: '🚫',
+    icon: 'no-ads',
     title: 'Zéro pub, pour de bon',
     desc: "L'appli n'affichera jamais de publicité — Pro ou pas.",
   },
   {
-    emoji: '🎨',
+    icon: 'palette',
     title: 'Bientôt : thèmes & sons exclusifs',
     desc: 'Des déblocages cosmétiques réservés aux membres Pro, à venir.',
   },
@@ -52,24 +54,19 @@ export default function Premium() {
     <GradientBackground colors={['#1A1032', '#0A0A0A', '#000000']} ambient>
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.topBar}>
-          <Pressable onPress={() => router.back()} style={styles.iconBtn} hitSlop={8}>
-            <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
-              <Path
-                d="M9 2L3 7l6 5"
-                stroke="#FFFFFF"
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </Svg>
-          </Pressable>
+          <IconButton
+            icon="back"
+            haptic={haptic.light}
+            onPress={() => router.back()}
+            accessibilityLabel="Retour"
+          />
           <Text style={styles.topTitle}>Premium</Text>
           <View style={styles.iconBtnGhost} />
         </View>
 
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.hero}>
-            <Text style={styles.crown}>👑</Text>
+            <AppIcon name="crown" size={52} color={GOLD} style={styles.crown} />
             <Text style={styles.heroTitle}>Flex Timer PRO</Text>
             <Text style={styles.heroSub}>
               {isPremium || justUnlocked
@@ -81,7 +78,9 @@ export default function Premium() {
           <View style={styles.benefits}>
             {BENEFITS.map((b) => (
               <View key={b.title} style={styles.benefitRow}>
-                <Text style={styles.benefitEmoji}>{b.emoji}</Text>
+                <View style={styles.benefitIcon}>
+                  <AppIcon name={b.icon} size={22} color={GOLD} />
+                </View>
                 <View style={styles.benefitText}>
                   <Text style={styles.benefitTitle}>{b.title}</Text>
                   <Text style={styles.benefitDesc}>{b.desc}</Text>
@@ -104,12 +103,17 @@ export default function Premium() {
                 <Text style={styles.priceNote}>Achat unique · le prix d'un café sportif</Text>
               </View>
 
-              <View style={styles.buyShadowWrap}>
-                <PressTap onPress={handleBuy} tapScale={0.97} style={styles.buyBtn}>
-                  <Text style={styles.buyEmoji}>👑</Text>
-                  <Text style={styles.buyText}>Devenir Pro</Text>
-                </PressTap>
-              </View>
+              {/* Variante « premium » (or) du système de boutons : la lueur
+                  vient de son boxShadow — plus de wrapper d'ombre en
+                  elevation sans fond. La vibration vient de handleBuy. */}
+              <Button
+                variant="premium"
+                size="lg"
+                fullWidth
+                icon="crown"
+                label="Devenir Pro"
+                onPress={handleBuy}
+              />
 
               <Text style={styles.disclaimer}>
                 Version de test : active Premium localement sur cet appareil. Le
@@ -134,16 +138,8 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 16,
   },
-  iconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.20)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  iconBtnGhost: { width: 40, height: 40 },
+  // Même largeur que le bouton retour (ROUND_SIZE.nav) : garde le titre centré.
+  iconBtnGhost: { width: ROUND_SIZE.nav, height: ROUND_SIZE.nav },
   topTitle: {
     fontFamily: fonts.sansExtraBold,
     fontSize: 20,
@@ -163,7 +159,6 @@ const styles = StyleSheet.create({
     marginBottom: 32,
   },
   crown: {
-    fontSize: 48,
     marginBottom: 12,
   },
   heroTitle: {
@@ -190,10 +185,10 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: 14,
   },
-  benefitEmoji: {
-    fontSize: 22,
+  benefitIcon: {
     width: 30,
-    textAlign: 'center',
+    alignItems: 'center',
+    paddingTop: 1,
   },
   benefitText: { flex: 1, minWidth: 0 },
   benefitTitle: {
@@ -228,34 +223,6 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
 
-  buyShadowWrap: {
-    width: '100%',
-    borderRadius: 999,
-    shadowColor: GOLD,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.45,
-    shadowRadius: 20,
-    elevation: 10,
-  },
-  buyBtn: {
-    width: '100%',
-    height: 58,
-    borderRadius: 999,
-    backgroundColor: GOLD,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-  },
-  buyEmoji: {
-    fontSize: 18,
-  },
-  buyText: {
-    fontFamily: fonts.sansExtraBold,
-    fontSize: 16,
-    color: '#1A0D3D',
-    letterSpacing: -0.15,
-  },
   disclaimer: {
     fontFamily: fonts.sansMedium,
     fontSize: 10,

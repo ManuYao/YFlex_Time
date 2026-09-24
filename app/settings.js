@@ -15,9 +15,11 @@ import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as MailComposer from 'expo-mail-composer';
 import Constants from 'expo-constants';
-import Svg, { Path } from 'react-native-svg';
 
 import GradientBackground from '../components/common/GradientBackground';
+import AppIcon from '../components/common/AppIcon';
+import Button from '../components/common/Button';
+import IconButton from '../components/common/IconButton';
 import Toggle from '../components/common/Toggle';
 import UpdateSheet from '../components/common/UpdateSheet';
 import ContactSheet from '../components/common/ContactSheet';
@@ -40,6 +42,7 @@ import { haptic, setHapticStrength } from '../hooks/useHaptic';
 import { playDenied, previewSound } from '../lib/sounds';
 import { detectVoices } from '../lib/voiceCoach';
 import { fonts } from '../lib/fonts';
+import { DANGER, ROUND_SIZE } from '../lib/buttonTokens';
 
 const CONTACT_EMAIL = 'yaomanuit@gmail.com';
 
@@ -249,21 +252,12 @@ export default function Settings() {
         </View>
 
         <View style={styles.topBar}>
-          <Pressable
+          <IconButton
+            icon="back"
+            haptic={haptic.light}
             onPress={() => router.back()}
-            style={styles.iconBtn}
-            hitSlop={8}
-          >
-            <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
-              <Path
-                d="M9 2L3 7l6 5"
-                stroke="#FFFFFF"
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </Svg>
-          </Pressable>
+            accessibilityLabel="Retour"
+          />
           <Text style={styles.topTitle}>Paramètres</Text>
           <View style={styles.iconBtnGhost} />
         </View>
@@ -281,7 +275,7 @@ export default function Settings() {
               pressed && !premiumDenied && { opacity: 0.85 },
             ]}
           >
-            <Text style={styles.premiumEmoji}>👑</Text>
+            <AppIcon name="crown" size={26} color={GOLD} />
             <View style={styles.rowText}>
               <Text style={[styles.premiumTitle, premiumDenied && styles.premiumTitleDenied]}>
                 {isPremium ? 'Tu es Pro' : 'Passer Pro'}
@@ -396,7 +390,8 @@ export default function Settings() {
           <Section title="À propos">
             <LinkRow
               label="Version"
-              sub={pending ? '🔴🟡🟢🟣 Mise à jour prête à installer' : `Flex Timer ${APP_VERSION} · build 42`}
+              sub={pending ? 'Mise à jour prête à installer' : `Flex Timer ${APP_VERSION} · build 42`}
+              subPrefix={pending ? <ModeDots /> : null}
               onPress={() => setUpdateSheet(updateCandidate?.mode || 'info')}
             />
             <LinkRow label="Conditions d'utilisation" onPress={() => router.push('/terms')} />
@@ -436,15 +431,17 @@ export default function Settings() {
             />
           </Section>
 
-          <Pressable
+          {/* Action destructive : lien texte en rouge (DANGER), comme
+              « Supprimer ce bloc » dans BlockSheet. La vibration vient de
+              handleResetAll (une seule). */}
+          <Button
+            variant="ghost"
+            size="md"
+            label="Réinitialiser l'application"
+            labelStyle={styles.resetLabel}
             onPress={handleResetAll}
-            style={({ pressed }) => [
-              styles.resetBtn,
-              pressed && { opacity: 0.7 },
-            ]}
-          >
-            <Text style={styles.resetText}>Réinitialiser l'application</Text>
-          </Pressable>
+            style={styles.resetBtn}
+          />
         </ScrollView>
 
 
@@ -522,7 +519,21 @@ function Row({ label, sub, control, isLast }) {
   );
 }
 
-function LinkRow({ label, sub, onPress, isLast, disabled }) {
+// Les quatre couleurs des modes en pastilles dessinées (plus d'emojis ronds,
+// dont les teintes changeaient d'un téléphone à l'autre).
+const MODE_DOT_COLORS = ['#FF5454', '#FFC933', '#1FC777', '#9575FF'];
+
+function ModeDots() {
+  return (
+    <View style={styles.modeDots}>
+      {MODE_DOT_COLORS.map((c) => (
+        <View key={c} style={[styles.modeDot, { backgroundColor: c }]} />
+      ))}
+    </View>
+  );
+}
+
+function LinkRow({ label, sub, subPrefix, onPress, isLast, disabled }) {
   return (
     <Pressable
       onPress={onPress}
@@ -536,7 +547,15 @@ function LinkRow({ label, sub, onPress, isLast, disabled }) {
     >
       <View style={styles.rowText}>
         <Text style={styles.rowLabel}>{label}</Text>
-        {!!sub && <Text style={styles.rowSub}>{sub}</Text>}
+        {!!sub &&
+          (subPrefix ? (
+            <View style={styles.subRow}>
+              {subPrefix}
+              <Text style={[styles.rowSub, styles.subRowText]}>{sub}</Text>
+            </View>
+          ) : (
+            <Text style={styles.rowSub}>{sub}</Text>
+          ))}
       </View>
       <Text style={styles.chevron}>›</Text>
     </Pressable>
@@ -666,16 +685,8 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 16,
   },
-  iconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.20)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  iconBtnGhost: { width: 40, height: 40 },
+  // Même largeur que le bouton retour (ROUND_SIZE.nav) : garde le titre centré.
+  iconBtnGhost: { width: ROUND_SIZE.nav, height: ROUND_SIZE.nav },
   topTitle: {
     fontFamily: fonts.sansExtraBold,
     fontSize: 20,
@@ -706,9 +717,6 @@ const styles = StyleSheet.create({
   },
   premiumTitleDenied: {
     color: DENY_RED,
-  },
-  premiumEmoji: {
-    fontSize: 26,
   },
   premiumTitle: {
     fontFamily: fonts.sansBold,
@@ -769,6 +777,25 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: 'rgba(255,255,255,0.50)',
     marginTop: 2,
+  },
+  subRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    marginTop: 3,
+  },
+  subRowText: {
+    marginTop: 0,
+    flexShrink: 1,
+  },
+  modeDots: {
+    flexDirection: 'row',
+    gap: 3,
+  },
+  modeDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
   },
   metaText: {
     fontFamily: fonts.monoRegular,
@@ -856,15 +883,9 @@ const styles = StyleSheet.create({
   },
 
   resetBtn: {
-    paddingVertical: 14,
-    alignItems: 'center',
     marginTop: 8,
   },
-  resetText: {
-    fontFamily: fonts.sansBold,
-    fontSize: 12,
-    letterSpacing: 3,
-    color: 'rgba(255,255,255,0.40)',
-    textTransform: 'uppercase',
+  resetLabel: {
+    color: DANGER,
   },
 });

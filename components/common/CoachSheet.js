@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 
 import BottomSheet from './BottomSheet';
+import Button from './Button';
 import { fonts } from '../../lib/fonts';
 import { haptic } from '../../hooks/useHaptic';
 import { previewVoice } from '../../lib/voiceCoach';
@@ -112,15 +113,16 @@ export default function CoachSheet({
 
           {/* Les prochains réglages du coach viendront ici. */}
 
-          <Pressable
+          <Button
+            variant="solid"
+            label="C'est bon"
+            fullWidth
             onPress={() => {
               haptic.light();
               close();
             }}
-            style={({ pressed }) => [styles.cta, pressed && { opacity: 0.85 }]}
-          >
-            <Text style={styles.ctaText}>C'EST BON</Text>
-          </Pressable>
+            style={styles.cta}
+          />
         </View>
       )}
     </BottomSheet>
@@ -234,15 +236,5 @@ const styles = StyleSheet.create({
   },
   cta: {
     marginTop: 22,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    paddingVertical: 15,
-    alignItems: 'center',
-  },
-  ctaText: {
-    fontFamily: fonts.sansBold,
-    fontSize: 13,
-    letterSpacing: 1.2,
-    color: '#0A0A0A',
   },
 });

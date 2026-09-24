@@ -5,9 +5,12 @@ import Svg, { Path } from 'react-native-svg';
 import BottomSheet from './BottomSheet';
 import PressTap from './PressTap';
 import WheelPicker from './WheelPicker';
+import Button from './Button';
+import IconButton from './IconButton';
 import { fonts } from '../../lib/fonts';
 import { getCategory } from '../../lib/exercises';
 import { useLayoutLevel } from '../../lib/responsive';
+import { DANGER, ROUND_SIZE } from '../../lib/buttonTokens';
 import { haptic } from '../../hooks/useHaptic';
 
 const range = (from, to, step) => {
@@ -76,25 +79,16 @@ export default function ExerciseDetailSheet({
           {field ? (
             <View>
               <View style={styles.editHeader}>
-                <PressTap
+                {/* Vibration déjà dans le handler : pas de prop `haptic`. */}
+                <IconButton
+                  icon="back"
+                  size={ROUND_SIZE.sheet}
                   onPress={() => {
                     haptic.light();
                     setEditing(null);
                   }}
-                  tapScale={0.9}
-                  style={styles.backBtn}
-                  hitSlop={8}
-                >
-                  <Svg width={12} height={12} viewBox="0 0 14 14" fill="none">
-                    <Path
-                      d="M9 2L3 7l6 5"
-                      stroke="#FFFFFF"
-                      strokeWidth={2}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </Svg>
-                </PressTap>
+                  accessibilityLabel="Retour"
+                />
                 <Text style={styles.editLabel}>{field.label}</Text>
               </View>
 
@@ -108,16 +102,16 @@ export default function ExerciseDetailSheet({
                 visibleItems={wheelItems}
               />
 
-              <PressTap
+              <Button
+                variant="solid"
+                fullWidth
+                label="OK"
                 onPress={() => {
                   haptic.medium();
                   setEditing(null);
                 }}
-                tapScale={0.97}
                 style={styles.cta}
-              >
-                <Text style={styles.ctaText}>OK</Text>
-              </PressTap>
+              />
             </View>
           ) : (
             <View>
@@ -169,29 +163,30 @@ export default function ExerciseDetailSheet({
                 ))}
               </View>
 
-              <PressTap
+              <Button
+                variant="solid"
+                fullWidth
+                label="Enregistrer"
                 onPress={() => {
                   haptic.medium();
                   onSave(draft);
                   close();
                 }}
-                tapScale={0.97}
                 style={styles.cta}
-              >
-                <Text style={styles.ctaText}>ENREGISTRER</Text>
-              </PressTap>
+              />
 
-              <PressTap
+              <Button
+                variant="ghost"
+                size="md"
+                label="Retirer cet exercice"
+                labelStyle={styles.removeText}
                 onPress={() => {
                   haptic.warning();
                   onRemove();
                   close();
                 }}
-                tapScale={0.97}
-                style={styles.removeBtn}
-              >
-                <Text style={styles.removeText}>Retirer cet exercice</Text>
-              </PressTap>
+                style={styles.removeLink}
+              />
             </View>
           )}
         </View>
@@ -266,15 +261,6 @@ const styles = StyleSheet.create({
     gap: 10,
     marginBottom: 4,
   },
-  backBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.20)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   editLabel: {
     fontFamily: fonts.sansBold,
     fontSize: 11,
@@ -282,27 +268,15 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.55)',
   },
 
+  // Placement seulement : le rendu des boutons vient de Button
+  // (lib/buttonTokens.js).
   cta: {
     marginTop: 20,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    paddingVertical: 15,
-    alignItems: 'center',
   },
-  ctaText: {
-    fontFamily: fonts.sansBold,
-    fontSize: 13,
-    letterSpacing: 1.2,
-    color: '#0A0A0A',
-  },
-  removeBtn: {
-    marginTop: 12,
-    alignItems: 'center',
-    paddingVertical: 8,
+  removeLink: {
+    marginTop: 4,
   },
   removeText: {
-    fontFamily: fonts.sansSemibold,
-    fontSize: 12.5,
-    color: '#FF5454',
+    color: DANGER,
   },
 });

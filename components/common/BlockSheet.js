@@ -3,8 +3,10 @@ import { View, Text, TextInput, StyleSheet } from 'react-native';
 
 import BottomSheet from './BottomSheet';
 import PressTap from './PressTap';
+import Button from './Button';
 import { fonts } from '../../lib/fonts';
 import { haptic } from '../../hooks/useHaptic';
+import { DANGER } from '../../lib/buttonTokens';
 
 const SUGGESTIONS = ['Pecs / triceps', 'Dos / biceps', 'Jambes', 'Épaules', 'Abdos', 'Cardio'];
 
@@ -68,51 +70,49 @@ export default function BlockSheet({
                 </View>
               )}
 
-              <PressTap
+              <Button
+                variant="solid"
+                fullWidth
+                label={isEdit ? 'Enregistrer' : 'Ajouter le bloc'}
+                disabled={!trimmed}
                 onPress={() => {
                   if (!trimmed) return;
                   haptic.medium();
                   onSubmit(trimmed);
                   close();
                 }}
-                tapScale={0.97}
-                disabled={!trimmed}
-                style={[styles.cta, !trimmed && styles.ctaDisabled]}
-              >
-                <Text style={styles.ctaText}>
-                  {isEdit ? 'ENREGISTRER' : 'AJOUTER LE BLOC'}
-                </Text>
-              </PressTap>
+                style={styles.cta}
+              />
             </>
           )}
 
           {archived && (
-            <PressTap
+            <Button
+              variant="solid"
+              fullWidth
+              label="Rouvrir ce bloc"
               onPress={() => {
                 haptic.success();
                 onReopen?.();
                 close();
               }}
-              tapScale={0.97}
               style={styles.cta}
-            >
-              <Text style={styles.ctaText}>ROUVRIR CE BLOC</Text>
-            </PressTap>
+            />
           )}
 
           {isEdit && !archived && (
             <>
-              <PressTap
+              <Button
+                variant="glass"
+                fullWidth
+                label="Archiver ce bloc"
                 onPress={() => {
                   haptic.success();
                   onArchive?.();
                   close();
                 }}
-                tapScale={0.97}
-                style={styles.ghostBtn}
-              >
-                <Text style={styles.ghostText}>ARCHIVER CE BLOC</Text>
-              </PressTap>
+                style={styles.secondary}
+              />
               <Text style={styles.ghostHint}>
                 Il sera figé en lecture seule et rangé dans tes archives.
               </Text>
@@ -120,17 +120,18 @@ export default function BlockSheet({
           )}
 
           {isEdit && (
-            <PressTap
+            <Button
+              variant="ghost"
+              size="md"
+              label="Supprimer ce bloc"
+              labelStyle={styles.deleteText}
               onPress={() => {
                 haptic.warning();
                 onDelete?.();
                 close();
               }}
-              tapScale={0.97}
-              style={styles.deleteBtn}
-            >
-              <Text style={styles.deleteText}>Supprimer ce bloc</Text>
-            </PressTap>
+              style={styles.deleteLink}
+            />
           )}
         </View>
       )}
@@ -152,20 +153,6 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.40)',
     marginTop: -10,
     marginBottom: 18,
-  },
-  ghostBtn: {
-    marginTop: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.28)',
-    borderRadius: 16,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  ghostText: {
-    fontFamily: fonts.sansBold,
-    fontSize: 12,
-    letterSpacing: 1.1,
-    color: '#FFFFFF',
   },
   ghostHint: {
     fontFamily: fonts.sansMedium,
@@ -206,28 +193,14 @@ const styles = StyleSheet.create({
   },
   cta: {
     marginTop: 20,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    paddingVertical: 15,
-    alignItems: 'center',
   },
-  ctaDisabled: {
-    opacity: 0.35,
-  },
-  ctaText: {
-    fontFamily: fonts.sansBold,
-    fontSize: 13,
-    letterSpacing: 1.2,
-    color: '#0A0A0A',
-  },
-  deleteBtn: {
+  secondary: {
     marginTop: 12,
-    alignItems: 'center',
-    paddingVertical: 8,
+  },
+  deleteLink: {
+    marginTop: 4,
   },
   deleteText: {
-    fontFamily: fonts.sansSemibold,
-    fontSize: 12.5,
-    color: '#FF5454',
+    color: DANGER,
   },
 });

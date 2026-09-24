@@ -8,10 +8,10 @@ import {
   Dimensions,
   StyleSheet,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { BlurView, BlurTargetView } from 'expo-blur';
-import Svg, { Path, Circle, Polyline, Defs, RadialGradient, Stop } from 'react-native-svg';
+import Svg, { Path, Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
 import Animated, {
   FadeIn,
   FadeOut,
@@ -31,6 +31,10 @@ import GradientBackground from '../components/common/GradientBackground';
 import TickRing from '../components/common/TickRing';
 import WheelPicker from '../components/common/WheelPicker';
 import PressTap from '../components/common/PressTap';
+import Button from '../components/common/Button';
+import IconButton from '../components/common/IconButton';
+import AppIcon from '../components/common/AppIcon';
+import StreakFlame from '../components/common/StreakFlame';
 import ModeStatsSheet from '../components/common/ModeStatsSheet';
 import { playSound } from '../lib/sounds';
 import ProgressionSheet from '../components/common/ProgressionSheet';
@@ -54,6 +58,7 @@ import { formatValue } from '../lib/formatters';
 import { getTimeRange } from '../lib/timeRanges';
 import { getTokens } from '../lib/tokens';
 import { fonts } from '../lib/fonts';
+import { BOTTOM_GAP, BUTTON_HEIGHT, INK_TEXT, accentTextOn, buttonRecipe } from '../lib/buttonTokens';
 import { useUiScale, scaled, useLayoutLevel } from '../lib/responsive';
 import { useTimers } from '../contexts/TimersContext';
 import { useHaptic } from '../hooks/useHaptic';
@@ -81,7 +86,9 @@ import {
 // ci-dessous : la source de verite reactive est l'onLayout de la racine (Q9).
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
-const MORPH_R_INIT = 18;
+// Le morph part de la forme exacte du bouton Lancer : une capsule
+// (lib/buttonTokens.js), rayon = moitié de sa hauteur.
+const MORPH_R_INIT = BUTTON_HEIGHT.lg / 2;
 const MORPH_W_FINAL = 340;
 const MORPH_H_FINAL = 340;
 const MORPH_R_FINAL = 170;
@@ -89,7 +96,7 @@ const MORPH_R_FINAL = 170;
 const LAUNCH_TOTAL_MS = 2400;
 
 // Badge streak (F) — à partir de ce nombre de lancements sur 7 jours
-// glissants, la carte affiche 🔥 + compteur. Voir lib/history.js.
+// glissants, la carte affiche une flamme + compteur. Voir lib/history.js.
 const STREAK_THRESHOLD = 3;
 
 // Appui long sur le cercle central — ouvre le panneau stats/badges (T).
@@ -478,12 +485,10 @@ export default function Home() {
           <TopBar
             tag={active.tag}
             tokens={t}
-            onBack={() => router.push('/settings')}
-            onMenu={() => {
-              haptic.light();
-              router.push('/history');
-            }}
-            onMenuHaptic={haptic.light}
+            tone={active.textMode}
+            onSettings={() => router.push('/settings')}
+            onHistory={() => router.push('/history')}
+            onTapHaptic={haptic.light}
             isLaunching={hideChrome}
           />
 
@@ -793,7 +798,7 @@ function Ember({ id, xPct, yPct, size, drift, duration, delay, peakOpacity, colo
 /* ─────────────────────────────────────────────────────────────────
    (B+C) Top bar — status + tag central + boutons ronds
    ────────────────────────────────────────────────────────────────*/
-function TopBar({ tag, tokens, onBack, onMenu, onMenuHaptic, isLaunching }) {
+function TopBar({ tag, tokens, tone, onSettings, onHistory, onTapHaptic, isLaunching }) {
   const dotPulse = useSharedValue(0.4);
   useEffect(() => {
     dotPulse.value = withRepeat(
@@ -830,25 +835,13 @@ function TopBar({ tag, tokens, onBack, onMenu, onMenuHaptic, isLaunching }) {
         entering={slideInY(-30, D.slow, 100)}
         style={styles.topBar}
       >
-        <PressTap
-          onPress={onMenu}
-          tapScale={0.88}
-          onHapticIn={onMenuHaptic}
-          style={[styles.iconBtn, { borderColor: tokens.btnBorder }]}
-          hitSlop={8}
+        <IconButton
+          icon="clock"
+          tone={tone}
+          onPress={onHistory}
+          haptic={onTapHaptic}
           accessibilityLabel="Historique"
-        >
-          <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-            <Circle cx={12} cy={12} r={10} stroke={tokens.primary} strokeWidth={2} />
-            <Polyline
-              points="12 6 12 12 16 14"
-              stroke={tokens.primary}
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </Svg>
-        </PressTap>
+        />
 
         <Animated.Text
           key={tag}
@@ -859,31 +852,13 @@ function TopBar({ tag, tokens, onBack, onMenu, onMenuHaptic, isLaunching }) {
           {tag}
         </Animated.Text>
 
-        <PressTap
-          onPress={onBack}
-          tapScale={0.88}
-          onHapticIn={onMenuHaptic}
-          style={[styles.iconBtn, { borderColor: tokens.btnBorder }]}
-          hitSlop={8}
+        <IconButton
+          icon="gear"
+          tone={tone}
+          onPress={onSettings}
+          haptic={onTapHaptic}
           accessibilityLabel="Réglages"
-        >
-          <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-            <Path
-              d="M12 15a3 3 0 100-6 3 3 0 000 6z"
-              stroke={tokens.primary}
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            <Path
-              d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"
-              stroke={tokens.primary}
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </Svg>
-        </PressTap>
+        />
       </Animated.View>
     </>
   );
@@ -975,7 +950,7 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
             <Text style={[styles.miniHeroUnit, { color: t.tertiary }]} numberOfLines={1}>
               {hero.unit}
             </Text>
-            {cooldown?.isLocked && <Text style={styles.miniLockEmoji}>👑</Text>}
+            {cooldown?.isLocked && <AppIcon name="crown" size={16} color={t.primary} />}
           </Pressable>
           {/* Retour visuel de l'appui long, en barre plutôt qu'en anneau */}
           {isActive && isPressing && (
@@ -1089,12 +1064,18 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
       )}
       {cooldown?.isLocked && (
         <View style={[styles.lockOverlay, { width: ring, height: ring }]} pointerEvents="none">
-          <Text style={styles.lockEmoji}>👑</Text>
+          <AppIcon name="crown" size={44} color={t.primary} />
         </View>
       )}
       {cooldown?.isLocked && (
-        <Pressable onPress={onGoPremium} style={styles.proBadge} hitSlop={6}>
-          <Text style={styles.proBadgeText}>PRO</Text>
+        // Couleurs des tokens, pas du blanc en dur : sur le jaune de TABATA
+        // (un des deux modes limités) « PRO » blanc ne se lisait pas.
+        <Pressable
+          onPress={onGoPremium}
+          style={[styles.proBadge, { backgroundColor: t.chipBg, borderColor: t.chipBorder }]}
+          hitSlop={6}
+        >
+          <Text style={[styles.proBadgeText, { color: t.tertiary }]}>PRO</Text>
         </Pressable>
       )}
       </View>
@@ -1103,7 +1084,7 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
 
       {/* (U) Cooldown — pips = usages du jour restants + aperçu du verrou,
           ou bandeau "Premium requis" une fois verrouillé */}
-      <CooldownPips cooldown={cooldown} t={t} onGoPremium={onGoPremium} />
+      <CooldownPips cooldown={cooldown} t={t} tone={timer.textMode} onGoPremium={onGoPremium} />
 
       {/* (K) Stats chips avec stagger */}
       <View
@@ -1234,15 +1215,21 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
    rangée de pastilles qui se remplissent, plus un cadenas simple une fois
    verrouillé (déjà affiché sur le cadran par lockOverlay).
    ────────────────────────────────────────────────────────────────*/
-function CooldownPips({ cooldown, t, onGoPremium }) {
+function CooldownPips({ cooldown, t, tone, onGoPremium }) {
   if (!cooldown?.limited) return null;
 
   if (cooldown.isLocked) {
     return (
-      <PressTap onPress={onGoPremium} tapScale={0.96} style={styles.premiumHint}>
-        <Text style={styles.premiumHintEmoji}>👑</Text>
-        <Text style={styles.premiumHintText}>DÉBLOQUE AVEC PREMIUM</Text>
-      </PressTap>
+      <Button
+        variant="glass"
+        tone={tone}
+        size="sm"
+        icon="crown"
+        label="DÉBLOQUE AVEC PREMIUM"
+        labelStyle={styles.premiumHintText}
+        onPress={onGoPremium}
+        style={styles.premiumHint}
+      />
     );
   }
 
@@ -1264,19 +1251,27 @@ function CooldownPips({ cooldown, t, onGoPremium }) {
         />
       ))}
       {/* Aperçu de la conséquence : après ces pastilles, ça se verrouille. */}
-      <Text style={styles.cooldownHintEmoji}>👑</Text>
+      <AppIcon name="crown" size={12} color={t.primary} opacity={0.7} style={styles.cooldownHintIcon} />
     </View>
   );
 }
 
 /* ─────────────────────────────────────────────────────────────────
-   StreakBadge — 🔥 + compteur, visible dès STREAK_THRESHOLD lancements
-   du timer sur 7 jours glissants (lib/history.js computeHeatCounts)
+   StreakBadge — flamme + compteur, visible dès STREAK_THRESHOLD lancements
+   du timer sur 7 jours glissants (lib/history.js computeHeatCounts). La
+   flamme se colore avec la série (StreakFlame, 4 paliers jusqu'à
+   EMBER_MAX_HEAT, la même échelle que les braises du fond).
    ────────────────────────────────────────────────────────────────*/
 function StreakBadge({ heatCount, isActive, t, timerId }) {
   const content = (
     <>
-      <Text style={styles.streakEmoji}>🔥</Text>
+      <StreakFlame
+        heat={heatCount}
+        min={STREAK_THRESHOLD}
+        max={EMBER_MAX_HEAT}
+        outline={t.chipText}
+        gradientId={timerId}
+      />
       <Text style={[styles.streakCount, { color: t.chipText }]}>{heatCount}</Text>
     </>
   );
@@ -1422,10 +1417,15 @@ function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onDo
   const level = useLayoutLevel();
   const isMini = level === 'mini';
   const isReduced = isMini || level === 'compact';
-  const ctaBg = isLocked ? 'rgba(255,255,255,0.14)' : active.color;
-  const ctaTextColor = isLocked ? 'rgba(255,255,255,0.6)' : active.textMode === 'dark' ? '#0A0A0A' : '#FFFFFF';
+  // Verrouillé (cooldown / Premium) : du verre au lieu de la couleur du mode,
+  // avec la couronne — il reste appuyable (il ouvre Premium ou le cramage).
+  const ctaVariant = isLocked ? 'glass' : 'accent';
+  const ctaTone = isLocked ? 'light' : active.textMode;
+  const ctaTextColor = isLocked
+    ? 'rgba(255,255,255,0.72)'
+    : buttonRecipe({ variant: ctaVariant, tone: ctaTone, color: active.color }).textColor;
 
-  // (O) Icône ▶ pulse horizontale
+  // (O) Flèche de lecture qui pulse horizontalement
   const arrowX = useSharedValue(0);
   useEffect(() => {
     arrowX.value = withRepeat(
@@ -1467,26 +1467,30 @@ function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onDo
         ))}
       </View>
 
-      {/* (O) CTA Lancer */}
-      {/* L'ombre (elevation) est portee par ce View statique plutot que par
-          la vue animee de PressTap : sur Android, une elevation combinee a
-          un transform pilote par Reanimated peut se rendre en rectangle
-          plein au lieu de suivre borderRadius. */}
-      <View ref={ctaRef} style={[styles.ctaShadowWrap, { backgroundColor: ctaBg }, isLocked && styles.ctaShadowWrapLocked]}>
-        <PressTap
+      {/* (O) CTA Lancer — capsule de lib/buttonTokens.js (couleur du mode en
+          dégradé, liseré, lueur à sa couleur, reflet qui le traverse).
+          La View mesurée (ctaRef) sert à LaunchMorph, qui part de la
+          position exacte du bouton : collapsable={false} pour qu'Android ne
+          l'aplatisse pas (measureInWindow échouerait). */}
+      <View ref={ctaRef} collapsable={false}>
+        <Button
+          variant={ctaVariant}
+          tone={ctaTone}
+          color={active.color}
+          size={isReduced ? 'md' : 'lg'}
+          fullWidth
           onPress={onLaunch}
-          tapScale={0.96}
-          style={[styles.cta, isReduced && styles.ctaReduced, { backgroundColor: ctaBg }]}
+          accessibilityLabel={`Lancer ${active.name}`}
+          icon={
+            isLocked ? (
+              <AppIcon name="crown" size={15} color={ctaTextColor} />
+            ) : (
+              <Animated.View style={arrowStyle}>
+                <AppIcon name="play" size={16} color={ctaTextColor} />
+              </Animated.View>
+            )
+          }
         >
-          {isLocked ? (
-            <Text style={styles.ctaLockEmoji}>👑</Text>
-          ) : (
-            <Animated.View style={arrowStyle}>
-              <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
-                <Path d="M3 2l8 5-8 5V2z" fill={ctaTextColor} />
-              </Svg>
-            </Animated.View>
-          )}
           <Animated.Text
             key={`cta-${active.name}`}
             entering={slideInY(10, 250, 0)}
@@ -1495,7 +1499,7 @@ function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onDo
           >
             Lancer {active.name}
           </Animated.Text>
-        </PressTap>
+        </Button>
       </View>
 
       {!isMini && (
@@ -1550,7 +1554,9 @@ function LaunchMorph({ active, onComplete, screenH, screenW, ctaRect }) {
   const haloTop = screenH / 2 - 300;
   const haloLeft = screenW / 2 - 300;
 
-  const isDark = active.textMode === 'dark';
+  // Même règle de lisibilité que le bouton Lancer (accentTextOn) : le texte
+  // ne doit pas changer de couleur quand le bouton devient le cercle.
+  const isDark = accentTextOn(active.color, active.textMode) === INK_TEXT;
   const fgColor = isDark ? '#0A0A0A' : '#FFFFFF';
 
   const progress = useSharedValue(0);
@@ -1750,7 +1756,9 @@ function LaunchMorph({ active, onComplete, screenH, screenW, ctaRect }) {
    ────────────────────────────────────────────────────────────────*/
 function PickerSheet({ stat, accentColor, textMode, onClose, onValidate, screenH }) {
   const [draft, setDraft] = useState(stat.value);
-  const ctaText = textMode === 'dark' ? '#0A0A0A' : '#FFFFFF';
+  // La feuille est hors SafeAreaView : elle ajoute elle-même la barre de
+  // navigation Android, sinon son bas passait dessous en navigation 3 boutons.
+  const insets = useSafeAreaInsets();
 
   // (V) La feuille grandit vers le haut sans limite (sheetRoot en
   // justifyContent:'flex-end'). Son empilement complet réclame ~490 dp :
@@ -1818,6 +1826,7 @@ function PickerSheet({ stat, accentColor, textMode, onClose, onValidate, screenH
         style={[
           styles.sheet,
           isReduced && styles.sheetReduced,
+          { paddingBottom: insets.bottom + (isReduced ? 8 : BOTTOM_GAP) },
           // Ceinture : même bien dimensionnée, la feuille ne doit jamais
           // pouvoir sortir de l'écran par le haut.
           { maxHeight: Math.round(screenH * 0.94) },
@@ -1858,28 +1867,16 @@ function PickerSheet({ stat, accentColor, textMode, onClose, onValidate, screenH
         </Animated.View>
 
         <Animated.View entering={slideInY(20, D.slow, 300)}>
-          <View style={[styles.pickerCtaShadowWrap, { backgroundColor: accentColor || '#FFFFFF' }]}>
-          <PressTap
+          <Button
+            variant="accent"
+            color={accentColor || '#FFFFFF'}
+            tone={textMode}
+            size={isReduced ? 'md' : 'lg'}
+            icon="check"
+            label="Valider"
+            fullWidth
             onPress={handleValidate}
-            tapScale={0.97}
-            style={[
-              styles.pickerCta,
-              isReduced && styles.pickerCtaReduced,
-              { backgroundColor: accentColor || '#FFFFFF' },
-            ]}
-          >
-            <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
-              <Path
-                d="M2 7l4 4 6-8"
-                stroke={ctaText}
-                strokeWidth={2.5}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </Svg>
-            <Text style={[styles.pickerCtaText, { color: ctaText }]}>Valider</Text>
-          </PressTap>
-          </View>
+          />
         </Animated.View>
 
         {/* Le rappel disparaît en mini : la roue est alors le seul élément
@@ -1939,14 +1936,6 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 4,
   },
-  iconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   tag: {
     fontFamily: fonts.sansSemibold,
     fontSize: 11,
@@ -1986,16 +1975,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  lockEmoji: {
-    fontSize: 40,
-  },
+  // Couleurs de proBadge / premiumHint : tokens passés en ligne (TimerCard,
+  // CooldownPips), pour suivre le texte noir de TABATA.
   proBadge: {
     position: 'absolute',
     top: 8,
     left: 4,
-    backgroundColor: 'rgba(255,255,255,0.14)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.28)',
     borderRadius: 999,
     paddingHorizontal: 9,
     paddingVertical: 5,
@@ -2004,7 +1990,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansExtraBold,
     fontSize: 10,
     letterSpacing: 1.5,
-    color: 'rgba(255,255,255,0.75)',
   },
   cooldownRow: {
     flexDirection: 'row',
@@ -2019,33 +2004,17 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     borderWidth: 1.5,
   },
-  cooldownHintEmoji: {
-    fontSize: 12,
+  cooldownHintIcon: {
     marginLeft: 4,
-    opacity: 0.7,
   },
   premiumHint: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 7,
     alignSelf: 'center',
-    backgroundColor: 'rgba(255,255,255,0.14)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.24)',
-    borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
     marginBottom: 16,
-  },
-  premiumHintEmoji: {
-    fontSize: 13,
   },
   premiumHintText: {
     fontFamily: fonts.sansExtraBold,
-    fontSize: 10,
+    fontSize: 11,
     letterSpacing: 1.2,
-    color: 'rgba(255,255,255,0.85)',
   },
   ember: {
     position: 'absolute',
@@ -2073,9 +2042,6 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     borderRadius: 999,
     borderWidth: 1,
-  },
-  streakEmoji: {
-    fontSize: 12,
   },
   streakCount: {
     fontFamily: fonts.monoBold,
@@ -2184,9 +2150,6 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
     textTransform: 'uppercase',
   },
-  miniLockEmoji: {
-    fontSize: 16,
-  },
   miniHoldTrack: {
     height: 2,
     borderRadius: 1,
@@ -2218,9 +2181,6 @@ const styles = StyleSheet.create({
   },
   indicatorRowReduced: {
     marginBottom: 8,
-  },
-  ctaReduced: {
-    height: 46,
   },
   hintReduced: {
     marginTop: 6,
@@ -2311,33 +2271,12 @@ const styles = StyleSheet.create({
     height: 4,
     borderRadius: 2,
   },
-  cta: {
-    height: 56,
-    borderRadius: MORPH_R_INIT,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-  },
-  ctaShadowWrap: {
-    borderRadius: MORPH_R_INIT,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.25,
-    shadowRadius: 16,
-    elevation: 8,
-  },
-  ctaShadowWrapLocked: {
-    shadowOpacity: 0,
-    elevation: 0,
-  },
-  ctaLockEmoji: {
-    fontSize: 15,
-  },
+  // Même typo que le label d'un Button lg : le morph reprend ce texte tel quel.
   ctaText: {
-    fontFamily: fonts.sansBold,
-    fontSize: 15,
-    letterSpacing: -0.15,
+    fontFamily: fonts.sansExtraBold,
+    fontSize: 16,
+    letterSpacing: -0.1,
+    includeFontPadding: false,
   },
   hint: {
     fontFamily: fonts.sansMedium,
@@ -2363,9 +2302,9 @@ const styles = StyleSheet.create({
     elevation: 20,
   },
   morphCtaText: {
-    fontFamily: fonts.sansBold,
-    fontSize: 15,
-    letterSpacing: -0.15,
+    fontFamily: fonts.sansExtraBold,
+    fontSize: 16,
+    letterSpacing: -0.1,
   },
   halo: {
     // top/left fournis en inline par LaunchMorph (haloTop/haloLeft, calculés
@@ -2432,7 +2371,6 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 28,
     paddingTop: 12,
     paddingHorizontal: 20,
-    paddingBottom: 32,
     borderTopWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
   },
@@ -2541,16 +2479,12 @@ const styles = StyleSheet.create({
   // (V) Feuille de sélection en fenêtre réduite — voir PickerSheet
   sheetReduced: {
     paddingTop: 8,
-    paddingBottom: 14,
   },
   pickerHeaderReduced: {
     marginBottom: 10,
   },
   pickerWheelWrapReduced: {
     marginBottom: 12,
-  },
-  pickerCtaReduced: {
-    height: 48,
   },
   sheetFooterReduced: {
     marginTop: 10,
@@ -2576,26 +2510,5 @@ const styles = StyleSheet.create({
   },
   pickerWheelWrap: {
     marginBottom: 24,
-  },
-  pickerCta: {
-    height: 56,
-    borderRadius: 18,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  pickerCtaShadowWrap: {
-    borderRadius: 18,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 14,
-    elevation: 6,
-  },
-  pickerCtaText: {
-    fontFamily: fonts.sansBold,
-    fontSize: 15,
-    letterSpacing: -0.15,
   },
 });

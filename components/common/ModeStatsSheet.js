@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, BackHandler } from 'react-native';
 import { BlurView } from 'expo-blur';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   runOnJS,
   useAnimatedStyle,
@@ -10,6 +11,8 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import PressTap from './PressTap';
+import AppIcon from './AppIcon';
+import Button from './Button';
 import HowToSheet from './HowToSheet';
 import BadgeDetailSheet from './BadgeDetailSheet';
 import { fonts } from '../../lib/fonts';
@@ -18,8 +21,6 @@ import { getBadgeProgress } from '../../lib/badges';
 import BadgeMedal, { TIER_PALETTE } from './BadgeMedal';
 import { D, easeImpact, springSheet } from '../../lib/animations';
 
-const MODE_EMOJI = { amrap: '🔥', basic: '⏱️', emom: '⚡', tabata: '⏲️', mix: '🔀' };
-
 const MODE_TAGLINE = {
   amrap: 'Enchaîne les tours, à fond',
   basic: 'Travail libre, ton rythme',
@@ -27,11 +28,6 @@ const MODE_TAGLINE = {
   tabata: 'Intervalles courts, intensité max',
   mix: 'Constructeur de circuits',
 };
-
-// Couleur fixe (pas timer.color) pour rester reconnaissable pareil sur les 5
-// modes — un ton neutre, pas de rouge (jugé "pas beau" par l'utilisateur sur
-// le fond blanc du bouton).
-const HOWTO_COLOR = '#0A0A0A';
 
 // Intensité du flou de fond (0-100). Monte-la si tu veux plus de flou —
 // au-delà de ~35-40 le dégradé (sans dithering, voir GrainOverlay.js) peut
@@ -48,6 +44,7 @@ const BLUR_INTENSITY = 20;
  * flouter par-dessus exposerait le banding au lieu de l'adoucir.
  */
 export default function ModeStatsSheet({ timer, stats, screenH, blurTargetRef, onClose }) {
+  const insets = useSafeAreaInsets();
   const translateY = useSharedValue(screenH);
   const backdropOpacity = useSharedValue(0);
   const [showHowTo, setShowHowTo] = useState(false);
@@ -104,14 +101,22 @@ export default function ModeStatsSheet({ timer, stats, screenH, blurTargetRef, o
       </Animated.View>
       <Pressable style={styles.sheetTap} onPress={handleClose} />
 
-      <Animated.View style={[styles.sheet, sheetStyle, { backgroundColor: sheetTint }]}>
+      {/* Bas de feuille calé sur la zone sûre : le bouton tombait contre la
+          barre de geste Android. */}
+      <Animated.View
+        style={[
+          styles.sheet,
+          sheetStyle,
+          { backgroundColor: sheetTint, paddingBottom: insets.bottom + 24 },
+        ]}
+      >
         <View style={styles.handleWrap}>
           <View style={styles.handle} />
         </View>
 
         <View style={styles.header}>
           <View style={styles.iconBox}>
-            <Text style={styles.iconEmoji}>{MODE_EMOJI[timer.id] || '🏅'}</Text>
+            <AppIcon name={timer.id} size={22} />
           </View>
           <View style={styles.headerText}>
             <Text style={styles.title}>{timer.name}</Text>
@@ -122,14 +127,14 @@ export default function ModeStatsSheet({ timer, stats, screenH, blurTargetRef, o
         <View style={styles.statsGrid}>
           <View style={styles.statBox}>
             <View style={styles.statLabelRow}>
-              <Text style={styles.statEmoji}>🔥</Text>
+              <AppIcon name="sessions" size={12} opacity={0.85} />
               <Text style={styles.statLabel}>SÉANCES</Text>
             </View>
             <Text style={styles.statValue}>{count}</Text>
           </View>
           <View style={styles.statBox}>
             <View style={styles.statLabelRow}>
-              <Text style={styles.statEmoji}>🕐</Text>
+              <AppIcon name="clock" size={12} opacity={0.85} />
               <Text style={styles.statLabel}>TOTAL</Text>
             </View>
             <Text style={styles.statValue}>{timeLabel}</Text>
@@ -138,7 +143,7 @@ export default function ModeStatsSheet({ timer, stats, screenH, blurTargetRef, o
 
         <View style={styles.medalsRow}>
           {tiers.map((tier) => (
-            <Medal key={tier.key} tier={tier} onPress={() => setDetailTier(tier)} />
+            <Medal key={tier.key} tier={tier} count={count} onPress={() => setDetailTier(tier)} />
           ))}
         </View>
 
@@ -161,21 +166,22 @@ export default function ModeStatsSheet({ timer, stats, screenH, blurTargetRef, o
             </View>
           </View>
         ) : (
-          <Text style={styles.allDone}>TOUS LES BADGES DÉBLOQUÉS 🏆</Text>
+          <View style={styles.allDoneRow}>
+            <AppIcon name="trophies" size={18} />
+            <Text style={styles.allDone}>TOUS LES BADGES DÉBLOQUÉS</Text>
+          </View>
         )}
 
-        <View style={styles.ctaShadowWrap}>
-          <PressTap
-            onPress={() => setShowHowTo(true)}
-            tapScale={0.97}
-            style={styles.cta}
-          >
-            <Text style={styles.ctaEmoji}>🙂</Text>
-            <Text style={[styles.ctaText, { color: HOWTO_COLOR }]}>
-              Comment ça marche ?
-            </Text>
-          </PressTap>
-        </View>
+        <Button
+          variant="solid"
+          size="lg"
+          tone={timer.textMode}
+          fullWidth
+          icon="help"
+          label="Comment ça marche ?"
+          haptic={haptic.light}
+          onPress={() => setShowHowTo(true)}
+        />
       </Animated.View>
 
       {detailTier && (
@@ -199,7 +205,16 @@ export default function ModeStatsSheet({ timer, stats, screenH, blurTargetRef, o
   );
 }
 
-function Medal({ tier, onPress }) {
+// Sous-titre sous chaque palier : sans lui, un palier jamais commencé ne dit
+// pas ce qu'il demande (retour utilisateur du 24/09/2026 : « on comprend pas
+// qu'est-ce que c'est »).
+function medalCaption(tier, count) {
+  if (tier.unlocked) return 'OBTENU';
+  if (count <= 0) return `${tier.threshold} SÉANCES`;
+  return `${count} / ${tier.threshold}`;
+}
+
+function Medal({ tier, count, onPress }) {
   return (
     <PressTap
       style={styles.medalItem}
@@ -219,6 +234,12 @@ function Medal({ tier, onPress }) {
       <Text style={[styles.medalLabel, !tier.unlocked && styles.medalLabelLocked]}>
         {tier.label}
       </Text>
+      <Text
+        style={[styles.medalCaption, tier.unlocked && { color: TIER_PALETTE[tier.key].hi }]}
+        numberOfLines={1}
+      >
+        {medalCaption(tier, count)}
+      </Text>
     </PressTap>
   );
 }
@@ -232,12 +253,12 @@ const styles = StyleSheet.create({
   sheetTap: {
     flex: 1,
   },
+  // paddingBottom posé en ligne (zone sûre + 24).
   sheet: {
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     paddingTop: 12,
     paddingHorizontal: 20,
-    paddingBottom: 40,
     borderTopWidth: 1,
     borderColor: 'rgba(255,255,255,0.18)',
   },
@@ -259,15 +280,16 @@ const styles = StyleSheet.create({
     gap: 12,
     marginBottom: 18,
   },
+  // Fond sombre translucide, pas blanc : le cadran du mode est blanc, il
+  // s'effaçait sur une pastille blanchâtre.
   iconBox: {
     width: 40,
     height: 40,
     borderRadius: 13,
-    backgroundColor: 'rgba(255,255,255,0.22)',
+    backgroundColor: 'rgba(0,0,0,0.22)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  iconEmoji: { fontSize: 19 },
   headerText: { flex: 1, minWidth: 0 },
   title: {
     fontFamily: fonts.sansBold,
@@ -299,7 +321,6 @@ const styles = StyleSheet.create({
     gap: 5,
     marginBottom: 5,
   },
-  statEmoji: { fontSize: 11 },
   statLabel: {
     fontFamily: fonts.sansBold,
     fontSize: 9,
@@ -329,8 +350,17 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     marginTop: 6,
   },
+  // Plus à 0.5 : un palier pas encore obtenu n'est pas un palier désactivé,
+  // c'est l'objectif — il doit se lire.
   medalLabelLocked: {
-    color: 'rgba(255,255,255,0.5)',
+    color: 'rgba(255,255,255,0.85)',
+  },
+  medalCaption: {
+    fontFamily: fonts.monoBold,
+    fontSize: 9.5,
+    letterSpacing: 0.4,
+    color: 'rgba(255,255,255,0.62)',
+    marginTop: 2,
   },
 
   progressBox: {
@@ -366,33 +396,18 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: 999,
   },
+  allDoneRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 18,
+  },
   allDone: {
     fontFamily: fonts.sansBold,
     fontSize: 11,
     letterSpacing: 1.4,
     color: '#FFFFFF',
     textAlign: 'center',
-    marginBottom: 18,
-  },
-
-  ctaShadowWrap: {
-    borderRadius: 999,
-  },
-  cta: {
-    height: 52,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  ctaEmoji: {
-    fontSize: 14,
-  },
-  ctaText: {
-    fontFamily: fonts.sansBold,
-    fontSize: 14,
-    letterSpacing: -0.2,
   },
 });

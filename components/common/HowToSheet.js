@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { View, Text, Pressable, StyleSheet, BackHandler } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   runOnJS,
   useAnimatedStyle,
@@ -8,12 +9,13 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
-import PressTap from './PressTap';
+import AppIcon from './AppIcon';
+import IconButton from './IconButton';
 import { fonts } from '../../lib/fonts';
+import { haptic } from '../../hooks/useHaptic';
 import { getHowToItems } from '../../lib/timers-config';
+import { ROUND_SIZE } from '../../lib/buttonTokens';
 import { D, easeImpact, springSheet, slideInY } from '../../lib/animations';
-
-const MODE_EMOJI = { amrap: '🔥', basic: '⏱️', emom: '⚡', tabata: '⏲️', mix: '🔀' };
 
 /**
  * Sous-fenêtre ouverte depuis ModeStatsSheet (bouton "Comment ça marche ?").
@@ -23,6 +25,7 @@ const MODE_EMOJI = { amrap: '🔥', basic: '⏱️', emom: '⚡', tabata: '⏲�
  * (voir le commentaire dans ModeStatsSheet.js), donc simple voile sombre ici.
  */
 export default function HowToSheet({ timer, screenH, onClose }) {
+  const insets = useSafeAreaInsets();
   const translateY = useSharedValue(screenH);
   const backdropOpacity = useSharedValue(0);
 
@@ -59,17 +62,31 @@ export default function HowToSheet({ timer, screenH, onClose }) {
       <Animated.View style={[StyleSheet.absoluteFill, styles.backdrop, backdropStyle]} />
       <Pressable style={styles.tap} onPress={handleClose} />
 
-      <Animated.View style={[styles.sheet, sheetStyle, { backgroundColor: sheetTint }]}>
+      {/* Bas de feuille calé sur la zone sûre : sous la barre de geste
+          Android, la dernière ligne n'était plus confortable à lire. */}
+      <Animated.View
+        style={[
+          styles.sheet,
+          sheetStyle,
+          { backgroundColor: sheetTint, paddingBottom: insets.bottom + 24 },
+        ]}
+      >
         <View style={styles.handleWrap}>
           <View style={styles.handle} />
         </View>
 
         <View style={styles.header}>
-          <Text style={styles.headerEmoji}>{MODE_EMOJI[timer.id] || '🏅'}</Text>
+          <AppIcon name={timer.id} size={22} />
           <Text style={styles.title}>Comment ça marche</Text>
-          <PressTap onPress={handleClose} tapScale={0.9} style={styles.closeBtn} hitSlop={10}>
-            <Text style={styles.closeText}>✕</Text>
-          </PressTap>
+          <IconButton
+            icon="close"
+            size={ROUND_SIZE.sheet}
+            tone={timer.textMode}
+            onPress={handleClose}
+            haptic={haptic.light}
+            hitSlop={10}
+            accessibilityLabel="Fermer"
+          />
         </View>
 
         <View style={styles.list}>
@@ -79,7 +96,9 @@ export default function HowToSheet({ timer, screenH, onClose }) {
               entering={slideInY(12, D.base, 80 + i * 70)}
               style={styles.item}
             >
-              <Text style={styles.itemIcon}>{item.icon}</Text>
+              <View style={styles.itemIconBox}>
+                <AppIcon name={item.icon} size={17} />
+              </View>
               <Text style={styles.itemText}>
                 <Text style={styles.itemLead}>{item.lead}. </Text>
                 {item.text}
@@ -104,12 +123,12 @@ const styles = StyleSheet.create({
   tap: {
     flex: 1,
   },
+  // paddingBottom posé en ligne (zone sûre + 24).
   sheet: {
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     paddingTop: 12,
     paddingHorizontal: 20,
-    paddingBottom: 36,
     borderTopWidth: 1,
     borderColor: 'rgba(255,255,255,0.18)',
   },
@@ -131,25 +150,11 @@ const styles = StyleSheet.create({
     gap: 10,
     marginBottom: 18,
   },
-  headerEmoji: { fontSize: 20 },
   title: {
     flex: 1,
     fontFamily: fonts.sansBold,
     fontSize: 17,
     letterSpacing: 0.3,
-    color: '#FFFFFF',
-  },
-  closeBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: 'rgba(255,255,255,0.16)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  closeText: {
-    fontFamily: fonts.sansBold,
-    fontSize: 13,
     color: '#FFFFFF',
   },
 
@@ -164,9 +169,16 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 14,
   },
-  itemIcon: {
-    fontSize: 20,
-    lineHeight: 22,
+  // Pastille de 30 et texte décalé de 5 : la première ligne (20 de haut)
+  // tombe pile au milieu de l'icône. Fond SOMBRE translucide : une icône
+  // blanche sur une pastille blanchâtre s'effaçait (« blanc sur blanc »).
+  itemIconBox: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.20)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   itemText: {
     flex: 1,
@@ -174,6 +186,7 @@ const styles = StyleSheet.create({
     fontSize: 13.5,
     lineHeight: 20,
     color: 'rgba(255,255,255,0.90)',
+    paddingTop: 5,
   },
   itemLead: {
     fontFamily: fonts.sansBold,

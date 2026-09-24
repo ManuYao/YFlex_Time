@@ -3,7 +3,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
 import BottomSheet from './BottomSheet';
-import PressTap from './PressTap';
+import Button from './Button';
 import BadgeMedal, { TIER_PALETTE } from './BadgeMedal';
 import { fonts } from '../../lib/fonts';
 import { haptic } from '../../hooks/useHaptic';
@@ -82,15 +82,15 @@ export default function BadgeDetailSheet({ screenH, timer, tier, sessionCount, o
             </Text>
           </View>
 
-          <PressTap
+          <Button
+            variant="glass"
+            fullWidth
+            label="Fermer"
             onPress={() => {
               haptic.light();
               close();
             }}
-            style={styles.cta}
-          >
-            <Text style={styles.ctaText}>FERMER</Text>
-          </PressTap>
+          />
         </>
       )}
     </BottomSheet>
@@ -179,17 +179,4 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.58)',
   },
 
-  cta: {
-    borderRadius: 15,
-    paddingVertical: 15,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.22)',
-  },
-  ctaText: {
-    fontFamily: fonts.sansExtraBold,
-    fontSize: 12,
-    letterSpacing: 1.6,
-    color: '#FFFFFF',
-  },
 });

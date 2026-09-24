@@ -1,11 +1,10 @@
 import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, BackHandler, Modal } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
 
 import GradientBackground from './GradientBackground';
-import PressTap from './PressTap';
+import Button from './Button';
 import { fonts } from '../../lib/fonts';
 import { haptic } from '../../hooks/useHaptic';
 import { useApkInstaller } from '../../hooks/useApkInstaller';
@@ -34,6 +33,7 @@ export default function APKBlockedScreen({
 }) {
   const insets = useSafeAreaInsets();
   const installer = useApkInstaller(downloadUrl);
+  const isDownloading = installer.status === 'downloading';
 
   useEffect(() => {
     haptic.warning();
@@ -61,60 +61,64 @@ export default function APKBlockedScreen({
             <Text style={styles.eyebrow}>Mise à jour requise</Text>
           </Animated.View>
 
-          <Animated.Text entering={slideInY(12, D.base, 120)} style={styles.title}>
-            {'MISE À JOUR\nOBLIGATOIRE'}
-          </Animated.Text>
+          {/* Titre, message et versions centrés dans la hauteur libre (ils
+              étaient collés en haut, un grand vide au milieu) — même mise en
+              page que MaintenanceScreen. */}
+          <View style={styles.middle}>
+            <Animated.Text entering={slideInY(12, D.base, 120)} style={styles.title}>
+              {'MISE À JOUR\nOBLIGATOIRE'}
+            </Animated.Text>
 
-          <Animated.Text entering={slideInY(12, D.base, 180)} style={styles.body}>
-            {message || DEFAULT_MESSAGE}
-          </Animated.Text>
+            <Animated.Text entering={slideInY(12, D.base, 180)} style={styles.body}>
+              {message || DEFAULT_MESSAGE}
+            </Animated.Text>
 
-          <Animated.View entering={slideInY(12, D.base, 240)} style={styles.versions}>
-            <View style={styles.versionCell}>
-              <Text style={styles.versionLabel}>Installée</Text>
-              <Text style={styles.versionValue}>{currentVersion || '—'}</Text>
-            </View>
-            <Text style={styles.versionArrow}>→</Text>
-            <View style={styles.versionCell}>
-              <Text style={styles.versionLabel}>Requise</Text>
-              <Text style={[styles.versionValue, styles.versionTarget]}>
-                {minVersion || '—'}
-              </Text>
-            </View>
-          </Animated.View>
-
-          <View style={styles.spacer} />
+            <Animated.View entering={slideInY(12, D.base, 240)} style={styles.versions}>
+              <View style={styles.versionCell}>
+                <Text style={styles.versionLabel}>Installée</Text>
+                <Text style={styles.versionValue}>{currentVersion || '—'}</Text>
+              </View>
+              <Text style={styles.versionArrow}>→</Text>
+              <View style={styles.versionCell}>
+                <Text style={styles.versionLabel}>Requise</Text>
+                <Text style={[styles.versionValue, styles.versionTarget]}>
+                  {minVersion || '—'}
+                </Text>
+              </View>
+            </Animated.View>
+          </View>
 
           {downloadUrl ? (
             <Animated.View entering={slideInY(14, D.base, 300)}>
               {installer.canAutoInstall ? (
                 <>
-                  <PressTap
-                    onPress={installer.autoInstall}
-                    disabled={installer.status === 'downloading'}
+                  {/* Pendant le téléchargement : pas de `disabled` (l'estompage
+                      à 38 % rendrait le pourcentage illisible) — le reflet est
+                      coupé et l'appui est ignoré, comme le faisait l'ancien
+                      `disabled`. Vibrations déjà dans useApkInstaller : pas de
+                      prop `haptic` sur ces boutons. */}
+                  <Button
+                    variant="spectrum"
+                    fullWidth
+                    label={
+                      isDownloading
+                        ? `Téléchargement… ${Math.round(installer.progress * 100)}%`
+                        : 'Installer automatiquement'
+                    }
+                    shine={!isDownloading}
+                    onPress={isDownloading ? undefined : installer.autoInstall}
                     accessibilityLabel="Installer automatiquement la mise à jour"
-                  >
-                    <LinearGradient
-                      colors={MODE_COLORS}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 0 }}
-                      style={[styles.cta, installer.status === 'downloading' && styles.ctaBusy]}
-                    >
-                      <Text style={styles.ctaText}>
-                        {installer.status === 'downloading'
-                          ? `Téléchargement… ${Math.round(installer.progress * 100)}%`
-                          : 'Installer automatiquement'}
-                      </Text>
-                    </LinearGradient>
-                  </PressTap>
+                  />
 
-                  <PressTap
+                  <Button
+                    variant="ghost"
+                    size="md"
+                    label="Télécharger dans le navigateur"
+                    labelStyle={styles.linkText}
                     onPress={installer.openInBrowser}
                     accessibilityLabel="Télécharger dans le navigateur"
-                    style={styles.secondaryBtn}
-                  >
-                    <Text style={styles.secondaryBtnText}>Télécharger dans le navigateur</Text>
-                  </PressTap>
+                    style={styles.secondaryLink}
+                  />
 
                   {installer.status === 'error' && (
                     <Text style={styles.errorText}>
@@ -124,16 +128,13 @@ export default function APKBlockedScreen({
                   )}
                 </>
               ) : (
-                <PressTap onPress={installer.openInBrowser} accessibilityLabel="Télécharger la mise à jour">
-                  <LinearGradient
-                    colors={MODE_COLORS}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.cta}
-                  >
-                    <Text style={styles.ctaText}>Télécharger la mise à jour</Text>
-                  </LinearGradient>
-                </PressTap>
+                <Button
+                  variant="spectrum"
+                  fullWidth
+                  label="Télécharger la mise à jour"
+                  onPress={installer.openInBrowser}
+                  accessibilityLabel="Télécharger la mise à jour"
+                />
               )}
               <Text style={styles.hint} numberOfLines={2}>
                 {downloadUrl}
@@ -160,8 +161,13 @@ const styles = StyleSheet.create({
   eyebrowRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 10,
-    marginBottom: 14,
+  },
+  middle: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingVertical: 24,
   },
   dots: {
     flexDirection: 'row',
@@ -179,12 +185,15 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     color: 'rgba(255,255,255,0.55)',
   },
+  // lineHeight à ×1,18 pour Anton (piège n°19) : à 48 pour 46 px, les deux
+  // lignes du titre se rognaient et se chevauchaient.
   title: {
     fontFamily: fonts.display,
     fontSize: 46,
-    lineHeight: 48,
+    lineHeight: 54,
     letterSpacing: -0.5,
     color: '#FFFFFF',
+    textAlign: 'center',
     marginBottom: 14,
   },
   body: {
@@ -192,6 +201,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 23,
     color: 'rgba(255,255,255,0.72)',
+    textAlign: 'center',
     marginBottom: 24,
   },
 
@@ -207,6 +217,7 @@ const styles = StyleSheet.create({
   versionCell: {
     flex: 1,
     gap: 4,
+    alignItems: 'center',
   },
   versionLabel: {
     fontFamily: fonts.monoBold,
@@ -229,40 +240,12 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.35)',
   },
 
-  spacer: {
-    flex: 1,
-    minHeight: 24,
-  },
-
-  cta: {
-    height: 56,
-    borderRadius: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  ctaBusy: {
-    opacity: 0.7,
-  },
-  ctaText: {
-    fontFamily: fonts.sansBold,
-    fontSize: 15,
-    letterSpacing: -0.15,
-    color: '#FFFFFF',
-    textShadowColor: 'rgba(0,0,0,0.35)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
-  },
-  secondaryBtn: {
-    height: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
+  // Placement seulement : le rendu des boutons vient de Button
+  // (lib/buttonTokens.js).
+  secondaryLink: {
     marginTop: 10,
   },
-  secondaryBtnText: {
-    fontFamily: fonts.sansSemibold,
-    fontSize: 14,
-    letterSpacing: -0.1,
-    color: 'rgba(255,255,255,0.72)',
+  linkText: {
     textDecorationLine: 'underline',
   },
   errorText: {

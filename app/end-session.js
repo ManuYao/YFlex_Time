@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { View, Text, Pressable, ScrollView, StyleSheet, useWindowDimensions } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Svg, { Path } from 'react-native-svg';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -20,6 +19,7 @@ import TickRing from '../components/common/TickRing';
 import GradientBackground from '../components/common/GradientBackground';
 import Confetti from '../components/common/Confetti';
 import ConfirmSheet from '../components/common/ConfirmSheet';
+import Button from '../components/common/Button';
 import {
   shouldPromptBatteryOptimization,
   markBatteryPromptSeen,
@@ -34,6 +34,7 @@ import { useTimers } from '../contexts/TimersContext';
 import { computeSessionStats } from '../lib/timer-engine';
 import { formatDuration } from '../lib/formatters';
 import { fonts } from '../lib/fonts';
+import { BOTTOM_GAP, PAIR_GAP, SIDE_GAP } from '../lib/buttonTokens';
 import { useUiScale, scaled, useLayoutLevel } from '../lib/responsive';
 import { haptic } from '../hooks/useHaptic';
 import { loadCooldownMap, saveCooldownMap, getCooldownStatus, consumeLaunch } from '../lib/cooldown';
@@ -196,6 +197,8 @@ export default function EndSession() {
       }
       await saveCooldownMap(consumeLaunch(map, timer.id));
     }
+    // Même vibration que le bouton Lancer de l'accueil : c'est un lancement.
+    haptic.medium();
     router.replace({ pathname: '/countdown', params: { timerId: timer.id } });
   };
 
@@ -409,43 +412,26 @@ export default function EndSession() {
         </View>
       </BodyContainer>
 
+      {/* Système de boutons (lib/buttonTokens.js) : « Accueil » en verre à la
+          largeur de son texte, l'action à la couleur du mode prend le reste. */}
       <View style={styles.actions}>
-        <Pressable
+        <Button
+          variant="glass"
+          label="Accueil"
+          haptic={haptic.light}
           onPress={() =>
             router.replace({ pathname: '/home', params: { lastTimerId: timer.id } })
           }
-          style={({ pressed }) => [
-            styles.btnSecondary,
-            pressed && { opacity: 0.85, transform: [{ scale: 0.97 }] },
-          ]}
-        >
-          <Text style={styles.btnSecondaryText}>Accueil</Text>
-        </Pressable>
-        <View style={[styles.btnPrimaryShadowWrap, { backgroundColor: timer.color, shadowColor: timer.color }]}>
-        <Pressable
+        />
+        <Button
+          variant="accent"
+          color={timer.color}
+          tone={timer.textMode}
+          icon="play"
+          label="Refaire la séance"
           onPress={handleReplay}
-          style={({ pressed }) => [
-            styles.btnPrimary,
-            { backgroundColor: timer.color, shadowColor: timer.color },
-            pressed && { opacity: 0.92, transform: [{ scale: 0.97 }] },
-          ]}
-        >
-          <Svg width={12} height={12} viewBox="0 0 12 12" fill="none">
-            <Path
-              d="M3 2l7 4-7 4V2z"
-              fill={timer.textMode === 'dark' ? '#0A0A0A' : '#FFFFFF'}
-            />
-          </Svg>
-          <Text
-            style={[
-              styles.btnPrimaryText,
-              { color: timer.textMode === 'dark' ? '#0A0A0A' : '#FFFFFF' },
-            ]}
-          >
-            Refaire la séance
-          </Text>
-        </Pressable>
-        </View>
+          style={styles.actionMain}
+        />
       </View>
       </SafeAreaView>
 
@@ -692,47 +678,12 @@ const styles = StyleSheet.create({
 
   actions: {
     flexDirection: 'row',
-    gap: 10,
-    paddingHorizontal: 20,
-    paddingBottom: 8,
+    gap: PAIR_GAP,
+    paddingHorizontal: SIDE_GAP,
+    paddingBottom: BOTTOM_GAP,
   },
-  btnSecondary: {
+  actionMain: {
     flex: 1,
-    height: 52,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  btnSecondaryText: {
-    color: '#FFFFFF',
-    fontFamily: fonts.sansBold,
-    fontSize: 13,
-    letterSpacing: -0.2,
-  },
-  btnPrimary: {
-    flex: 1.4,
-    height: 52,
-    borderRadius: 18,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  btnPrimaryShadowWrap: {
-    flex: 1.4,
-    borderRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    elevation: 8,
-  },
-  btnPrimaryText: {
-    fontFamily: fonts.sansBold,
-    fontSize: 13,
-    letterSpacing: -0.2,
   },
 
   subtitle: {

@@ -4,7 +4,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Animated from 'react-native-reanimated';
 
 import BottomSheet from './BottomSheet';
-import PressTap from './PressTap';
+import Button from './Button';
+import AppIcon from './AppIcon';
 import { fonts } from '../../lib/fonts';
 import { haptic } from '../../hooks/useHaptic';
 import { playSound } from '../../lib/sounds';
@@ -104,7 +105,17 @@ export default function UpdateSheet({ screenH, mode = 'pending', showHistory = f
                   entering={slideInY(12, D.base, 220 + i * 70)}
                   style={styles.item}
                 >
-                  <Text style={styles.itemIcon}>{item.icon}</Text>
+                  {/* Chaque icône prend une des 4 couleurs de la barre du
+                      haut, à tour de rôle : en blanc sur une pastille
+                      blanche, elles s'effaçaient (retour utilisateur). */}
+                  <View
+                    style={[
+                      styles.itemIconBox,
+                      { backgroundColor: `${MODE_COLORS[i % MODE_COLORS.length]}26` },
+                    ]}
+                  >
+                    <AppIcon name={item.icon} size={17} color={MODE_COLORS[i % MODE_COLORS.length]} />
+                  </View>
                   <Text style={styles.itemText}>{item.text}</Text>
                 </Animated.View>
               ))}
@@ -121,30 +132,30 @@ export default function UpdateSheet({ screenH, mode = 'pending', showHistory = f
           )}
 
           <Animated.View entering={slideInY(14, D.base, isPending ? 300 : 220 + latest.items.length * 70)}>
-            <PressTap
+            {/* Capsule « spectrum » (lib/buttonTokens.js) : les quatre couleurs
+                des modes, avec reflet, liseré et lueur. Texte noir : le blanc
+                ne se lisait pas sur le jaune et le vert, l'ombre de texte qui
+                compensait faisait bon marché. */}
+            <Button
+              variant="spectrum"
+              fullWidth
+              label={isPending ? 'Redémarrer maintenant' : 'Compris'}
               onPress={() => {
                 haptic.medium();
                 if (isPending) onRestart();
                 else close();
               }}
-              accessibilityLabel={isPending ? 'Redémarrer maintenant' : 'Compris'}
-            >
-              <LinearGradient
-                colors={MODE_COLORS}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.cta}
-              >
-                <Text style={styles.ctaText}>
-                  {isPending ? 'Redémarrer maintenant' : 'Compris'}
-                </Text>
-              </LinearGradient>
-            </PressTap>
+            />
 
             {isPending && (
-              <PressTap onPress={close} tapScale={0.94} style={styles.later} hitSlop={8}>
-                <Text style={styles.laterText}>Plus tard</Text>
-              </PressTap>
+              <Button
+                variant="ghost"
+                size="md"
+                label="Plus tard"
+                haptic={haptic.light}
+                onPress={close}
+                style={styles.later}
+              />
             )}
           </Animated.View>
         </>
@@ -219,9 +230,14 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 14,
   },
-  itemIcon: {
-    fontSize: 20,
-    lineHeight: 22,
+  // Même pastille que HowToSheet (fond teinté passé en ligne) : texte décalé
+  // de 5 pour que sa première ligne (20 de haut) tombe au milieu de l'icône.
+  itemIconBox: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   itemText: {
     flex: 1,
@@ -229,6 +245,7 @@ const styles = StyleSheet.create({
     fontSize: 13.5,
     lineHeight: 20,
     color: 'rgba(255,255,255,0.90)',
+    paddingTop: 5,
   },
 
   historyRow: {
@@ -251,31 +268,7 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.50)',
   },
 
-  cta: {
-    height: 56,
-    borderRadius: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  ctaText: {
-    fontFamily: fonts.sansBold,
-    fontSize: 15,
-    letterSpacing: -0.15,
-    color: '#FFFFFF',
-    textShadowColor: 'rgba(0,0,0,0.35)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
-  },
   later: {
-    paddingVertical: 14,
-    alignItems: 'center',
     marginTop: 6,
-  },
-  laterText: {
-    fontFamily: fonts.sansBold,
-    fontSize: 12,
-    letterSpacing: 3,
-    textTransform: 'uppercase',
-    color: 'rgba(255,255,255,0.40)',
   },
 });

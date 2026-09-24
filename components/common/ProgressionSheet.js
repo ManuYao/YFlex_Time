@@ -3,7 +3,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
 import BottomSheet from './BottomSheet';
-import PressTap from './PressTap';
+import Button from './Button';
 import { fonts } from '../../lib/fonts';
 import { categoryChip, getCategory } from '../../lib/exercises';
 import { haptic } from '../../hooks/useHaptic';
@@ -86,21 +86,26 @@ export default function ProgressionSheet({ screenH, suggestion, onAdjust, onClos
             c'est comme ça qu'on progresse sans se blesser.
           </Text>
 
-          <PressTap
+          <Button
+            variant="solid"
+            fullWidth
+            label="Ajuster la charge"
             onPress={() => {
               haptic.medium();
               adjustRef.current = true;
               close();
             }}
-            tapScale={0.97}
             style={styles.cta}
-          >
-            <Text style={styles.ctaText}>AJUSTER LA CHARGE</Text>
-          </PressTap>
+          />
 
-          <PressTap onPress={close} tapScale={0.97} style={styles.cancel}>
-            <Text style={styles.cancelText}>Pas maintenant</Text>
-          </PressTap>
+          <Button
+            variant="ghost"
+            size="md"
+            label="Pas maintenant"
+            haptic={haptic.light}
+            onPress={close}
+            style={styles.cancel}
+          />
 
           <Text style={styles.disclaimer}>
             Conseil indicatif, à adapter à ta forme du jour. Ce n'est pas un avis médical.
@@ -206,26 +211,9 @@ const styles = StyleSheet.create({
 
   cta: {
     marginTop: 22,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    paddingVertical: 15,
-    alignItems: 'center',
-  },
-  ctaText: {
-    fontFamily: fonts.sansBold,
-    fontSize: 13,
-    letterSpacing: 1.2,
-    color: '#0A0A0A',
   },
   cancel: {
-    marginTop: 10,
-    alignItems: 'center',
-    paddingVertical: 10,
-  },
-  cancelText: {
-    fontFamily: fonts.sansSemibold,
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.55)',
+    marginTop: 4,
   },
   disclaimer: {
     fontFamily: fonts.sansMedium,

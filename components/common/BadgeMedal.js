@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import Svg, { Circle, Defs, Line, LinearGradient, Path, RadialGradient, Stop } from 'react-native-svg';
+import Svg, { Circle, Defs, G, Line, LinearGradient, Path, RadialGradient, Rect, Stop } from 'react-native-svg';
 
 import { fonts } from '../../lib/fonts';
 import { BADGE_TIERS, BADGE_THRESHOLDS } from '../../lib/badges';
@@ -22,9 +22,22 @@ export const TIER_PALETTE = {
   or: { base: '#D9A521', hi: '#F7D778', fill: 1 },
 };
 
-const LOCKED = { base: '#15151A', hi: '#3A3A44', fill: 0 };
+// Palier pas encore obtenu (révisé le 24/09/2026, retour utilisateur avec
+// capture) : l'ancien rendu — cœur noir à 62 %, pointillés et anse de
+// cadenas gris foncé #3A3A44, aucun chiffre avant la première séance —
+// donnait trois trous sombres identiques, on ne comprenait pas ce que
+// c'était. Désormais un palier verrouillé garde SA couleur (pointillés et
+// objectif chiffré), et le verrou est un vrai cadenas, blanc, en fermoir sous
+// le cœur. Le cœur reste sombre exprès : c'est lui qui rend le chiffre doré
+// lisible sur les cinq couleurs de mode (le bronze sur l'orange de TABATA
+// est le cas le plus serré).
+const LOCKED_CORE = '#000000';
+const LOCKED_CORE_OPACITY = 0.45;
 const TICK_OFF = '#FFFFFF';
-const TICK_OFF_OPACITY = 0.14;
+// Les graduations éteintes restent visibles, les longues davantage : on
+// devine l'anneau à remplir au lieu d'un halo gris uniforme.
+const TICK_OFF_OPACITY = 0.24;
+const TICK_OFF_MAJOR_OPACITY = 0.45;
 
 export const tierThreshold = (timerId, tierKey) => {
   const i = BADGE_TIERS.findIndex((t) => t.key === tierKey);
@@ -49,7 +62,6 @@ export default function BadgeMedal({
   progress,
 }) {
   const tierPalette = TIER_PALETTE[tier] || TIER_PALETTE.bronze;
-  const palette = locked ? LOCKED : tierPalette;
   const c = size / 2;
   const ring = size * ringRatio;
   const outer = ring / 2 - ring * 0.033;
@@ -60,20 +72,25 @@ export default function BadgeMedal({
   // 100 % et deviendraient indiscernables.
   const ratio = tierPalette.fill * (progress != null ? Math.max(0, Math.min(1, progress)) : 1);
   const active = Math.round(TICKS * ratio);
-  // Un palier en cours garde ses graduations à SA couleur : voir l'anneau de
-  // l'or se remplir en doré motive plus qu'un gris uniforme.
-  const tickOn = locked ? tierPalette.hi : palette.hi;
-  const started = active > 0;
   const gradId = `badge-${tier}-${locked ? 'off' : 'on'}`;
   const glowId = `${gradId}-glow`;
 
   const label = value ?? (timerId ? tierThreshold(timerId, tier) : null);
+
+  // Fermoir du cadenas, à cheval sur le bas du cœur et entièrement dans la
+  // boîte size × size (l'overflow hidden plus bas le rognerait sinon). Le
+  // cadenas est dessiné sur une grille de 24, mis à l'échelle du fermoir.
+  const claspR = ring * 0.115;
+  const claspY = c + ring * 0.285;
+  const lockScale = claspR / 12;
 
   const ticks = [];
   for (let i = 0; i < TICKS; i++) {
     const a = (i / TICKS) * Math.PI * 2 - Math.PI / 2;
     const major = i % 5 === 0;
     const inner = outer - ring * (major ? 0.108 : 0.075);
+    // Un palier en cours garde ses graduations à SA couleur : voir l'anneau
+    // de l'or se remplir en doré motive plus qu'un gris uniforme.
     ticks.push(
       <Line
         key={i}
@@ -81,8 +98,8 @@ export default function BadgeMedal({
         y1={c + Math.sin(a) * inner}
         x2={c + Math.cos(a) * outer}
         y2={c + Math.sin(a) * outer}
-        stroke={i < active ? tickOn : TICK_OFF}
-        strokeOpacity={i < active ? 1 : TICK_OFF_OPACITY}
+        stroke={i < active ? tierPalette.hi : TICK_OFF}
+        strokeOpacity={i < active ? 1 : major ? TICK_OFF_MAJOR_OPACITY : TICK_OFF_OPACITY}
         strokeWidth={ring * (major ? 0.025 : 0.015)}
         strokeLinecap="round"
       />
@@ -99,56 +116,70 @@ export default function BadgeMedal({
       <Svg width={size} height={size}>
         <Defs>
           <LinearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0" stopColor={palette.hi} stopOpacity={1} />
-            <Stop offset="1" stopColor={palette.base} stopOpacity={1} />
+            <Stop offset="0" stopColor={tierPalette.hi} stopOpacity={1} />
+            <Stop offset="1" stopColor={tierPalette.base} stopOpacity={1} />
           </LinearGradient>
           {glow && (
             <RadialGradient id={glowId} cx="50%" cy="50%" r="50%">
-              <Stop offset="0" stopColor={palette.hi} stopOpacity={0.32} />
-              <Stop offset="0.55" stopColor={palette.base} stopOpacity={0.12} />
-              <Stop offset="1" stopColor={palette.base} stopOpacity={0} />
+              <Stop offset="0" stopColor={tierPalette.hi} stopOpacity={0.32} />
+              <Stop offset="0.55" stopColor={tierPalette.base} stopOpacity={0.12} />
+              <Stop offset="1" stopColor={tierPalette.base} stopOpacity={0} />
             </RadialGradient>
           )}
         </Defs>
         {glow && <Circle cx={c} cy={c} r={c} fill={`url(#${glowId})`} />}
         {ticks}
-        {/* Verrouillé : aplat sombre NEUTRE plutôt que le dégradé du palier.
+        {/* Verrouillé : cœur sombre NEUTRE plutôt que le dégradé du palier.
             La feuille laisse voir le fond coloré du mode, et un cœur
-            translucide en prenait la teinte — sur AMRAP le badge virait au
-            rouge sombre et se confondait avec l'arrière-plan. */}
+            translucide teinté s'y confondait. C'est aussi lui qui porte le
+            contraste du chiffre, écrit à la couleur du palier. */}
         <Circle
           cx={c}
           cy={c}
           r={coreR}
-          fill={locked ? '#0A0A0A' : `url(#${gradId})`}
-          fillOpacity={locked ? 0.62 : 1}
+          fill={locked ? LOCKED_CORE : `url(#${gradId})`}
+          fillOpacity={locked ? LOCKED_CORE_OPACITY : 1}
         />
+        {/* Pointillés = pas encore obtenu, mais à la couleur du palier :
+            bronze, argent et or se distinguent avant la première séance. */}
         <Circle
           cx={c}
           cy={c}
           r={coreR}
           fill="none"
-          stroke={palette.hi}
+          stroke={tierPalette.hi}
+          strokeOpacity={locked ? 0.9 : 1}
           strokeWidth={ring * 0.018}
           strokeDasharray={locked ? `${ring * 0.05},${ring * 0.04}` : undefined}
         />
-        {locked && !started && (
-          // Anse de cadenas : un verrou dessiné, pas l'emoji 🔒 dont le rendu
-          // change d'un téléphone à l'autre.
-          <Path
-            d={`M ${c - ring * 0.07} ${c - ring * 0.01}
-                v ${-ring * 0.06}
-                a ${ring * 0.07} ${ring * 0.07} 0 0 1 ${ring * 0.14} 0
-                v ${ring * 0.06}`}
-            fill="none"
-            stroke={palette.hi}
-            strokeWidth={ring * 0.028}
-            strokeLinecap="round"
-          />
+        {locked && (
+          <>
+            <Circle
+              cx={c}
+              cy={claspY}
+              r={claspR}
+              fill="#FFFFFF"
+              stroke="#000000"
+              strokeOpacity={0.25}
+              strokeWidth={ring * 0.012}
+            />
+            <G transform={`translate(${c - 12 * lockScale} ${claspY - 12 * lockScale}) scale(${lockScale})`}>
+              <Rect x={6.5} y={10.5} width={11} height={9} rx={2.2} fill="#0A0A0A" />
+              <Path
+                d="M9 10.5V8.3a3 3 0 0 1 6 0v2.2"
+                fill="none"
+                stroke="#0A0A0A"
+                strokeWidth={2.4}
+                strokeLinecap="round"
+              />
+            </G>
+          </>
         )}
       </Svg>
 
-      {(!locked || started) && label != null && (
+      {/* L'objectif est affiché dès le départ, même à zéro séance : c'est
+          lui qui dit ce qu'il faut faire pour obtenir le palier. */}
+      {label != null && (
         // Chiffre en <Text> natif plutôt qu'en <Text> SVG : Anton est chargée
         // par expo-font et react-native-svg ne la résout pas de façon fiable.
         <View style={styles.center} pointerEvents="none">
@@ -174,7 +205,7 @@ const styles = StyleSheet.create({
   // boîte au lieu de le réduire — le seuil se retrouvait écrit par-dessus le
   // libellé du palier, sous la médaille.
   center: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
   },

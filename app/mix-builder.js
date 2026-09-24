@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useRouter } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
@@ -28,7 +29,10 @@ import Animated, {
 import GradientBackground from '../components/common/GradientBackground';
 import WheelPicker from '../components/common/WheelPicker';
 import PressTap from '../components/common/PressTap';
+import Button from '../components/common/Button';
+import IconButton from '../components/common/IconButton';
 import BlockRoleIcon from '../components/common/BlockRoleIcon';
+import AppIcon from '../components/common/AppIcon';
 import {
   BLOCK_TYPES,
   getBlockType,
@@ -41,7 +45,15 @@ import { makeDefaultMix } from '../lib/mixes';
 import { BLOCK_ROLES, getBlockRole, resolveBlockRole } from '../lib/blockRoles';
 import { getTimeRange } from '../lib/timeRanges';
 import { fonts } from '../lib/fonts';
-import { easeImpact, springBouncy } from '../lib/animations';
+import { easeImpact, springBouncy, springEnergetic } from '../lib/animations';
+import {
+  BOTTOM_GAP,
+  BUTTON_FONT,
+  BUTTON_HEIGHT,
+  ROUND_SIZE,
+  TAP_SCALE,
+  buttonRecipe,
+} from '../lib/buttonTokens';
 import { useLayoutLevel } from '../lib/responsive';
 import { useTimers } from '../contexts/TimersContext';
 import { useHaptic } from '../hooks/useHaptic';
@@ -215,26 +227,17 @@ export default function MixBuilder() {
   );
 
   const ListFooter = (
-    <Pressable
+    <Button
+      variant="glass"
+      fullWidth
+      icon="plus"
+      label="Ajouter un bloc"
       onPress={() => {
         haptic.light();
         setAddOpen(true);
       }}
-      style={({ pressed }) => [
-        styles.addCta,
-        pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] },
-      ]}
-    >
-      <Svg width={16} height={16} viewBox="0 0 16 16" fill="none">
-        <Path
-          d="M8 2v12M2 8h12"
-          stroke="rgba(255,255,255,0.65)"
-          strokeWidth={2}
-          strokeLinecap="round"
-        />
-      </Svg>
-      <Text style={styles.addCtaText}>Ajouter un bloc</Text>
-    </Pressable>
+      style={styles.addCta}
+    />
   );
 
   return (
@@ -245,38 +248,19 @@ export default function MixBuilder() {
         </View>
 
         <View style={styles.topBar}>
-          <Pressable onPress={handleCancel} style={styles.iconBtn} hitSlop={10}>
-            <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
-              <Path
-                d="M3 3l8 8M11 3l-8 8"
-                stroke="#FFFFFF"
-                strokeWidth={2}
-                strokeLinecap="round"
-              />
-            </Svg>
-          </Pressable>
+          <IconButton icon="close" onPress={handleCancel} accessibilityLabel="Annuler" />
           <Text style={styles.topTitle}>Constructeur</Text>
-          <Pressable
+          <Button
+            variant="glass"
+            size="nav"
+            icon="list"
+            label={String(library.length)}
+            accessibilityLabel="Mes mix enregistrés"
             onPress={() => {
               haptic.light();
               setLibraryOpen(true);
             }}
-            style={({ pressed }) => [
-              styles.libraryBtn,
-              pressed && { opacity: 0.85, transform: [{ scale: 0.96 }] },
-            ]}
-            hitSlop={10}
-          >
-            <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
-              <Path
-                d="M2 3h10M2 7h10M2 11h7"
-                stroke="#FFFFFF"
-                strokeWidth={1.8}
-                strokeLinecap="round"
-              />
-            </Svg>
-            <Text style={styles.libraryBtnText}>{library.length}</Text>
-          </Pressable>
+          />
         </View>
 
         <View style={styles.listWrap}>
@@ -304,15 +288,7 @@ export default function MixBuilder() {
         </View>
 
         <View style={styles.bottomActions}>
-          <Pressable
-            onPress={handleCancel}
-            style={({ pressed }) => [
-              styles.btnSecondary,
-              pressed && { opacity: 0.85, transform: [{ scale: 0.97 }] },
-            ]}
-          >
-            <Text style={styles.btnSecondaryText}>Annuler</Text>
-          </Pressable>
+          <Button variant="glass" label="Annuler" onPress={handleCancel} />
           <SaveButton
             disabled={draft.blocks.length === 0}
             onTap={handleSave}
@@ -526,13 +502,22 @@ function RoleChip({ role, selected, onPress, onLayout }) {
   );
 }
 
+// Enregistrer : un appui = enregistrer, 3 s d'appui = archiver en nouveau mix.
+// Garde sa propre mécanique d'appui (la barre qui se remplit, que Button ne
+// sait pas faire) mais porte le rendu de la recette 'accent' de
+// lib/buttonTokens.js : même capsule que tous les autres boutons.
 function SaveButton({ disabled, onTap, onLongComplete }) {
   const haptic = useHaptic();
   const progress = useSharedValue(0);
+  const scale = useSharedValue(1);
   const longFiredRef = useRef(false);
+  const r = buttonRecipe({ variant: 'accent', color: ACCENT });
 
   const fillStyle = useAnimatedStyle(() => ({
     width: `${progress.value * 100}%`,
+  }));
+  const scaleStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
   }));
 
   return (
@@ -542,9 +527,11 @@ function SaveButton({ disabled, onTap, onLongComplete }) {
       onPressIn={() => {
         if (disabled) return;
         longFiredRef.current = false;
+        scale.value = withSpring(TAP_SCALE.lg, springEnergetic);
         progress.value = withTiming(1, { duration: SAVE_HOLD_MS });
       }}
       onPressOut={() => {
+        scale.value = withSpring(1, springEnergetic);
         progress.value = withTiming(0, { duration: 200 });
       }}
       onLongPress={() => {
@@ -561,28 +548,36 @@ function SaveButton({ disabled, onTap, onLongComplete }) {
         }
         onTap?.();
       }}
-      style={({ pressed }) => [
-        styles.btnPrimary,
-        { backgroundColor: ACCENT, shadowColor: ACCENT },
-        disabled && { opacity: 0.45 },
-        pressed && !disabled && { opacity: 0.92 },
-      ]}
+      style={styles.saveSlot}
     >
       <Animated.View
-        pointerEvents="none"
-        style={[styles.btnPrimaryFill, fillStyle]}
-      />
-      <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
-        <Path
-          d="M2 7l3 3 6-7"
-          stroke="#FFFFFF"
-          strokeWidth={2.4}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </Svg>
-      <Text style={styles.btnPrimaryText}>Enregistrer</Text>
-      <Text style={styles.btnPrimaryHint}>Maintiens 3s = nouveau</Text>
+        style={[styles.saveOuter, disabled ? styles.saveDisabled : { boxShadow: r.outer }, scaleStyle]}
+      >
+        <View
+          style={[
+            styles.saveInner,
+            { borderColor: r.borderColor, borderWidth: r.borderWidth, boxShadow: r.inner },
+          ]}
+        >
+          <LinearGradient
+            colors={r.fill}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
+          <LinearGradient
+            colors={r.sheen}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={styles.saveSheen}
+            pointerEvents="none"
+          />
+          <Animated.View pointerEvents="none" style={[styles.btnPrimaryFill, fillStyle]} />
+          <AppIcon name="check" size={16} color={r.textColor} />
+          <Text style={[styles.saveText, { color: r.textColor }]}>Enregistrer</Text>
+          <Text style={styles.btnPrimaryHint}>Maintiens 3s = nouveau</Text>
+        </View>
+      </Animated.View>
     </Pressable>
   );
 }
@@ -601,11 +596,13 @@ function AddBlockSheet({ visible, onClose, onPick }) {
               <Text style={sheetStyles.kicker}>NOUVEAU BLOC</Text>
               <Text style={sheetStyles.title}>Choisis un type</Text>
             </View>
-            <Pressable onPress={onClose} style={sheetStyles.closeBtn} hitSlop={10}>
-              <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
-                <Path d="M3 3l8 8M11 3l-8 8" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" />
-              </Svg>
-            </Pressable>
+            <IconButton
+              icon="close"
+              size={ROUND_SIZE.sheet}
+              haptic={haptic.light}
+              onPress={onClose}
+              accessibilityLabel="Fermer"
+            />
           </View>
 
           <View style={sheetStyles.grid}>
@@ -625,7 +622,7 @@ function AddBlockSheet({ visible, onClose, onPick }) {
                     { backgroundColor: `${t.color}22` },
                   ]}
                 >
-                  <Text style={[sheetStyles.gridIconText, { color: t.color }]}>{t.icon}</Text>
+                  <AppIcon name={t.icon} size={20} color={t.color} />
                 </View>
                 <Text style={sheetStyles.gridName}>{t.name}</Text>
                 <Text style={[sheetStyles.gridHint, { color: t.color }]}>{t.hint}</Text>
@@ -713,11 +710,13 @@ function EditBlockSheet({ block, onClose, onUpdate }) {
                 placeholderTextColor="rgba(255,255,255,0.30)"
               />
             </View>
-            <Pressable onPress={onClose} style={sheetStyles.closeBtn} hitSlop={10}>
-              <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
-                <Path d="M3 3l8 8M11 3l-8 8" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" />
-              </Svg>
-            </Pressable>
+            <IconButton
+              icon="close"
+              size={ROUND_SIZE.sheet}
+              haptic={haptic.light}
+              onPress={onClose}
+              accessibilityLabel="Fermer"
+            />
           </View>
 
           <View style={sheetStyles.roleSection}>
@@ -785,16 +784,15 @@ function EditBlockSheet({ block, onClose, onUpdate }) {
             )}
           </View>
 
-          <Pressable
+          <Button
+            variant="accent"
+            color={type.color}
+            fullWidth
+            label="OK"
+            haptic={haptic.light}
             onPress={onClose}
-            style={({ pressed }) => [
-              sheetStyles.doneBtn,
-              { backgroundColor: type.color },
-              pressed && { opacity: 0.9, transform: [{ scale: 0.97 }] },
-            ]}
-          >
-            <Text style={sheetStyles.doneText}>OK</Text>
-          </Pressable>
+            style={sheetStyles.doneCta}
+          />
         </View>
       </View>
     </Modal>
@@ -817,11 +815,13 @@ function LibrarySheet({ visible, library, onClose, onLoad, onDelete }) {
                 {library.length} enregistré{library.length > 1 ? 's' : ''}
               </Text>
             </View>
-            <Pressable onPress={onClose} style={sheetStyles.closeBtn} hitSlop={10}>
-              <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
-                <Path d="M3 3l8 8M11 3l-8 8" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" />
-              </Svg>
-            </Pressable>
+            <IconButton
+              icon="close"
+              size={ROUND_SIZE.sheet}
+              haptic={haptic.light}
+              onPress={onClose}
+              accessibilityLabel="Fermer"
+            />
           </View>
 
           <View style={sheetStyles.libList}>
@@ -928,38 +928,12 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 8,
   },
-  iconBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.20)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   topTitle: {
     fontFamily: fonts.sansBold,
     fontSize: 10,
     letterSpacing: 3,
     color: 'rgba(255,255,255,0.50)',
     textTransform: 'uppercase',
-  },
-  libraryBtn: {
-    height: 44,
-    minWidth: 44,
-    paddingHorizontal: 12,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.20)',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  libraryBtnText: {
-    fontFamily: fonts.sansBold,
-    fontSize: 12,
-    color: '#FFFFFF',
-    letterSpacing: 0.5,
   },
 
   listWrap: {
@@ -1192,23 +1166,7 @@ const styles = StyleSheet.create({
   },
 
   addCta: {
-    height: 60,
-    borderRadius: 18,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.18)',
-    borderStyle: 'dashed',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
     marginTop: 6,
-  },
-  addCtaText: {
-    fontFamily: fonts.sansBold,
-    fontSize: 13,
-    letterSpacing: 2,
-    color: 'rgba(255,255,255,0.65)',
-    textTransform: 'uppercase',
   },
 
   bottomActions: {
@@ -1216,38 +1174,43 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingHorizontal: 20,
     paddingTop: 12,
-    paddingBottom: 8,
+    paddingBottom: BOTTOM_GAP,
     backgroundColor: 'rgba(0,0,0,0.62)',
   },
-  btnSecondary: {
+  saveSlot: {
     flex: 1,
-    height: 56,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.20)',
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
-  btnSecondaryText: {
-    color: '#FFFFFF',
-    fontFamily: fonts.sansBold,
-    fontSize: 13,
-    letterSpacing: -0.2,
+  saveOuter: {
+    height: BUTTON_HEIGHT.lg,
+    borderRadius: BUTTON_HEIGHT.lg / 2,
   },
-  btnPrimary: {
-    flex: 1.7,
-    height: 56,
-    borderRadius: 18,
+  saveDisabled: {
+    opacity: 0.38,
+  },
+  // paddingBottom : remonte un peu « Enregistrer » pour laisser respirer
+  // l'indice « Maintiens 3s » posé en bas de la capsule.
+  saveInner: {
+    flex: 1,
+    borderRadius: BUTTON_HEIGHT.lg / 2,
+    overflow: 'hidden',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    overflow: 'hidden',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    elevation: 8,
+    paddingBottom: 8,
+  },
+  saveSheen: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    height: '55%',
+  },
+  saveText: {
+    fontFamily: fonts.sansExtraBold,
+    fontSize: BUTTON_FONT.lg,
+    letterSpacing: -0.1,
+    includeFontPadding: false,
   },
   btnPrimaryFill: {
     position: 'absolute',
@@ -1255,12 +1218,6 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     backgroundColor: 'rgba(255,255,255,0.22)',
-  },
-  btnPrimaryText: {
-    color: '#FFFFFF',
-    fontFamily: fonts.sansBold,
-    fontSize: 14,
-    letterSpacing: -0.2,
   },
   btnPrimaryHint: {
     position: 'absolute',
@@ -1329,16 +1286,6 @@ const sheetStyles = StyleSheet.create({
     padding: 0,
     margin: 0,
   },
-  closeBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.10)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1370,10 +1317,6 @@ const sheetStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 10,
-  },
-  gridIconText: {
-    fontSize: 16,
-    fontFamily: fonts.sansBold,
   },
   gridName: {
     fontFamily: fonts.sansExtraBold,
@@ -1450,18 +1393,8 @@ const sheetStyles = StyleSheet.create({
     color: 'rgba(255,255,255,0.45)',
     marginBottom: 6,
   },
-  doneBtn: {
-    height: 50,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  doneText: {
-    fontFamily: fonts.sansBold,
-    fontSize: 13,
-    color: '#FFFFFF',
-    letterSpacing: 1.5,
-    textTransform: 'uppercase',
+  doneCta: {
+    marginTop: 4,
   },
 
   libList: {

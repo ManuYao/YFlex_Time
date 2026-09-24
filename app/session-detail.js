@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import Svg, { Path } from 'react-native-svg';
 
 import GradientBackground from '../components/common/GradientBackground';
 import TickRing from '../components/common/TickRing';
+import Button from '../components/common/Button';
+import IconButton from '../components/common/IconButton';
 import { loadHistory } from '../lib/history';
 import { formatDuration } from '../lib/formatters';
 import { fonts } from '../lib/fonts';
+import { BOTTOM_GAP, PAIR_GAP, ROUND_SIZE, SIDE_GAP } from '../lib/buttonTokens';
 import { useUiScale, scaled } from '../lib/responsive';
 import { haptic } from '../hooks/useHaptic';
 import { loadCooldownMap, saveCooldownMap, getCooldownStatus, consumeLaunch } from '../lib/cooldown';
@@ -38,6 +40,7 @@ export default function SessionDetail() {
       }
       await saveCooldownMap(consumeLaunch(map, session.timerId));
     }
+    haptic.medium();
     router.replace({ pathname: '/countdown', params: { timerId: session.timerId } });
   };
 
@@ -78,17 +81,12 @@ export default function SessionDetail() {
     >
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.topBar}>
-          <Pressable onPress={() => router.back()} style={styles.iconBtn} hitSlop={8}>
-            <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
-              <Path
-                d="M9 2L3 7l6 5"
-                stroke="#FFFFFF"
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </Svg>
-          </Pressable>
+          <IconButton
+            icon="back"
+            haptic={haptic.light}
+            onPress={() => router.back()}
+            accessibilityLabel="Retour"
+          />
           <Text style={styles.topTitle}>Détail séance</Text>
           <View style={styles.iconBtnGhost} />
         </View>
@@ -144,31 +142,23 @@ export default function SessionDetail() {
           </View>
         </View>
 
+        {/* Même rangée que la fin de séance. Couleur du texte réglée par la
+            règle de contraste (accentTextOn) : noir sur TABATA, EMOM, BASIC. */}
         <View style={styles.actions}>
-          <Pressable
+          <Button
+            variant="glass"
+            label="Historique"
+            haptic={haptic.light}
             onPress={() => router.back()}
-            style={({ pressed }) => [
-              styles.btnSecondary,
-              pressed && { opacity: 0.85, transform: [{ scale: 0.97 }] },
-            ]}
-          >
-            <Text style={styles.btnSecondaryText}>Historique</Text>
-          </Pressable>
-          <View style={[styles.btnPrimaryShadowWrap, { backgroundColor: session.color, shadowColor: session.color }]}>
-          <Pressable
+          />
+          <Button
+            variant="accent"
+            color={session.color}
+            icon="play"
+            label="Refaire la séance"
             onPress={handleReplay}
-            style={({ pressed }) => [
-              styles.btnPrimary,
-              { backgroundColor: session.color, shadowColor: session.color },
-              pressed && { opacity: 0.92, transform: [{ scale: 0.97 }] },
-            ]}
-          >
-            <Svg width={12} height={12} viewBox="0 0 12 12" fill="none">
-              <Path d="M3 2l7 4-7 4V2z" fill="#FFFFFF" />
-            </Svg>
-            <Text style={styles.btnPrimaryText}>Refaire la séance</Text>
-          </Pressable>
-          </View>
+            style={styles.actionMain}
+          />
         </View>
       </SafeAreaView>
     </GradientBackground>
@@ -203,16 +193,8 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 8,
   },
-  iconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.20)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  iconBtnGhost: { width: 40, height: 40 },
+  // Même largeur que le bouton retour (ROUND_SIZE.nav) : garde le titre centré.
+  iconBtnGhost: { width: ROUND_SIZE.nav, height: ROUND_SIZE.nav },
   topTitle: {
     fontFamily: fonts.sansExtraBold,
     fontSize: 18,
@@ -332,48 +314,12 @@ const styles = StyleSheet.create({
 
   actions: {
     flexDirection: 'row',
-    gap: 10,
-    paddingHorizontal: 20,
-    paddingBottom: 8,
+    gap: PAIR_GAP,
+    paddingHorizontal: SIDE_GAP,
+    paddingBottom: BOTTOM_GAP,
   },
-  btnSecondary: {
+  actionMain: {
     flex: 1,
-    height: 52,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  btnSecondaryText: {
-    color: '#FFFFFF',
-    fontFamily: fonts.sansBold,
-    fontSize: 13,
-    letterSpacing: -0.2,
-  },
-  btnPrimary: {
-    flex: 1.4,
-    height: 52,
-    borderRadius: 18,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  btnPrimaryShadowWrap: {
-    flex: 1.4,
-    borderRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    elevation: 8,
-  },
-  btnPrimaryText: {
-    color: '#FFFFFF',
-    fontFamily: fonts.sansBold,
-    fontSize: 13,
-    letterSpacing: -0.2,
   },
   fallback: {
     color: '#FFFFFF',

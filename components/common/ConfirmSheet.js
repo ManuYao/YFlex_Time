@@ -2,11 +2,10 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 
 import BottomSheet from './BottomSheet';
-import PressTap from './PressTap';
+import Button from './Button';
 import { fonts } from '../../lib/fonts';
+import { PAIR_GAP } from '../../lib/buttonTokens';
 import { haptic } from '../../hooks/useHaptic';
-
-const RED = '#FF5454';
 
 /**
  * Confirmation destructive, dans la charte de l'app — remplace `Alert.alert`
@@ -33,28 +32,24 @@ export default function ConfirmSheet({
           <Text style={styles.title}>{title}</Text>
           {!!body && <Text style={styles.body}>{body}</Text>}
 
+          {/* Système de boutons (lib/buttonTokens.js) : « Annuler » en verre à
+              la largeur de son texte, la confirmation prend le reste. */}
           <View style={styles.actions}>
-            <PressTap onPress={close} tapScale={0.97} style={styles.cancelBtn}>
-              <Text style={styles.cancelText}>{cancelLabel}</Text>
-            </PressTap>
-
-            <View style={styles.confirmWrap}>
-              <PressTap
-                onPress={() => {
-                  haptic.warning();
-                  onConfirm();
-                  close();
-                }}
-                tapScale={0.97}
-                style={[styles.confirmBtn, destructive && styles.confirmBtnDestructive]}
-              >
-                <Text
-                  style={[styles.confirmText, destructive && styles.confirmTextDestructive]}
-                >
-                  {confirmLabel}
-                </Text>
-              </PressTap>
-            </View>
+            <Button variant="glass" label={cancelLabel} haptic={haptic.light} onPress={close} />
+            <Button
+              variant={destructive ? 'danger' : 'solid'}
+              label={confirmLabel}
+              onPress={() => {
+                // Une seule vibration, au relâcher. L'alerte est réservée aux
+                // actions destructives : « Autoriser » ou « Cramer et lancer »
+                // vibraient jusqu'ici comme une suppression.
+                if (destructive) haptic.warning();
+                else haptic.medium();
+                onConfirm();
+                close();
+              }}
+              style={styles.confirm}
+            />
           </View>
         </View>
       )}
@@ -79,42 +74,10 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: PAIR_GAP,
     marginTop: 22,
   },
-  cancelBtn: {
-    paddingHorizontal: 18,
-    paddingVertical: 15,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.20)',
-  },
-  cancelText: {
-    fontFamily: fonts.sansSemibold,
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.70)',
-  },
-  // PressTap pose son style sur une vue interne : le flex doit vivre sur un
-  // wrapper, sinon le bouton se réduit à la largeur de son texte.
-  confirmWrap: {
+  confirm: {
     flex: 1,
-  },
-  confirmBtn: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    paddingVertical: 15,
-    alignItems: 'center',
-  },
-  confirmBtnDestructive: {
-    backgroundColor: RED,
-  },
-  confirmText: {
-    fontFamily: fonts.sansBold,
-    fontSize: 13,
-    letterSpacing: 1.2,
-    color: '#0A0A0A',
-  },
-  confirmTextDestructive: {
-    color: '#FFFFFF',
   },
 });

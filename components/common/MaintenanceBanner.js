@@ -14,6 +14,7 @@ import Animated, {
   runOnJS,
 } from 'react-native-reanimated';
 
+import IconButton from './IconButton';
 import { fonts } from '../../lib/fonts';
 import { haptic } from '../../hooks/useHaptic';
 import { D, easeImpact, springSheet } from '../../lib/animations';
@@ -91,9 +92,16 @@ export default function MaintenanceBanner({ message, onPress, onDismiss }) {
             {message}
           </Text>
         </View>
-        <Pressable onPress={close} hitSlop={12} style={styles.closeBtn}>
-          <Text style={styles.close}>✕</Text>
-        </Pressable>
+        {/* Vibration déjà dans `close` : pas de prop `haptic`. */}
+        <IconButton
+          icon="close"
+          variant="ghost"
+          size={32}
+          iconSize={13}
+          hitSlop={12}
+          onPress={close}
+          accessibilityLabel="Fermer"
+        />
       </Pressable>
     </Animated.View>
   );
@@ -148,13 +156,5 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     lineHeight: 17,
     color: 'rgba(255,255,255,0.82)',
-  },
-  closeBtn: {
-    paddingHorizontal: 4,
-  },
-  close: {
-    fontFamily: fonts.sansBold,
-    fontSize: 14,
-    color: 'rgba(255,255,255,0.45)',
   },
 });

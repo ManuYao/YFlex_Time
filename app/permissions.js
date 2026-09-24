@@ -5,8 +5,10 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import Svg, { Path, Circle, Rect, Line } from 'react-native-svg';
 
 import GradientBackground from '../components/common/GradientBackground';
-import PressTap from '../components/common/PressTap';
+import Button from '../components/common/Button';
+import IconButton from '../components/common/IconButton';
 import { fonts } from '../lib/fonts';
+import { ROUND_SIZE } from '../lib/buttonTokens';
 import { useHaptic } from '../hooks/useHaptic';
 import { isNotificationPermissionGranted } from '../lib/notificationPrompt';
 import { requestNotificationPermission } from '../lib/permissionPrimer';
@@ -123,17 +125,12 @@ export default function Permissions() {
     <GradientBackground colors={['#1A1A1A', '#0A0A0A', '#000000']} ambient>
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.topBar}>
-          <PressTap onPress={() => router.back()} style={styles.iconBtn} hitSlop={8}>
-            <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
-              <Path
-                d="M9 2L3 7l6 5"
-                stroke="#FFFFFF"
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </Svg>
-          </PressTap>
+          <IconButton
+            icon="back"
+            haptic={haptic.light}
+            onPress={() => router.back()}
+            accessibilityLabel="Retour"
+          />
           <Text style={styles.topTitle}>Autorisations</Text>
           <View style={styles.iconBtnGhost} />
         </View>
@@ -250,10 +247,10 @@ function PermissionCard({ Icon, title, body, status, statusOk, actionLabel, onPr
 
       <Text style={styles.cardBody}>{body}</Text>
 
+      {/* Capsule de verre à la largeur de son texte. La vibration vient du
+          onPress de chaque carte (une seule). */}
       {!!onPress && !granted && (
-        <PressTap onPress={onPress} style={styles.cardCta} tapScale={0.97}>
-          <Text style={styles.cardCtaText}>{actionLabel}</Text>
-        </PressTap>
+        <Button variant="glass" size="md" label={actionLabel} onPress={onPress} style={styles.cardCta} />
       )}
     </View>
   );
@@ -270,16 +267,8 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 16,
   },
-  iconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.20)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  iconBtnGhost: { width: 40, height: 40 },
+  // Même largeur que le bouton retour (ROUND_SIZE.nav) : garde le titre centré.
+  iconBtnGhost: { width: ROUND_SIZE.nav, height: ROUND_SIZE.nav },
   topTitle: {
     fontFamily: fonts.sansExtraBold,
     fontSize: 18,
@@ -376,17 +365,6 @@ const styles = StyleSheet.create({
 
   cardCta: {
     alignSelf: 'flex-start',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.30)',
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-  },
-  cardCtaText: {
-    fontFamily: fonts.sansBold,
-    fontSize: 12,
-    letterSpacing: 0.2,
-    color: '#FFFFFF',
   },
 
   footnote: {

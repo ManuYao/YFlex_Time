@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
-  Pressable,
   StyleSheet,
   BackHandler,
 } from 'react-native';
@@ -27,6 +26,9 @@ import Animated, {
 import GradientBackground from '../components/common/GradientBackground';
 import TickRing from '../components/common/TickRing';
 import LongPressButton from '../components/common/LongPressButton';
+import AppIcon from '../components/common/AppIcon';
+import IconButton from '../components/common/IconButton';
+import PulseGlow from '../components/common/PulseGlow';
 import { useTimers } from '../contexts/TimersContext';
 import { computeState, skipToNextPhaseElapsed } from '../lib/timer-engine';
 import { getTokens } from '../lib/tokens';
@@ -441,6 +443,7 @@ export default function Running() {
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <TopBar
           tokens={t}
+          tone={timer.textMode}
           name={timer.name}
           tag={ctaLabel}
           roundLabel={state.roundLabel}
@@ -529,6 +532,8 @@ export default function Running() {
 
         <BottomControls
           tokens={t}
+          tone={timer.textMode}
+          timerColor={timer.color}
           isPaused={isPaused}
           onReset={handleReset}
           onPauseToggle={handlePauseToggle}
@@ -563,7 +568,7 @@ export default function Running() {
   );
 }
 
-function TopBar({ tokens, name, tag, roundLabel, onReturn, progress, markers, isPaused }) {
+function TopBar({ tokens, tone, name, tag, roundLabel, onReturn, progress, markers, isPaused }) {
   const dotScale = useSharedValue(1);
   const dotOpacity = useSharedValue(0.6);
   useEffect(() => {
@@ -605,13 +610,12 @@ function TopBar({ tokens, name, tag, roundLabel, onReturn, progress, markers, is
           label="Retour"
           size={44}
           duration={1500}
-          borderColor={tokens.btnBorder}
+          tone={tone}
           ringColor={tokens.primary}
           labelColor={tokens.muted}
-          pressedBg={tokens.chipBg}
           onComplete={onReturn}
         >
-          <Text style={[styles.backArrow, { color: tokens.primary }]}>‹</Text>
+          <AppIcon name="back" size={20} color={tokens.primary} />
         </LongPressButton>
 
         <View style={styles.topCenter}>
@@ -766,6 +770,8 @@ function PhaseChip({ index, isCurrent, bg, border, color, label, tokens }) {
 
 function BottomControls({
   tokens,
+  tone,
+  timerColor,
   isPaused,
   onReset,
   onPauseToggle,
@@ -787,56 +793,45 @@ function BottomControls({
         <LongPressButton
           label="Reset"
           size={64}
-          borderColor={tokens.btnBorder}
+          tone={tone}
           ringColor={tokens.primary}
           labelColor={tokens.muted}
-          pressedBg={tokens.chipBg}
           onComplete={onReset}
         >
-          <Text style={[styles.bottomIcon, { color: tokens.primary }]}>↺</Text>
+          <AppIcon name="reset" size={24} color={tokens.primary} />
         </LongPressButton>
 
-        {showEndWork ? (
-          <View style={[styles.roundBtnShadowWrap, { backgroundColor: tokens.ctaBg }]}>
-            <Pressable
+        {/* (V) Bouton central — porcelaine (recette 'solid' de
+            lib/buttonTokens.js : dégradé, liseré, ombre portée) + lueur
+            diffuse qui respire à la couleur du mode tant que la séance
+            tourne, et s'éteint en pause : la lueur qui s'arrête EST
+            l'information. */}
+        <View style={styles.centralWrap}>
+          <PulseGlow color={timerColor || tokens.ctaBg} size={92} active={!isPaused} />
+          {showEndWork ? (
+            <IconButton
+              size={92}
+              variant="solid"
+              tone={tone}
               onPress={onEndWork}
-              style={({ pressed }) => [
-                styles.endWorkBtn,
-                {
-                  backgroundColor: tokens.ctaBg,
-                  opacity: pressed ? 0.92 : 1,
-                  transform: [{ scale: pressed ? 0.96 : 1 }],
-                },
-              ]}
-            >
-              <Text
-                style={[styles.endWorkText, { color: tokens.ctaText }]}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-              >
-                {endWorkLabel}
-              </Text>
-            </Pressable>
-          </View>
-        ) : (
-          <View style={[styles.roundBtnShadowWrap, { backgroundColor: tokens.ctaBg }]}>
-            <Pressable
+              accessibilityLabel={endWorkLabel}
+              icon={
+                <Text style={[styles.centralLabel, { color: tokens.ctaText }]} numberOfLines={1}>
+                  {endWorkLabel}
+                </Text>
+              }
+            />
+          ) : (
+            <IconButton
+              size={92}
+              variant="solid"
+              tone={tone}
               onPress={onPauseToggle}
-              style={({ pressed }) => [
-                styles.pauseBtn,
-                {
-                  backgroundColor: tokens.ctaBg,
-                  opacity: pressed ? 0.92 : 1,
-                  transform: [{ scale: pressed ? 0.95 : 1 }],
-                },
-              ]}
-            >
-              <Text style={[styles.pauseIcon, { color: tokens.ctaText }]}>
-                {isPaused ? '▶' : '❚❚'}
-              </Text>
-            </Pressable>
-          </View>
-        )}
+              accessibilityLabel={isPaused ? 'Reprendre' : 'Pause'}
+              icon={<AppIcon name={isPaused ? 'play' : 'pause'} size={30} color={tokens.ctaText} />}
+            />
+          )}
+        </View>
 
         {showFinish ? (
           // EMOM : "Fin" prend la place de Skip (avancer d'une minute n'a pas
@@ -846,13 +841,12 @@ function BottomControls({
             label="Fin"
             size={64}
             duration={1000}
-            borderColor={tokens.btnBorder}
+            tone={tone}
             ringColor={tokens.primary}
             labelColor={tokens.muted}
-            pressedBg={tokens.chipBg}
             onComplete={onFinish}
           >
-            <Text style={[styles.finishIcon, { color: tokens.primary }]}>■</Text>
+            <AppIcon name="finish" size={18} color={tokens.primary} />
           </LongPressButton>
         ) : hideSkip ? (
           <View style={{ width: 64, height: 64 }} />
@@ -861,13 +855,12 @@ function BottomControls({
             label="Skip"
             size={64}
             duration={1000}
-            borderColor={tokens.btnBorder}
+            tone={tone}
             ringColor={tokens.primary}
             labelColor={tokens.muted}
-            pressedBg={tokens.chipBg}
             onComplete={onSkip}
           >
-            <Text style={[styles.bottomIcon, { color: tokens.primary }]}>▶▶</Text>
+            <AppIcon name="skip" size={24} color={tokens.primary} />
           </LongPressButton>
         )}
       </View>
@@ -903,11 +896,6 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     justifyContent: 'space-between',
     marginBottom: 16,
-  },
-  backArrow: {
-    fontSize: 22,
-    fontFamily: fonts.sansBold,
-    marginTop: -3,
   },
   topCenter: {
     alignItems: 'center',
@@ -1054,8 +1042,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     // Les commandes tombaient trop près du bord bas (et du geste système
     // Android) : on les remonte franchement. S'ajoute à l'inset bas du
-    // SafeAreaView.
-    paddingBottom: 36,
+    // SafeAreaView. Remonté une deuxième fois (36→56, 24/09/2026) — retour
+    // utilisateur terrain : posé sur un support à la salle, le bouton
+    // restait trop bas pour l'atteindre confortablement sans prendre le
+    // téléphone en main. Fixe, pas de réglage utilisateur (drag) : jugé
+    // superflu face à une valeur qui marche pour tout le monde.
+    paddingBottom: 56,
     paddingTop: 12,
   },
   // (V) Mise en page réduite — voir lib/responsive.js
@@ -1084,46 +1076,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 28,
   },
-  bottomIcon: {
-    fontSize: 18,
-    fontFamily: fonts.sansBold,
-  },
-  finishIcon: {
-    fontSize: 15,
-    fontFamily: fonts.sansBold,
-  },
-  pauseBtn: {
+  // Pas d'overflow:hidden : la lueur de PulseGlow déborde autour du bouton.
+  centralWrap: {
     width: 92,
     height: 92,
-    borderRadius: 46,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  roundBtnShadowWrap: {
-    width: 92,
-    height: 92,
-    borderRadius: 46,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    elevation: 12,
-  },
-  pauseIcon: {
-    fontSize: 28,
-    fontFamily: fonts.sansExtraBold,
-  },
-  endWorkBtn: {
-    width: 92,
-    height: 92,
-    borderRadius: 46,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  endWorkText: {
-    fontFamily: fonts.sansExtraBold,
-    fontSize: 18,
-    letterSpacing: 1.7,
+  // « REPOS » / « FINI » dans le bouton central : la police des chiffres
+  // géants (Anton). lineHeight à ×1,2 de la taille, sinon Android rogne les
+  // lettres (piège n°19).
+  centralLabel: {
+    fontFamily: fonts.display,
+    fontSize: 24,
+    lineHeight: 29,
+    letterSpacing: 1.2,
+    textAlign: 'center',
     includeFontPadding: false,
   },
 });

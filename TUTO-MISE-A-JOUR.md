@@ -75,7 +75,7 @@ export const CHANGELOG_HISTORY = [
     summary: "Le bouton Lancer est plus visible sur fond jaune.",
     items: [
       {
-        icon: '🎨',
+        icon: 'palette',
         text: "Le bouton Lancer est maintenant plus visible sur fond jaune.",
       },
     ],
@@ -94,6 +94,20 @@ export const CHANGELOG_HISTORY = [
 - `items` : la liste détaillée (icône + texte), affichée en grand pour la
   dernière version — c'est elle que les gens voient dans le popup
   "Nouvelle version".
+- `icon` : **le nom d'une icône de l'app, entre guillemets, jamais un emoji**
+  (depuis la 13.12.0 l'app n'affiche plus aucun emoji). Un nom mal écrit
+  n'affiche simplement pas d'icône. Les noms disponibles :
+  - nouveautés et réglages : `'palette'` (couleurs, style), `'sliders'`
+    (réglages), `'voice'` (voix), `'voices'` (deux voix), `'speaker'` (sons),
+    `'headphones'` (musique), `'drop'` (couleur), `'progress'` (barre qui
+    avance), `'stop'`, `'play'`, `'bandage'` (correctif), `'check'`, `'lock'`
+  - trophées et séries : `'medal'`, `'trophies'`, `'flame'`, `'crown'`,
+    `'sessions'`, `'clock'`, `'stopwatch'`
+  - les modes : `'amrap'`, `'basic'`, `'emom'`, `'tabata'`, `'mix'`, `'rest'`
+  - autres : `'loop'`, `'repeat'`, `'pulse'`, `'dumbbell'`, `'bolt'`, `'link'`,
+    `'blocks'`, `'puzzle'`, `'infinity'`, `'no-ads'`, `'help'`
+  - La liste complète et à jour est dans `components/common/AppIcon.js`
+    (cherche `ICON_NAMES`).
 
 **Ne garde jamais plus de 2 entrées** : rien au-delà de l'avant-dernière ne
 s'affiche nulle part dans l'app, donc si la liste en compte 3 après ton

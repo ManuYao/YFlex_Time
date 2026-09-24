@@ -23,6 +23,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import PressTap from './PressTap';
+import Button from './Button';
 import { fonts } from '../../lib/fonts';
 import { haptic } from '../../hooks/useHaptic';
 import { D, easeImpact, springBouncy } from '../../lib/animations';
@@ -498,14 +499,17 @@ export default function PermissionPrimer({
             </Animated.View>
           </ScrollView>
 
+          {/* Vibrations déjà dans onPrimary / onLater : pas de prop `haptic`. */}
           <Animated.View style={[styles.footer, { paddingBottom: insets.bottom + 16 }, footerStyle]}>
-            <PressTap onPress={onPrimary} tapScale={0.97} style={styles.cta}>
-              <Text style={styles.ctaText}>{primaryLabel}</Text>
-            </PressTap>
+            <Button variant="solid" fullWidth label={primaryLabel} onPress={onPrimary} />
             {!status.notifications && (
-              <PressTap onPress={onLater} tapScale={0.97} style={styles.later} hitSlop={8}>
-                <Text style={styles.laterText}>{isSession ? 'Plus tard, lancer la séance' : 'Plus tard'}</Text>
-              </PressTap>
+              <Button
+                variant="ghost"
+                size="md"
+                label={isSession ? 'Plus tard, lancer la séance' : 'Plus tard'}
+                onPress={onLater}
+                style={styles.later}
+              />
             )}
           </Animated.View>
         </Animated.View>
@@ -757,27 +761,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 12,
   },
-  cta: {
-    height: 56,
-    borderRadius: 18,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  ctaText: {
-    fontFamily: fonts.sansExtraBold,
-    fontSize: 16,
-    color: '#0A0A0A',
-    letterSpacing: -0.2,
-  },
+  // Placement seulement (rendu : Button, lib/buttonTokens.js) : le lien reste
+  // à la largeur de son texte, centré sous le bouton principal.
   later: {
     alignSelf: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 12,
-  },
-  laterText: {
-    fontFamily: fonts.sansBold,
-    fontSize: 14,
-    color: 'rgba(255,255,255,0.6)',
   },
 });
