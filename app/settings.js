@@ -23,6 +23,7 @@ import UpdateSheet from '../components/common/UpdateSheet';
 import ContactSheet from '../components/common/ContactSheet';
 import ConfirmSheet from '../components/common/ConfirmSheet';
 import LegalGate from '../components/common/LegalGate';
+import CoachSheet, { COACH_STYLES } from '../components/common/CoachSheet';
 import { loadContactNoticeHidden, setContactNoticeHidden } from '../lib/contactNotice';
 import {
   isBatteryOptimizationEnabled,
@@ -37,7 +38,7 @@ import { useOtaUpdate } from '../hooks/useOtaUpdate';
 import { markUpdatePopupSeen, resolveUpdateCandidate } from '../lib/updatePopup';
 import { haptic, setHapticStrength } from '../hooks/useHaptic';
 import { playDenied, previewSound } from '../lib/sounds';
-import { detectVoices, previewVoiceGender } from '../lib/voiceCoach';
+import { detectVoices } from '../lib/voiceCoach';
 import { fonts } from '../lib/fonts';
 
 const CONTACT_EMAIL = 'yaomanuit@gmail.com';
@@ -79,9 +80,10 @@ export default function Settings() {
   const [updateSheet, setUpdateSheet] = useState(null);
   const [contactSheet, setContactSheet] = useState(false);
   const [resetConfirm, setResetConfirm] = useState(false);
-  // Le choix Homme/Femme n'apparaît que si le téléphone a une vraie voix
-  // d'homme en français (lib/voiceCoach.js, detectVoices) — sinon on reste
-  // sur la voix femme, sans option (décision utilisateur).
+  // Fenêtre « Ton coach » (style de parole, voix…). Le choix Homme/Femme
+  // n'y apparaît que si le téléphone a une vraie voix d'homme en français
+  // (lib/voiceCoach.js, detectVoices) — sinon voix femme, sans option.
+  const [coachSheet, setCoachSheet] = useState(false);
   const [maleVoiceAvailable, setMaleVoiceAvailable] = useState(false);
   useEffect(() => {
     if (!settings.voiceCoach) return undefined;
@@ -318,19 +320,14 @@ export default function Settings() {
               sub="Annonce les phases et les tours à voix haute, sans regarder l'écran"
               control={<Toggle value={settings.voiceCoach} onChange={(v) => update('voiceCoach', v)} />}
             />
-            {settings.voiceCoach && maleVoiceAvailable && (
-              <Row
-                label="Voix"
-                sub="Voix installées sur ton téléphone · touche pour écouter"
-                control={
-                  <Choice
-                    value={settings.voiceGender}
-                    options={GENDER_OPTIONS}
-                    onChange={(v) => update('voiceGender', v)}
-                    onSelect={previewVoiceGender}
-                    color="#1FC777"
-                  />
-                }
+            {settings.voiceCoach && (
+              <LinkRow
+                label="Personnaliser le coach"
+                sub={coachSummary(settings, maleVoiceAvailable)}
+                onPress={() => {
+                  haptic.light();
+                  setCoachSheet(true);
+                }}
               />
             )}
             <Row
@@ -475,6 +472,18 @@ export default function Settings() {
           />
         )}
 
+        {coachSheet && (
+          <CoachSheet
+            screenH={screenH}
+            style={settings.voiceStyle}
+            gender={settings.voiceGender}
+            maleVoiceAvailable={maleVoiceAvailable}
+            onChangeStyle={(v) => update('voiceStyle', v)}
+            onChangeGender={(v) => update('voiceGender', v)}
+            onClose={() => setCoachSheet(false)}
+          />
+        )}
+
         {resetConfirm && (
           <ConfirmSheet
             screenH={screenH}
@@ -551,10 +560,12 @@ const STRENGTH_OPTIONS = [
   { value: 'strong', label: 'FORT' },
 ];
 
-const GENDER_OPTIONS = [
-  { value: 'female', label: 'FEMME' },
-  { value: 'male', label: 'HOMME' },
-];
+// Résumé affiché sous « Personnaliser le coach » : ce qu'on entendra.
+const coachSummary = (settings, maleVoiceAvailable) => {
+  const style = COACH_STYLES.find((s) => s.value === settings.voiceStyle) ?? COACH_STYLES[0];
+  if (!maleVoiceAvailable) return style.label;
+  return `${style.label} · voix ${settings.voiceGender === 'male' ? 'homme' : 'femme'}`;
+};
 
 /**
  * Sélecteur à crans pour un réglage qui n'a que quelques valeurs nommées —

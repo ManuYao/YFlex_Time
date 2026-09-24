@@ -15,9 +15,14 @@ const DEFAULTS = {
   // sont déjà allumés, ne pas cumuler deux systèmes sonores d'entrée. Coupe
   // globalement, tous modes confondus (pas de réglage par mode/TABATA).
   voiceCoach: false,
-  // 'male' | 'female' — simulé par un décalage de hauteur (pitch), voir
-  // lib/voiceCoach.js. N'apparaît dans Paramètres que si voiceCoach est actif.
+  // 'male' | 'female' — 'male' = vraie voix d'homme du téléphone, proposée
+  // seulement si le téléphone en a une (lib/voiceCoach.js, detectVoices).
   voiceGender: 'female',
+  // 'essential' (« Essentiel », l'info tranchée : « 3 sur 8. ») par défaut —
+  // décision utilisateur : la plupart voudront court et rapide ; le style
+  // 'motivating' (« Motivant », phrases de coach) est le choix perso.
+  // Réglé dans la fenêtre « Ton coach » (components/common/CoachSheet.js).
+  voiceStyle: 'essential',
   autoStart: false,
   keepScreenOn: true,
   notifications: true,
@@ -54,8 +59,12 @@ export function SettingsProvider({ children }) {
   }, [settings.sound, settings.volume]);
 
   useEffect(() => {
-    configureVoiceCoach({ enabled: settings.voiceCoach, gender: settings.voiceGender });
-  }, [settings.voiceCoach, settings.voiceGender]);
+    configureVoiceCoach({
+      enabled: settings.voiceCoach,
+      gender: settings.voiceGender,
+      style: settings.voiceStyle,
+    });
+  }, [settings.voiceCoach, settings.voiceGender, settings.voiceStyle]);
 
   const persist = useCallback(async (next) => {
     try {
