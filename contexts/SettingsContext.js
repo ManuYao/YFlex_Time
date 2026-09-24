@@ -15,6 +15,9 @@ const DEFAULTS = {
   // sont déjà allumés, ne pas cumuler deux systèmes sonores d'entrée. Coupe
   // globalement, tous modes confondus (pas de réglage par mode/TABATA).
   voiceCoach: false,
+  // 'male' | 'female' — simulé par un décalage de hauteur (pitch), voir
+  // lib/voiceCoach.js. N'apparaît dans Paramètres que si voiceCoach est actif.
+  voiceGender: 'female',
   autoStart: false,
   keepScreenOn: true,
   notifications: true,
@@ -51,8 +54,8 @@ export function SettingsProvider({ children }) {
   }, [settings.sound, settings.volume]);
 
   useEffect(() => {
-    configureVoiceCoach({ enabled: settings.voiceCoach });
-  }, [settings.voiceCoach]);
+    configureVoiceCoach({ enabled: settings.voiceCoach, gender: settings.voiceGender });
+  }, [settings.voiceCoach, settings.voiceGender]);
 
   const persist = useCallback(async (next) => {
     try {

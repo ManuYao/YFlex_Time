@@ -37,6 +37,7 @@ import { useOtaUpdate } from '../hooks/useOtaUpdate';
 import { markUpdatePopupSeen, resolveUpdateCandidate } from '../lib/updatePopup';
 import { haptic, setHapticStrength } from '../hooks/useHaptic';
 import { playDenied, previewSound } from '../lib/sounds';
+import { previewVoiceGender } from '../lib/voiceCoach';
 import { fonts } from '../lib/fonts';
 
 const CONTACT_EMAIL = 'yaomanuit@gmail.com';
@@ -305,6 +306,21 @@ export default function Settings() {
               sub="Annonce les phases et les tours à voix haute, sans regarder l'écran"
               control={<Toggle value={settings.voiceCoach} onChange={(v) => update('voiceCoach', v)} />}
             />
+            {settings.voiceCoach && (
+              <Row
+                label="Voix"
+                sub="Décalage de hauteur — dépend de la synthèse vocale de ton téléphone"
+                control={
+                  <Choice
+                    value={settings.voiceGender}
+                    options={GENDER_OPTIONS}
+                    onChange={(v) => update('voiceGender', v)}
+                    onSelect={previewVoiceGender}
+                    color="#1FC777"
+                  />
+                }
+              />
+            )}
             <Row
               label="Vibrations"
               sub="Retour haptique sur les actions"
@@ -318,6 +334,7 @@ export default function Settings() {
                   value={settings.vibrateStrength}
                   options={STRENGTH_OPTIONS}
                   onChange={(v) => update('vibrateStrength', v)}
+                  onSelect={setHapticStrength}
                   color="#9575FF"
                   disabled={!settings.vibrate}
                 />
@@ -522,6 +539,11 @@ const STRENGTH_OPTIONS = [
   { value: 'strong', label: 'FORT' },
 ];
 
+const GENDER_OPTIONS = [
+  { value: 'female', label: 'FEMME' },
+  { value: 'male', label: 'HOMME' },
+];
+
 /**
  * Sélecteur à crans pour un réglage qui n'a que quelques valeurs nommées —
  * un curseur continu laisserait croire à une amplitude libre, alors
@@ -529,7 +551,7 @@ const STRENGTH_OPTIONS = [
  * Le tap joue l'intensité choisie : on la sent au moment où on la choisit,
  * plutôt que d'avoir à relancer une séance pour comparer.
  */
-function Choice({ value, options, onChange, color = '#FFFFFF', disabled = false }) {
+function Choice({ value, options, onChange, onSelect, color = '#FFFFFF', disabled = false }) {
   return (
     <View style={[styles.choiceWrap, disabled && styles.sliderWrapDisabled]}>
       {options.map((opt) => {
@@ -540,7 +562,12 @@ function Choice({ value, options, onChange, color = '#FFFFFF', disabled = false 
             disabled={disabled}
             onPress={() => {
               onChange(opt.value);
-              setHapticStrength(opt.value);
+              // `onSelect` est l'effet immédiat propre à CE réglage (ex.
+              // setHapticStrength pour l'intensité des vibrations) — ne
+              // jamais le coder en dur ici : ce composant est réutilisé pour
+              // d'autres choix (voix du coach…) qui n'ont rien à voir avec
+              // les vibrations.
+              onSelect?.(opt.value);
               haptic.medium();
             }}
             style={[
