@@ -44,7 +44,12 @@ import {
   makeBlock,
 } from '../lib/mix-blocks';
 import { makeDefaultMix } from '../lib/mixes';
-import { serializeMix } from '../lib/mixShare';
+import {
+  serializeMix,
+  deserializeMix,
+  sanitizeImportedPayload,
+  extractShareCode,
+} from '../lib/mixShare';
 import { BLOCK_ROLES, getBlockRole, resolveBlockRole } from '../lib/blockRoles';
 import { getTimeRange } from '../lib/timeRanges';
 import { fonts } from '../lib/fonts';
@@ -80,6 +85,8 @@ export default function MixBuilder() {
   const [addOpen, setAddOpen] = useState(false);
   const [editingBlockId, setEditingBlockId] = useState(null);
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareMix, setShareMix] = useState(null);
 
   useEffect(() => {
     if (draft) return;
@@ -169,26 +176,21 @@ export default function MixBuilder() {
     await removeFromLibrary(mixId);
   };
 
-  // Partage SANS backend (voir CLAUDE.md, section MIX PARTAGE) : le mix est
-  // réduit à { name, blocks } (lib/mixShare.js, jamais les ids locaux),
-  // encodé dans un lien profond flextimer://import-mix?m=..., envoyé via la
-  // feuille de partage native — Instagram DM / WhatsApp / SMS, exactement
-  // les canaux déjà utilisés par les gens qui recevront un mix. app/import-mix.js
-  // fait le chemin inverse à l'ouverture du lien.
-  const handleShare = async (mix) => {
-    if (!mix?.blocks?.length) return;
+  // Partage SANS backend (voir CLAUDE.md, section MIX PARTAGE). L'envoi et la
+  // réception passent tous les deux par ShareSheet (aperçu avant d'envoyer,
+  // et un champ pour coller un lien reçu — retour utilisateur v14.3.0 : le
+  // partage direct sans aperçu ne montrait rien avant l'envoi, et rien ne
+  // permettait de récupérer un mix si le lien n'était pas cliquable, ce qui
+  // arrive dans beaucoup d'apps de messagerie pour un scheme personnalisé).
+  const openShare = (mix) => {
     haptic.light();
-    try {
-      const link = Linking.createURL('import-mix', {
-        queryParams: { m: serializeMix(mix) },
-      });
-      await Share.share({
-        message: `${mix.name || 'Mon mix'} — un enchaînement Flex Timer.\n${link}`,
-      });
-    } catch {
-      // Annulation de la feuille système ou échec réseau/partage : rien à
-      // signaler, ce n'est pas une vraie erreur applicative.
-    }
+    setShareMix(mix);
+    setShareOpen(true);
+  };
+
+  const handleImported = (mix) => {
+    setDraft({ ...mix, blocks: mix.blocks.map((b) => ({ ...b })) });
+    setShareOpen(false);
   };
 
   const editingBlock = editingBlockId
@@ -279,7 +281,7 @@ export default function MixBuilder() {
             <IconButton
               icon="share"
               size={ROUND_SIZE.nav}
-              onPress={() => handleShare(draft)}
+              onPress={() => openShare(draft)}
               accessibilityLabel="Partager ce mix"
             />
             <Button
@@ -348,7 +350,16 @@ export default function MixBuilder() {
         onClose={() => setLibraryOpen(false)}
         onLoad={handleLoadMix}
         onDelete={handleDeleteMix}
-        onShare={handleShare}
+        onShare={(m) => {
+          setLibraryOpen(false);
+          openShare(m);
+        }}
+      />
+      <ShareSheet
+        visible={shareOpen}
+        mix={shareMix}
+        onClose={() => setShareOpen(false)}
+        onImported={handleImported}
       />
     </GradientBackground>
   );
@@ -922,6 +933,276 @@ function LibrarySheet({ visible, library, onClose, onLoad, onDelete, onShare }) 
     </Modal>
   );
 }
+
+/**
+ * Un seul sous-menu pour les deux sens du partage (retour utilisateur,
+ * v14.3.0 — le partage direct sans aperçu ne montrait rien avant l'envoi, et
+ * rien nulle part ne permettait de coller un lien reçu) :
+ *  - « APERÇU » : ce qui va être envoyé, avant de l'envoyer.
+ *  - « RECEVOIR UN MIX » : coller un lien (ou juste le code) et le
+ *    prévisualiser avant de l'ajouter — utile aussi parce que certaines apps
+ *    de messagerie (Instagram en tête) ne rendent pas un lien flextimer://
+ *    cliquable dans une conversation, donc taper le lien ne suffit pas
+ *    toujours : le coller ici est le chemin fiable.
+ */
+function ShareSheet({ visible, mix, onClose, onImported }) {
+  const haptic = useHaptic();
+  const { saveAsLibraryEntry, saveCurrentMix } = useTimers();
+  const [pasted, setPasted] = useState('');
+  const [preview, setPreview] = useState(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    if (!visible) {
+      setPasted('');
+      setPreview(null);
+      setError(false);
+    }
+  }, [visible]);
+
+  const handleShareNow = async () => {
+    if (!mix?.blocks?.length) return;
+    haptic.light();
+    try {
+      const link = Linking.createURL('import-mix', { queryParams: { m: serializeMix(mix) } });
+      await Share.share({
+        message: `${mix.name || 'Mon mix'} — un enchaînement Flex Timer.\n${link}`,
+      });
+    } catch {
+      // Annulation de la feuille système : pas une vraie erreur.
+    }
+  };
+
+  const handlePreview = () => {
+    haptic.light();
+    const { ok, payload } = deserializeMix(extractShareCode(pasted));
+    const sanitized = ok ? sanitizeImportedPayload(payload) : null;
+    setPreview(sanitized);
+    setError(!sanitized);
+  };
+
+  const handleImport = async () => {
+    if (!preview) return;
+    haptic.success();
+    await saveAsLibraryEntry(preview);
+    await saveCurrentMix(preview);
+    onImported?.(preview);
+  };
+
+  const renderBlockRow = (block, key) => {
+    const type = getBlockType(block.type);
+    return (
+      <View key={key} style={shareStyles.row}>
+        <View style={[shareStyles.rowIconBox, { backgroundColor: `${type?.color || '#FFFFFF'}22` }]}>
+          <AppIcon name={type?.icon || 'mix'} size={13} color={type?.color || '#FFFFFF'} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={shareStyles.rowLabel} numberOfLines={1}>{block.label}</Text>
+          <Text style={shareStyles.rowSub}>{formatBlockSubtitle(block)}</Text>
+        </View>
+      </View>
+    );
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={sheetStyles.root}>
+        <BlurView intensity={40} tint="dark" pointerEvents="none" style={StyleSheet.absoluteFill} />
+        <View pointerEvents="none" style={sheetStyles.dim} />
+        <Pressable style={sheetStyles.tap} onPress={onClose} />
+        <View style={[sheetStyles.sheet, shareStyles.sheetMax]}>
+          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            <View style={sheetStyles.handle} />
+            <View style={sheetStyles.headerRow}>
+              <View style={{ flex: 1, paddingRight: 12 }}>
+                <Text style={sheetStyles.kicker}>PARTAGER</Text>
+                <Text style={sheetStyles.title} numberOfLines={1}>{mix?.name || 'Ce mix'}</Text>
+              </View>
+              <IconButton
+                icon="close"
+                size={ROUND_SIZE.sheet}
+                haptic={haptic.light}
+                onPress={onClose}
+                accessibilityLabel="Fermer"
+              />
+            </View>
+
+            {!!mix?.blocks?.length && (
+              <>
+                <Text style={shareStyles.sectionLabel}>APERÇU · CE QUI SERA ENVOYÉ</Text>
+                <View style={shareStyles.list}>
+                  {mix.blocks.map((b, i) => renderBlockRow(b, b.id ?? i))}
+                </View>
+                <Button
+                  variant="accent"
+                  color={ACCENT}
+                  fullWidth
+                  icon="share"
+                  label="Partager"
+                  onPress={handleShareNow}
+                  style={{ marginTop: 14, marginBottom: 22 }}
+                />
+              </>
+            )}
+
+            <View style={shareStyles.divider}>
+              <View style={shareStyles.dividerLine} />
+              <Text style={shareStyles.dividerText}>OU</Text>
+              <View style={shareStyles.dividerLine} />
+            </View>
+
+            <Text style={shareStyles.sectionLabel}>RECEVOIR UN MIX</Text>
+            <TextInput
+              value={pasted}
+              onChangeText={(v) => {
+                setPasted(v);
+                setPreview(null);
+                setError(false);
+              }}
+              placeholder="Colle ici le lien reçu…"
+              placeholderTextColor="rgba(255,255,255,0.30)"
+              selectionColor="#FFFFFF"
+              multiline
+              textAlignVertical="top"
+              style={shareStyles.pasteInput}
+            />
+            <Button
+              variant="glass"
+              fullWidth
+              label="Prévisualiser"
+              onPress={handlePreview}
+              disabled={!pasted.trim()}
+              style={{ marginTop: 10 }}
+            />
+
+            {error && (
+              <Text style={shareStyles.errorText}>
+                Lien non reconnu — vérifie qu'il est collé en entier.
+              </Text>
+            )}
+
+            {!!preview && (
+              <View style={shareStyles.importBox}>
+                <Text style={shareStyles.importName} numberOfLines={1}>{preview.name}</Text>
+                <Text style={shareStyles.importMeta}>
+                  {preview.blocks.length} bloc{preview.blocks.length > 1 ? 's' : ''}
+                </Text>
+                <View style={shareStyles.list}>
+                  {preview.blocks.map((b, i) => renderBlockRow(b, b.id ?? i))}
+                </View>
+                <Button
+                  variant="accent"
+                  color={ACCENT}
+                  fullWidth
+                  label="Ajouter à ma bibliothèque"
+                  onPress={handleImport}
+                  style={{ marginTop: 12 }}
+                />
+              </View>
+            )}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const shareStyles = StyleSheet.create({
+  sheetMax: {
+    maxHeight: '85%',
+  },
+  sectionLabel: {
+    fontFamily: fonts.sansBold,
+    fontSize: 10,
+    letterSpacing: 2,
+    color: 'rgba(255,255,255,0.45)',
+    marginBottom: 10,
+  },
+  list: {
+    gap: 8,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    borderRadius: 12,
+    padding: 10,
+  },
+  rowIconBox: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rowLabel: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 13,
+    color: '#FFFFFF',
+  },
+  rowSub: {
+    fontFamily: fonts.monoRegular,
+    fontSize: 10.5,
+    color: 'rgba(255,255,255,0.50)',
+    marginTop: 1,
+  },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 18,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+  },
+  dividerText: {
+    fontFamily: fonts.sansBold,
+    fontSize: 10,
+    letterSpacing: 2,
+    color: 'rgba(255,255,255,0.35)',
+    marginHorizontal: 10,
+  },
+  pasteInput: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    minHeight: 60,
+    fontFamily: fonts.sansSemibold,
+    fontSize: 13,
+    color: '#FFFFFF',
+  },
+  errorText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
+    color: '#FF5454',
+    marginTop: 10,
+  },
+  importBox: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+  },
+  importName: {
+    fontFamily: fonts.sansExtraBold,
+    fontSize: 17,
+    color: '#FFFFFF',
+    marginBottom: 2,
+  },
+  importMeta: {
+    fontFamily: fonts.monoBold,
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.50)',
+    marginBottom: 10,
+  },
+});
 
 const formatTotalShort = (s) => {
   if (s < 60) return `${s}s`;
