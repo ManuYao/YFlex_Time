@@ -44,8 +44,8 @@ export default function PulseGlow({ color, size = 92, active = true }) {
     } else {
       glow.value = withRepeat(
         withSequence(
-          withTiming(1, { duration: 1100, easing: breathe }),
-          withTiming(0.55, { duration: 1100, easing: breathe })
+          withTiming(1, { duration: 1400, easing: breathe }),
+          withTiming(0.7, { duration: 1400, easing: breathe })
         ),
         -1,
         false
@@ -54,10 +54,10 @@ export default function PulseGlow({ color, size = 92, active = true }) {
     return () => cancelAnimation(glow);
   }, [active, reduceMotion]);
 
-  const animStyle = useAnimatedStyle(() => ({
-    opacity: glow.value,
-    transform: [{ scale: 0.96 + glow.value * 0.08 }],
-  }));
+  // Opacité seule, plus lente et moins ample (v14.1.1) : faire aussi varier
+  // l'échelle obligeait Android à redessiner le flou de l'ombre à chaque
+  // image, et le bord de la lueur « clignotait » au lieu de respirer.
+  const animStyle = useAnimatedStyle(() => ({ opacity: glow.value }));
 
   return (
     <View pointerEvents="none" style={styles.center}>

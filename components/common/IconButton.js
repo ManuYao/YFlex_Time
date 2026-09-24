@@ -23,6 +23,10 @@ import { ROUND_SIZE, TAP_SCALE, buttonRecipe } from '../../lib/buttonTokens';
  * - tone     : 'light' | 'dark' ; color : pour 'accent'
  * - onPress, onLongPress, disabled, haptic, accessibilityLabel
  * - style    : placement (sur la zone d'appui)
+ * - flat     : sans ombre portée ni liseré sombre (commandes de séance). Sur
+ *              la couleur du mode, l'ombre noire se lisait comme une bordure
+ *              noire autour du disque, qui apparaissait et disparaissait au
+ *              rythme de la lueur (retour utilisateur, v14.1.1).
  */
 export default function IconButton({
   icon,
@@ -38,6 +42,7 @@ export default function IconButton({
   accessibilityLabel,
   hitSlop = 8,
   style,
+  flat = false,
 }) {
   const r = buttonRecipe({ variant, tone, color });
   const press = useSharedValue(0);
@@ -57,7 +62,7 @@ export default function IconButton({
       containerStyle={style}
       style={[
         { width: size, height: size, borderRadius: size / 2, opacity: disabled ? 0.38 : 1 },
-        !disabled && r.outer ? { boxShadow: r.outer } : null,
+        !disabled && !flat && r.outer ? { boxShadow: r.outer } : null,
       ]}
     >
       <View
@@ -69,7 +74,7 @@ export default function IconButton({
             borderColor: r.borderColor,
             borderWidth: r.borderWidth,
           },
-          r.inner ? { boxShadow: r.inner } : null,
+          !flat && r.inner ? { boxShadow: r.inner } : null,
         ]}
       >
         {r.fill ? (

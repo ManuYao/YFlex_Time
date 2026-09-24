@@ -802,7 +802,8 @@ function BottomControls({
         </LongPressButton>
 
         {/* (V) Bouton central — porcelaine (recette 'solid' de
-            lib/buttonTokens.js : dégradé, liseré, ombre portée) + lueur
+            lib/buttonTokens.js : dégradé ; `flat` = sans ombre noire ni
+            liseré sombre, qui faisaient une bordure noire, v14.1.1) + lueur
             diffuse qui respire à la couleur du mode tant que la séance
             tourne, et s'éteint en pause : la lueur qui s'arrête EST
             l'information. */}
@@ -813,6 +814,7 @@ function BottomControls({
               size={92}
               variant="solid"
               tone={tone}
+              flat
               onPress={onEndWork}
               accessibilityLabel={endWorkLabel}
               icon={
@@ -826,6 +828,7 @@ function BottomControls({
               size={92}
               variant="solid"
               tone={tone}
+              flat
               onPress={onPauseToggle}
               accessibilityLabel={isPaused ? 'Reprendre' : 'Pause'}
               icon={<AppIcon name={isPaused ? 'play' : 'pause'} size={30} color={tokens.ctaText} />}

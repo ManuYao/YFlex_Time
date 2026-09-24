@@ -13,9 +13,10 @@ import { buttonRecipe } from '../../lib/buttonTokens';
  * (recette 'glass' de lib/buttonTokens.js — fond translucide, reflet du haut,
  * liseré lumineux) + l'anneau qui se remplit pendant l'appui.
  *
- * L'ombre est un boxShadow extérieur sur la couche animée, JAMAIS une
- * elevation : sur Android l'elevation d'un disque translucide se voit à
- * travers lui en polygone sombre (piège n°22).
+ * Ni ombre portée ni liseré intérieur (v14.1.1) : sur la couleur du mode,
+ * l'ombre noire sous le disque se lisait comme une bordure noire, pas très
+ * belle (retour utilisateur). Il reste le verre : fond translucide, contour
+ * fin et reflet du haut. Et jamais d'elevation (piège n°22).
  */
 export default function LongPressButton({
   label,
@@ -45,7 +46,7 @@ export default function LongPressButton({
     <View style={styles.wrap}>
       <Animated.View
         style={[
-          { width: size, height: size, borderRadius: size / 2, boxShadow: r.outer },
+          { width: size, height: size, borderRadius: size / 2 },
           scaleStyle,
         ]}
       >
@@ -61,7 +62,6 @@ export default function LongPressButton({
               backgroundColor: r.backgroundColor,
               borderColor: r.borderColor,
               borderWidth: r.borderWidth,
-              boxShadow: r.inner,
             },
           ]}
           hitSlop={6}
