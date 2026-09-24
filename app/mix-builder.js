@@ -583,6 +583,7 @@ function SaveButton({ disabled, onTap, onLongComplete }) {
 }
 
 function AddBlockSheet({ visible, onClose, onPick }) {
+  const haptic = useHaptic();
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={sheetStyles.root}>
@@ -800,6 +801,7 @@ function EditBlockSheet({ block, onClose, onUpdate }) {
 }
 
 function LibrarySheet({ visible, library, onClose, onLoad, onDelete }) {
+  const haptic = useHaptic();
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={sheetStyles.root}>

@@ -17,6 +17,7 @@ import { categoryChip } from '../../lib/exercises';
 import { loadHistory } from '../../lib/history';
 import { useLongPress } from '../../hooks/useLongPress';
 import { haptic } from '../../hooks/useHaptic';
+import ChipRow from '../common/ChipRow';
 import {
   DAYS,
   addBlock,
@@ -142,11 +143,10 @@ export default function PlanningPage({
         />
       </View>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
+      <ChipRow
         style={styles.daysRow}
         contentContainerStyle={styles.daysContent}
+        activeIndex={DAYS.findIndex((d) => d.key === dayKey)}
       >
         {DAYS.map((d) => {
           const dayBlocks = (planning[d.key] ?? {}).blocks ?? [];
@@ -167,7 +167,7 @@ export default function PlanningPage({
             />
           );
         })}
-      </ScrollView>
+      </ChipRow>
 
       <ScrollView
         style={styles.body}

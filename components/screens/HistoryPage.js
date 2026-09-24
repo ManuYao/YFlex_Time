@@ -38,6 +38,7 @@ import { fonts } from '../../lib/fonts';
 import { D, easeImpact, popIn, popOut } from '../../lib/animations';
 import { useHaptic } from '../../hooks/useHaptic';
 import { useLongPress } from '../../hooks/useLongPress';
+import ChipRow from '../common/ChipRow';
 
 const FILTERS = ['TOUS', 'AMRAP', 'BASIC', 'EMOM', 'TABATA', 'MIX'];
 
@@ -458,11 +459,10 @@ export default function HistoryPage({
         )}
       </Animated.View>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
+      <ChipRow
         style={styles.filtersRow}
         contentContainerStyle={styles.filtersContent}
+        activeIndex={FILTERS.indexOf(filter)}
       >
         {FILTERS.map((f) => {
           const isActive = f === filter;
@@ -491,7 +491,7 @@ export default function HistoryPage({
             </Pressable>
           );
         })}
-      </ScrollView>
+      </ChipRow>
 
       <ScrollView
         style={styles.list}

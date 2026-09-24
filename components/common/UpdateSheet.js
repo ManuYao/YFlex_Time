@@ -15,6 +15,9 @@ import { D, slideInY } from '../../lib/animations';
 // Le même dégradé 4 couleurs que le launch splash / Confetti : signature
 // "toute l'app" plutôt qu'une couleur inventée pour l'occasion.
 const MODE_COLORS = ['#FF5454', '#FFC933', '#1FC777', '#9575FF'];
+// Au-delà de 5 lignes, les suivantes arrivent ensemble : elles sont de toute
+// façon sous le pli de la liste, les faire attendre ne servait qu'à ralentir.
+const ITEM_STAGGER_MAX = 5;
 
 /**
  * Feuille "Nouvelle version" — ouverte depuis Paramètres > À propos, jamais
@@ -102,7 +105,7 @@ export default function UpdateSheet({ screenH, mode = 'pending', showHistory = f
               {latest.items.map((item, i) => (
                 <Animated.View
                   key={i}
-                  entering={slideInY(12, D.base, 220 + i * 70)}
+                  entering={slideInY(12, D.base, 220 + Math.min(i, ITEM_STAGGER_MAX) * 60)}
                   style={styles.item}
                 >
                   {/* Chaque icône prend une des 4 couleurs de la barre du
@@ -131,7 +134,12 @@ export default function UpdateSheet({ screenH, mode = 'pending', showHistory = f
             </ScrollView>
           )}
 
-          <Animated.View entering={slideInY(14, D.base, isPending ? 300 : 220 + latest.items.length * 70)}>
+          {/* Le bouton arrive AVEC le reste de la feuille, pas après la liste :
+              calé sur la fin de la liste, il attendait 220 ms + 70 ms par
+              nouveauté — plus d'une seconde avec les 14 lignes de la 14.0.0
+              (retour utilisateur : « il apparaît plus tard, pas direct avec
+              le menu complet »). */}
+          <Animated.View entering={slideInY(14, D.base, 220)}>
             {/* Capsule « spectrum » (lib/buttonTokens.js) : les quatre couleurs
                 des modes, avec reflet, liseré et lueur. Texte noir : le blanc
                 ne se lisait pas sur le jaune et le vert, l'ombre de texte qui
