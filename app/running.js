@@ -105,6 +105,9 @@ export default function Running() {
   // progression. Ne dit rien si `enabled` est faux (réglage Paramètres) —
   // pas besoin de le vérifier ici, tickVoiceCoach le fait lui-même.
   const voicePrevRef = useRef(null);
+  // La phrase de fin (« Terminé ! ») part juste avant de quitter l'écran :
+  // le nettoyage au démontage ne doit pas la couper en plein milieu.
+  const endSpokenRef = useRef(false);
 
   useEffect(() => {
     if (state.phaseLabel !== lastPhaseRef.current) {
@@ -125,6 +128,7 @@ export default function Running() {
       navigatedRef.current = true;
       haptic.success();
       sound.playGo();
+      endSpokenRef.current = true;
       speakEnd();
       setTimeout(() => haptic.success(), 220);
       const realElapsed = Math.max(
@@ -283,7 +287,7 @@ export default function Running() {
       stopTimerNotification();
       // Quitter Running en pleine phrase ne doit pas laisser le coach
       // continuer à parler par-dessus l'écran suivant (Home, fin de séance…).
-      stopVoiceCoach();
+      if (!endSpokenRef.current) stopVoiceCoach();
     };
   }, []);
 
