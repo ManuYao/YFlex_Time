@@ -587,11 +587,12 @@ export default function Running() {
           onReset={handleReset}
           onPauseToggle={handlePauseToggle}
           onSkip={handleSkip}
+          skipLabel={isEmom ? 'Next' : 'Skip'}
           showEndWork={(isManualBasic && isWorkInfinite) || isLastEmomRound}
           endWorkLabel={isLastBasicWork || isLastEmomRound ? 'FINI' : 'REPOS'}
           onEndWork={isLastEmomRound ? handleFinish : handleEndWork}
           hideSkip={(isManualBasic && isWorkInfinite) || isLastEmomRound}
-          showFinish={isEmom && !isLastEmomRound}
+          showFinish={false}
           onFinish={handleFinish}
         />
       </SafeAreaView>
@@ -825,6 +826,7 @@ function BottomControls({
   onReset,
   onPauseToggle,
   onSkip,
+  skipLabel = 'Skip',
   showEndWork,
   endWorkLabel,
   onEndWork,
@@ -904,7 +906,7 @@ function BottomControls({
           <View style={{ width: 64, height: 64 }} />
         ) : (
           <LongPressButton
-            label="Skip"
+            label={skipLabel}
             size={64}
             duration={1000}
             tone={tone}
