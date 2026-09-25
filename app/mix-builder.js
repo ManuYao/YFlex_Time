@@ -8,6 +8,7 @@ import {
   ScrollView,
   StyleSheet,
   Share,
+  Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
@@ -951,6 +952,7 @@ function ShareSheet({ visible, mix, onClose, onImported }) {
   const [pasted, setPasted] = useState('');
   const [preview, setPreview] = useState(null);
   const [error, setError] = useState(false);
+  const scrollRef = useRef(null);
 
   useEffect(() => {
     if (!visible) {
@@ -959,6 +961,17 @@ function ShareSheet({ visible, mix, onClose, onImported }) {
       setError(false);
     }
   }, [visible]);
+
+  // Le clavier reste ouvert après le collage : sans le fermer ni faire
+  // défiler, le résultat (aperçu OU message d'erreur) se rend sous la
+  // ligne de flottaison, cachée par le clavier — on dirait que le bouton
+  // ne fait rien (retour utilisateur, v14.3.0).
+  useEffect(() => {
+    if (!preview && !error) return;
+    Keyboard.dismiss();
+    const t = setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
+    return () => clearTimeout(t);
+  }, [preview, error]);
 
   const handleShareNow = async () => {
     if (!mix?.blocks?.length) return;
@@ -1011,7 +1024,7 @@ function ShareSheet({ visible, mix, onClose, onImported }) {
         <View pointerEvents="none" style={sheetStyles.dim} />
         <Pressable style={sheetStyles.tap} onPress={onClose} />
         <View style={[sheetStyles.sheet, shareStyles.sheetMax]}>
-          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          <ScrollView ref={scrollRef} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
             <View style={sheetStyles.handle} />
             <View style={sheetStyles.headerRow}>
               <View style={{ flex: 1, paddingRight: 12 }}>
