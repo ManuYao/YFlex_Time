@@ -87,18 +87,34 @@ export default function Running() {
 
   useWakeLock(true);
 
+  const isMix = timer.id === 'mix';
   const [restTriggers, setRestTriggers] = useState([]);
-  const isManualBasic = timer.id === 'basic';
+  // Un bloc BASIC dans un MIX est manuel comme le BASIC autonome, mais
+  // plusieurs BASIC dans le même MIX ont chacun leurs propres tours : la clé
+  // est l'id du bloc (state.blockId), jamais partagée entre deux blocs.
+  const [mixBasicTriggers, setMixBasicTriggers] = useState({});
   const isEmom = timer.id === 'emom';
-  const ctx = isManualBasic ? { restTriggers } : undefined;
+  const ctx =
+    timer.id === 'basic'
+      ? { restTriggers }
+      : isMix
+      ? { basicTriggers: mixBasicTriggers }
+      : undefined;
 
   const state = computeState(timer, secondsElapsed, ctx) ?? fallbackState();
   const isWorkInfinite = state.countDirection === 'up';
+  // Vrai pour le BASIC autonome ET pour un bloc BASIC actif d'un MIX : les
+  // deux se pilotent pareil (bouton "Fin du travail", pas de Passer).
+  const isManualBasic = timer.id === 'basic' || (isMix && state.blockType === 'basic');
   // Dernier tour BASIC : le bouton central ne lance plus un repos, il
   // termine direct la séance (voir basic() dans timer-engine.js) — le
   // libellé doit le dire, sinon on retombe dans la confusion "pourquoi ça
-  // me met en repos alors que je viens de finir".
-  const isLastBasicWork = isManualBasic && isWorkInfinite && state.currentRound === state.totalRounds;
+  // me met en repos alors que je viens de finir". Dans un MIX, "dernier
+  // tour" se lit sur le SOUS-round du bloc, pas sur la position du bloc.
+  const isLastBasicWork =
+    isManualBasic &&
+    isWorkInfinite &&
+    (isMix ? state.subRound === state.subTotalRounds : state.currentRound === state.totalRounds);
   const lastPhaseRef = useRef(state.phaseLabel);
   const navigatedRef = useRef(false);
   const skippedRef = useRef(0);
@@ -142,10 +158,15 @@ export default function Running() {
         params: {
           timerId: timer.id,
           elapsed: realElapsed,
-          // BASIC calcule ses stats (tours faits, travail/repos) à partir des
-          // restTriggers : sans ça, une séance qui se termine naturellement
-          // (pas via "Retour") arrive sur l'écran de fin avec 0 tour compté.
-          ...(isManualBasic ? { ctx: JSON.stringify({ restTriggers }) } : {}),
+          // BASIC (autonome ou bloc de MIX) calcule ses stats (tours faits,
+          // travail/repos) à partir des triggers : sans ça, une séance qui se
+          // termine naturellement (pas via "Retour") arrive sur l'écran de
+          // fin avec 0 tour compté.
+          ...(timer.id === 'basic'
+            ? { ctx: JSON.stringify({ restTriggers }) }
+            : isMix
+            ? { ctx: JSON.stringify({ basicTriggers: mixBasicTriggers }) }
+            : {}),
         },
       });
     }
@@ -158,7 +179,10 @@ export default function Running() {
 
   const handleReturn = () => {
     haptic.warning();
-    if (isManualBasic) {
+    // Explicitement le BASIC AUTONOME, pas isManualBasic (généralisé) : un
+    // MIX doit toujours jeter la séance sur Retour, même si son bloc courant
+    // est un BASIC en plein travail — comportement voulu, cf. plus bas.
+    if (timer.id === 'basic') {
       router.replace({
         pathname: '/end-session',
         params: {
@@ -178,7 +202,8 @@ export default function Running() {
     lastPhaseRef.current = '';
     skippedRef.current = 0;
     voicePrevRef.current = null;
-    if (isManualBasic) setRestTriggers([]);
+    if (timer.id === 'basic') setRestTriggers([]);
+    if (isMix) setMixBasicTriggers({});
     if (isPaused) resume();
     seek(0);
   };
@@ -220,7 +245,16 @@ export default function Running() {
   const handleEndWork = () => {
     if (!isManualBasic || !isWorkInfinite) return;
     // haptic + phase sound are emitted by the phase-change effect on re-render.
-    setRestTriggers((prev) => [...prev, secondsElapsed]);
+    if (isMix) {
+      const blockId = state.blockId;
+      const localElapsed = state.blockElapsed;
+      setMixBasicTriggers((prev) => ({
+        ...prev,
+        [blockId]: [...(prev[blockId] || []), localElapsed],
+      }));
+    } else {
+      setRestTriggers((prev) => [...prev, secondsElapsed]);
+    }
   };
 
   // Bouton "Stop" de la notification : on termine la séance EN LA GARDANT
@@ -241,7 +275,11 @@ export default function Running() {
       params: {
         timerId: timer.id,
         elapsed: done,
-        ...(isManualBasic ? { ctx: JSON.stringify({ restTriggers }) } : {}),
+        ...(timer.id === 'basic'
+          ? { ctx: JSON.stringify({ restTriggers }) }
+          : isMix
+          ? { ctx: JSON.stringify({ basicTriggers: mixBasicTriggers }) }
+          : {}),
       },
     });
   };

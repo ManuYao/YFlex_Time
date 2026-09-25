@@ -254,20 +254,6 @@ export default function MixBuilder() {
     </View>
   );
 
-  const ListFooter = (
-    <Button
-      variant="glass"
-      fullWidth
-      icon="plus"
-      label="Ajouter un bloc"
-      onPress={() => {
-        haptic.light();
-        setAddOpen(true);
-      }}
-      style={styles.addCta}
-    />
-  );
-
   return (
     <GradientBackground colors={[ACCENT, '#0A0A0A', '#000000']} ambient textMode="light">
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
@@ -305,7 +291,6 @@ export default function MixBuilder() {
             onDragEnd={handleDragEnd}
             keyExtractor={(item) => item.id}
             ListHeaderComponent={ListHeader}
-            ListFooterComponent={ListFooter}
             contentContainerStyle={styles.listContent}
             style={styles.listInner}
             containerStyle={styles.listInner}
@@ -323,13 +308,28 @@ export default function MixBuilder() {
           />
         </View>
 
-        <View style={styles.bottomActions}>
-          <Button variant="glass" label="Annuler" onPress={handleCancel} />
-          <SaveButton
-            disabled={draft.blocks.length === 0}
-            onTap={handleSave}
-            onLongComplete={handleSaveAsNew}
+        {/* Fixe, jamais dans le scroll (retour utilisateur 25/09/2026 : avec
+            beaucoup de blocs, "Ajouter un bloc" finissait tout en bas de la
+            liste et fallait tout dérouler pour l'atteindre). */}
+        <View style={styles.bottomBar}>
+          <Button
+            variant="glass"
+            fullWidth
+            icon="plus"
+            label="Ajouter un bloc"
+            onPress={() => {
+              haptic.light();
+              setAddOpen(true);
+            }}
           />
+          <View style={styles.bottomActions}>
+            <Button variant="glass" label="Annuler" onPress={handleCancel} />
+            <SaveButton
+              disabled={draft.blocks.length === 0}
+              onTap={handleSave}
+              onLongComplete={handleSaveAsNew}
+            />
+          </View>
         </View>
       </SafeAreaView>
 
@@ -706,7 +706,7 @@ function EditBlockSheet({ block, onClose, onUpdate }) {
   const type = getBlockType(block.type);
 
   const ranges = getRangesForType(block.type, block);
-  const showRest = block.type === 'tabata';
+  const showRest = block.type === 'tabata' || block.type === 'basic';
   const showRounds = block.type !== 'rest' && block.type !== 'amrap';
   const currentRole = resolveBlockRole(block);
 
@@ -789,7 +789,7 @@ function EditBlockSheet({ block, onClose, onUpdate }) {
                 {block.type === 'rest' ? 'DURÉE'
                   : block.type === 'amrap' ? 'DURÉE'
                   : block.type === 'emom' ? 'INTERVALLE'
-                  : block.type === 'basic' ? 'REPOS'
+                  : block.type === 'basic' ? '~TRAVAIL'
                   : 'TRAVAIL'}
               </Text>
               <WheelPicker
@@ -1240,7 +1240,7 @@ const getRangesForType = (typeId, block) => {
   if (typeId === 'amrap') return { duration: range(60, 1800, 30), rest: [], rounds: [] };
   if (typeId === 'rest') return { duration: getTimeRange(10, 600, d), rest: [], rounds: [] };
   if (typeId === 'tabata') return { duration: getTimeRange(5, 300, d), rest: getTimeRange(5, 300, r), rounds: range(1, 30) };
-  if (typeId === 'basic') return { duration: getTimeRange(5, 600, d), rest: [], rounds: range(1, 30) };
+  if (typeId === 'basic') return { duration: getTimeRange(5, 600, d), rest: getTimeRange(5, 600, r), rounds: range(1, 30) };
   if (typeId === 'emom') return { duration: getTimeRange(10, 300, d), rest: [], rounds: range(1, 30) };
   return { duration: range(10, 300), rest: [], rounds: [] };
 };
@@ -1510,17 +1510,17 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
 
-  addCta: {
-    marginTop: 6,
-  },
 
+  bottomBar: {
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: BOTTOM_GAP,
+    backgroundColor: 'rgba(0,0,0,0.62)',
+  },
   bottomActions: {
     flexDirection: 'row',
     gap: 10,
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: BOTTOM_GAP,
-    backgroundColor: 'rgba(0,0,0,0.62)',
+    marginTop: 10,
   },
   saveSlot: {
     flex: 1,

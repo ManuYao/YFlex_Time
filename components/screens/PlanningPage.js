@@ -12,6 +12,7 @@ import IconButton from '../common/IconButton';
 import BlockSheet from '../common/BlockSheet';
 import ExerciseLibrarySheet from '../common/ExerciseLibrarySheet';
 import ExerciseDetailSheet from '../common/ExerciseDetailSheet';
+import SaveFlashRing from '../common/SaveFlashRing';
 import { fonts } from '../../lib/fonts';
 import { categoryChip } from '../../lib/exercises';
 import { loadHistory } from '../../lib/history';
@@ -62,6 +63,10 @@ export default function PlanningPage({
   );
   const [usedDays, setUsedDays] = useState(() => new Set());
   const [sheet, setSheet] = useState(null);
+  // Incrémenté à chaque VRAIE sauvegarde de note (texte réellement changé) —
+  // fait jouer SaveFlashRing autour du champ. Pas de bouton "Enregistrer" :
+  // ce contour vert est la seule confirmation que la note a bien été prise.
+  const [noteSaveTick, setNoteSaveTick] = useState(0);
   // Une seule ouverture automatique : revenir sur la page (useFocusEffect
   // rejoue à chaque retour) ne doit pas rouvrir la fiche dans le dos de
   // l'utilisateur qui vient de la fermer.
@@ -125,7 +130,10 @@ export default function PlanningPage({
   // chaque changement de jour, donc son texte affiché reste toujours celui
   // du jour réellement sélectionné sans état local à synchroniser.
   const handleNoteBlur = async (key, text) => {
+    const prevNote = (planning[key] ?? {}).note || '';
+    if (text === prevNote) return; // rien de changé : pas de sauvegarde, pas de flash
     setPlanning(await setDayNote(planning, key, text));
+    setNoteSaveTick((n) => n + 1);
   };
 
   return (
@@ -213,18 +221,20 @@ export default function PlanningPage({
         {archived ? (
           !!dayState.note && <Text style={styles.noteReadOnly}>{dayState.note}</Text>
         ) : (
-          <TextInput
-            key={dayKey}
-            defaultValue={dayState.note}
-            onEndEditing={(e) => handleNoteBlur(dayKey, e.nativeEvent.text)}
-            placeholder="Ajouter une note pour ce jour…"
-            placeholderTextColor="rgba(255,255,255,0.30)"
-            selectionColor="#FFFFFF"
-            multiline
-            textAlignVertical="top"
-            maxLength={280}
-            style={styles.noteInput}
-          />
+          <SaveFlashRing trigger={noteSaveTick} radius={14} style={styles.noteWrap}>
+            <TextInput
+              key={dayKey}
+              defaultValue={dayState.note}
+              onEndEditing={(e) => handleNoteBlur(dayKey, e.nativeEvent.text)}
+              placeholder="Ajouter une note pour ce jour…"
+              placeholderTextColor="rgba(255,255,255,0.30)"
+              selectionColor="#FFFFFF"
+              multiline
+              textAlignVertical="top"
+              maxLength={280}
+              style={styles.noteInput}
+            />
+          </SaveFlashRing>
         )}
 
         {dayState.blocks.length === 0 ? (
@@ -699,6 +709,11 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansSemibold,
     fontSize: 14,
     color: '#FFFFFF',
+  },
+  // Le marginBottom vit ici plutôt que sur noteInput : SaveFlashRing mesure
+  // son enfant direct par onLayout, une marge externe sur le TextInput lui-
+  // même fausserait la boîte mesurée.
+  noteWrap: {
     marginBottom: 18,
   },
   noteReadOnly: {
