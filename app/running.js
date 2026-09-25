@@ -115,6 +115,12 @@ export default function Running() {
     isManualBasic &&
     isWorkInfinite &&
     (isMix ? state.subRound === state.subTotalRounds : state.currentRound === state.totalRounds);
+  // Dernier tour d'EMOM : plus de tour suivant à attendre, donc même
+  // traitement que le dernier tour de BASIC — le bouton "Fin" quitte sa
+  // place discrète en bas à droite pour devenir LE bouton central "FINI"
+  // (simple tap, comme "Fin du travail"), au lieu d'un appui long isolé.
+  const isLastEmomRound =
+    isEmom && state.totalRounds > 0 && state.currentRound === state.totalRounds;
   const lastPhaseRef = useRef(state.phaseLabel);
   const navigatedRef = useRef(false);
   const skippedRef = useRef(0);
@@ -232,6 +238,11 @@ export default function Running() {
   const handleFinish = () => {
     if (navigatedRef.current) return;
     navigatedRef.current = true;
+    // Navigation immédiate : le useEffect générique de changement de phase
+    // ne se déclenchera pas avant le démontage, donc aucune vibration sans
+    // celle-ci (contrairement à "Fin du travail" de BASIC, qui reste sur
+    // l'écran le temps du re-render).
+    haptic.success();
     const done = Math.min(
       Math.floor(secondsElapsed),
       Math.floor(state.totalSecondsTarget)
@@ -576,11 +587,11 @@ export default function Running() {
           onReset={handleReset}
           onPauseToggle={handlePauseToggle}
           onSkip={handleSkip}
-          showEndWork={isManualBasic && isWorkInfinite}
-          endWorkLabel={isLastBasicWork ? 'FINI' : 'REPOS'}
-          onEndWork={handleEndWork}
-          hideSkip={isManualBasic && isWorkInfinite}
-          showFinish={isEmom}
+          showEndWork={(isManualBasic && isWorkInfinite) || isLastEmomRound}
+          endWorkLabel={isLastBasicWork || isLastEmomRound ? 'FINI' : 'REPOS'}
+          onEndWork={isLastEmomRound ? handleFinish : handleEndWork}
+          hideSkip={(isManualBasic && isWorkInfinite) || isLastEmomRound}
+          showFinish={isEmom && !isLastEmomRound}
           onFinish={handleFinish}
         />
       </SafeAreaView>
