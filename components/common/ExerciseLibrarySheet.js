@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TextInput, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, TextInput, ScrollView, StyleSheet, Keyboard } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
 import BottomSheet from './BottomSheet';
@@ -101,6 +101,13 @@ export default function ExerciseLibrarySheet({ screenH, blockName, onClose, onPi
   const trimmed = customName.trim();
   const draftLabel = draft.label.trim();
 
+  // Retour à la liste depuis un formulaire : le champ disparaît, le clavier
+  // doit partir avec lui (sinon il reste ouvert sur une feuille sans champ).
+  const backToList = () => {
+    Keyboard.dismiss();
+    setView('list');
+  };
+
   const submitCustom = (close) => {
     if (!trimmed) return;
     haptic.medium();
@@ -111,6 +118,7 @@ export default function ExerciseLibrarySheet({ screenH, blockName, onClose, onPi
 
   const openCategoryEditor = (cat) => {
     haptic.light();
+    Keyboard.dismiss();
     manualPick.current = true;
     setDraft(
       cat
@@ -139,7 +147,7 @@ export default function ExerciseLibrarySheet({ screenH, blockName, onClose, onPi
       setCategories(getAllCategories());
       setCategoryId(created.id);
     }
-    setView('list');
+    backToList();
   };
 
   // Un exercice perso n'est qu'une entrée de bibliothèque (pas d'id, pas de
@@ -157,6 +165,9 @@ export default function ExerciseLibrarySheet({ screenH, blockName, onClose, onPi
 
   const confirmDeleteCategory = () => {
     haptic.light();
+    // ConfirmSheet n'a pas de champ, donc ne suit pas le clavier : ouverte
+    // clavier levé, ses boutons seraient cachés dessous.
+    Keyboard.dismiss();
     setConfirm({ type: 'category' });
   };
 
@@ -175,7 +186,7 @@ export default function ExerciseLibrarySheet({ screenH, blockName, onClose, onPi
 
   return (
     <>
-    <BottomSheet screenH={screenH} onClose={onClose} zIndex={92}>
+    <BottomSheet screenH={screenH} onClose={onClose} zIndex={92} keyboardAware>
       {({ close }) => (
         <View>
           <Text style={styles.title}>
@@ -250,7 +261,7 @@ export default function ExerciseLibrarySheet({ screenH, blockName, onClose, onPi
                   label="Annuler"
                   onPress={() => {
                     haptic.light();
-                    setView('list');
+                    backToList();
                   }}
                 />
                 <Button
@@ -279,6 +290,9 @@ export default function ExerciseLibrarySheet({ screenH, blockName, onClose, onPi
                 ref={catScrollRef}
                 horizontal
                 showsHorizontalScrollIndicator={false}
+                // Visible pendant la saisie d'un exercice : sans ça, le 1er
+                // appui sur un groupe ne ferait que fermer le clavier.
+                keyboardShouldPersistTaps="handled"
                 style={styles.catRow}
                 contentContainerStyle={styles.catContent}
               >
@@ -299,7 +313,7 @@ export default function ExerciseLibrarySheet({ screenH, blockName, onClose, onPi
                           haptic.selection();
                           manualPick.current = true;
                           setCategoryId(c.id);
-                          setView('list');
+                          backToList();
                         }}
                         // Seuls les groupes créés se modifient : les six groupes
                         // d'origine sont le socle de la bibliothèque.
@@ -375,7 +389,7 @@ export default function ExerciseLibrarySheet({ screenH, blockName, onClose, onPi
                       label="Annuler"
                       onPress={() => {
                         haptic.light();
-                        setView('list');
+                        backToList();
                       }}
                     />
                     <Button
@@ -392,6 +406,9 @@ export default function ExerciseLibrarySheet({ screenH, blockName, onClose, onPi
                   style={styles.list}
                   contentContainerStyle={styles.listContent}
                   showsVerticalScrollIndicator={false}
+                  // Liste verticale dans le ScrollView de la feuille
+                  // (keyboardAware) : sans ça, Android ne la fait plus défiler.
+                  nestedScrollEnabled
                 >
                   {exercises.map((ex) => (
                     <PressTap

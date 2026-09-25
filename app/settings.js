@@ -189,6 +189,7 @@ export default function Settings() {
         // à zéro après un reset, comme les autres rappels ci-dessus.
         'flexTimer_notificationPromptLastShown',
         'flexTimer_permissionPrimerSeen',
+        'flexTimer_shareOnboarded',
         // Compteur et date de lancement (lib/splash.js) : après un reset
         // l'app redevient une première ouverture, donc la cinématique est
         // rejouée et le cycle de 8 repart de zéro.

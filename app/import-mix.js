@@ -7,7 +7,7 @@ import GradientBackground from '../components/common/GradientBackground';
 import Button from '../components/common/Button';
 import IconButton from '../components/common/IconButton';
 import AppIcon from '../components/common/AppIcon';
-import { getBlockType, getMixTotalDuration, formatBlockSubtitle } from '../lib/mix-blocks';
+import { getBlockType, getMixTotalDuration, formatBlockSubtitle, hasEstimatedDuration } from '../lib/mix-blocks';
 import { deserializeMix, sanitizeImportedPayload } from '../lib/mixShare';
 import { fonts } from '../lib/fonts';
 import { BOTTOM_GAP, PAIR_GAP, ROUND_SIZE, SIDE_GAP } from '../lib/buttonTokens';
@@ -95,7 +95,7 @@ export default function ImportMix() {
         <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
           <Text style={styles.name} numberOfLines={2}>{mix.name}</Text>
           <Text style={styles.meta}>
-            {mix.blocks.length} bloc{mix.blocks.length > 1 ? 's' : ''} · {String(min).padStart(2, '0')}:{String(sec).padStart(2, '0')}
+            {mix.blocks.length} bloc{mix.blocks.length > 1 ? 's' : ''} · {hasEstimatedDuration(mix.blocks) ? '~' : ''}{String(min).padStart(2, '0')}:{String(sec).padStart(2, '0')}
           </Text>
 
           <View style={styles.list}>

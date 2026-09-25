@@ -260,6 +260,9 @@ export default function WheelPicker({
         onScrollBeginDrag={onScrollBeginDrag}
         onMomentumScrollEnd={onMomentumScrollEnd}
         scrollEventThrottle={16}
+        // Posée dans une feuille qui défile (mode clavier de BottomSheet) : sans
+        // ça, Android donne le glissement vertical à la feuille, pas à la roue.
+        nestedScrollEnabled
         contentContainerStyle={{ paddingVertical: railTop }}
       >
         {values.map((v, i) => (

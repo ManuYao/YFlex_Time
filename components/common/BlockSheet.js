@@ -25,7 +25,7 @@ export default function BlockSheet({
   const trimmed = name.trim();
 
   return (
-    <BottomSheet screenH={screenH} onClose={onClose} zIndex={90}>
+    <BottomSheet screenH={screenH} onClose={onClose} zIndex={90} keyboardAware>
       {({ close }) => (
         <View>
           <Text style={styles.title}>

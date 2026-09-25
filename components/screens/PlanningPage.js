@@ -1,8 +1,9 @@
-import React, { useCallback, useRef, useState } from 'react';
-import { View, Text, Pressable, TextInput, ScrollView, StyleSheet } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { View, Text, Pressable, TextInput, ScrollView, StyleSheet, Keyboard } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 
 import PressTap from '../common/PressTap';
@@ -18,6 +19,7 @@ import { categoryChip } from '../../lib/exercises';
 import { loadHistory } from '../../lib/history';
 import { useLongPress } from '../../hooks/useLongPress';
 import { haptic } from '../../hooks/useHaptic';
+import { useKeyboardHeight, scrollToFocusedInput } from '../../hooks/useKeyboardHeight';
 import ChipRow from '../common/ChipRow';
 import {
   DAYS,
@@ -42,6 +44,11 @@ import {
 } from '../../lib/planning';
 
 const ARCHIVE_HOLD_MS = 2000;
+// Note en cours de saisie : distance gardée sous le haut de la zone qui
+// défile, et au-dessus du clavier.
+const NOTE_SCROLL_OFFSET = 16;
+const NOTE_KEYBOARD_GAP = 12;
+const NOTE_MIN_H = 44;
 
 export default function PlanningPage({
   width,
@@ -71,6 +78,43 @@ export default function PlanningPage({
   // rejoue à chaque retour) ne doit pas rouvrir la fiche dans le dos de
   // l'utilisateur qui vient de la fermer.
   const focusConsumed = useRef(false);
+
+  // Clavier et note du jour. L'app est bord à bord : Android ne réduit plus
+  // la fenêtre, le clavier passe par-dessus la page (barre du bas comprise).
+  // Une cale de la hauteur du clavier en fin de contenu permet de faire
+  // défiler la note au-dessus de lui.
+  const keyboardHeight = useKeyboardHeight();
+  const keyboardSpacer = useAnimatedStyle(() => ({ height: keyboardHeight.value }));
+  const bodyRef = useRef(null);
+  const bodyContentRef = useRef(null);
+  const noteRef = useRef(null);
+  const bodyH = useRef(0);
+  const bottomBarH = useRef(0);
+  // Hauteur max de la note tant que le clavier est ouvert : sur un petit
+  // écran, une note de plusieurs lignes dépasserait la place restante et le
+  // curseur finirait sous le clavier. Plafonnée, elle défile en interne et
+  // garde le curseur visible.
+  const [noteMaxH, setNoteMaxH] = useState(null);
+
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', (e) => {
+      if (!noteRef.current?.isFocused()) return;
+      if (bodyH.current > 0) {
+        // Le clavier se mesure depuis le bas de l'écran : il recouvre d'abord
+        // la barre du bas, puis le bas de la zone qui défile.
+        const kb = Math.max(keyboardHeight.value, (e?.endCoordinates?.height ?? 0) + insets.bottom);
+        const hidden = Math.max(0, kb - bottomBarH.current);
+        const room = bodyH.current - hidden - NOTE_SCROLL_OFFSET - NOTE_KEYBOARD_GAP;
+        setNoteMaxH(Math.max(NOTE_MIN_H, room));
+      }
+      setTimeout(() => scrollToFocusedInput(bodyRef, bodyContentRef, NOTE_SCROLL_OFFSET), 60);
+    });
+    const hide = Keyboard.addListener('keyboardDidHide', () => setNoteMaxH(null));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, [insets.bottom]);
 
   useFocusEffect(
     useCallback(() => {
@@ -187,79 +231,87 @@ export default function PlanningPage({
       </ChipRow>
 
       <ScrollView
+        ref={bodyRef}
         style={styles.body}
         contentContainerStyle={styles.bodyContent}
         showsVerticalScrollIndicator={false}
+        onLayout={(e) => {
+          bodyH.current = e.nativeEvent.layout.height;
+        }}
       >
-        <View style={styles.dayTitleRow}>
-          <Text style={styles.dayTitle}>{day.long}</Text>
+        <View ref={bodyContentRef} collapsable={false}>
+          <View style={styles.dayTitleRow}>
+            <Text style={styles.dayTitle}>{day.long}</Text>
+            {archived && (
+              <Svg width={13} height={13} viewBox="0 0 12 12" fill="none">
+                <Path
+                  d="M3.6 5.2V3.8a2.4 2.4 0 014.8 0v1.4"
+                  stroke="rgba(255,255,255,0.4)"
+                  strokeWidth={1.3}
+                  strokeLinecap="round"
+                />
+                <Rect x={2.6} y={5.2} width={6.8} height={4.8} rx={1.3} fill="rgba(255,255,255,0.4)" />
+              </Svg>
+            )}
+          </View>
+          <Text style={styles.daySummary}>
+            {archived
+              ? `ARCHIVÉ · ${formatArchiveDate(dayState.archivedAt).toUpperCase()}`
+              : `${counts.blocks} ${counts.blocks > 1 ? 'BLOCS' : 'BLOC'} · ${counts.tags} ${
+                  counts.tags > 1 ? 'ÉTIQUETTES' : 'ÉTIQUETTE'
+                }`}
+          </Text>
           {archived && (
-            <Svg width={13} height={13} viewBox="0 0 12 12" fill="none">
-              <Path
-                d="M3.6 5.2V3.8a2.4 2.4 0 014.8 0v1.4"
-                stroke="rgba(255,255,255,0.4)"
-                strokeWidth={1.3}
-                strokeLinecap="round"
+            <Text style={styles.archiveHint}>
+              Appui long sur le jour pour le rouvrir et le modifier à nouveau.
+            </Text>
+          )}
+
+          {archived ? (
+            !!dayState.note && <Text style={styles.noteReadOnly}>{dayState.note}</Text>
+          ) : (
+            <SaveFlashRing trigger={noteSaveTick} radius={14} style={styles.noteWrap}>
+              <TextInput
+                key={dayKey}
+                ref={noteRef}
+                defaultValue={dayState.note}
+                onEndEditing={(e) => handleNoteBlur(dayKey, e.nativeEvent.text)}
+                placeholder="Ajouter une note pour ce jour…"
+                placeholderTextColor="rgba(255,255,255,0.30)"
+                selectionColor="#FFFFFF"
+                multiline
+                textAlignVertical="top"
+                maxLength={280}
+                style={[styles.noteInput, noteMaxH != null && { maxHeight: noteMaxH }]}
               />
-              <Rect x={2.6} y={5.2} width={6.8} height={4.8} rx={1.3} fill="rgba(255,255,255,0.4)" />
-            </Svg>
+            </SaveFlashRing>
+          )}
+
+          {dayState.blocks.length === 0 ? (
+            <View style={styles.empty}>
+              <Text style={styles.emptyTitle}>Aucun bloc</Text>
+              <Text style={styles.emptyHint}>
+                Ajoute ton premier bloc d'exercices pour ce jour
+              </Text>
+            </View>
+          ) : (
+            dayState.blocks.map((block) => (
+              <BlockCard
+                key={block.id}
+                block={block}
+                dayArchived={archived}
+                onRename={() => openSheet({ type: 'block', blockId: block.id })}
+                onAddTag={() => openSheet({ type: 'library', blockId: block.id })}
+                onOpenTag={(tagId) => openSheet({ type: 'detail', blockId: block.id, tagId })}
+                onDelete={async () => {
+                  haptic.warning();
+                  setPlanning(await removeBlock(planning, dayKey, block.id));
+                }}
+              />
+            ))
           )}
         </View>
-        <Text style={styles.daySummary}>
-          {archived
-            ? `ARCHIVÉ · ${formatArchiveDate(dayState.archivedAt).toUpperCase()}`
-            : `${counts.blocks} ${counts.blocks > 1 ? 'BLOCS' : 'BLOC'} · ${counts.tags} ${
-                counts.tags > 1 ? 'ÉTIQUETTES' : 'ÉTIQUETTE'
-              }`}
-        </Text>
-        {archived && (
-          <Text style={styles.archiveHint}>
-            Appui long sur le jour pour le rouvrir et le modifier à nouveau.
-          </Text>
-        )}
-
-        {archived ? (
-          !!dayState.note && <Text style={styles.noteReadOnly}>{dayState.note}</Text>
-        ) : (
-          <SaveFlashRing trigger={noteSaveTick} radius={14} style={styles.noteWrap}>
-            <TextInput
-              key={dayKey}
-              defaultValue={dayState.note}
-              onEndEditing={(e) => handleNoteBlur(dayKey, e.nativeEvent.text)}
-              placeholder="Ajouter une note pour ce jour…"
-              placeholderTextColor="rgba(255,255,255,0.30)"
-              selectionColor="#FFFFFF"
-              multiline
-              textAlignVertical="top"
-              maxLength={280}
-              style={styles.noteInput}
-            />
-          </SaveFlashRing>
-        )}
-
-        {dayState.blocks.length === 0 ? (
-          <View style={styles.empty}>
-            <Text style={styles.emptyTitle}>Aucun bloc</Text>
-            <Text style={styles.emptyHint}>
-              Ajoute ton premier bloc d'exercices pour ce jour
-            </Text>
-          </View>
-        ) : (
-          dayState.blocks.map((block) => (
-            <BlockCard
-              key={block.id}
-              block={block}
-              dayArchived={archived}
-              onRename={() => openSheet({ type: 'block', blockId: block.id })}
-              onAddTag={() => openSheet({ type: 'library', blockId: block.id })}
-              onOpenTag={(tagId) => openSheet({ type: 'detail', blockId: block.id, tagId })}
-              onDelete={async () => {
-                haptic.warning();
-                setPlanning(await removeBlock(planning, dayKey, block.id));
-              }}
-            />
-          ))
-        )}
+        <Animated.View style={keyboardSpacer} />
       </ScrollView>
 
       {/* Le bouton d'abord, les points dessous : même padding bas et même
@@ -267,7 +319,12 @@ export default function PlanningPage({
           HistoryPage, pour que les points ne sautent pas en glissant d'une
           page à l'autre (ils étaient au-dessus du bouton, ~60 dp plus haut).
           La vibration vient du handler de chaque bouton (une seule). */}
-      <View style={[styles.bottom, { paddingBottom: 8 + insets.bottom }]}>
+      <View
+        style={[styles.bottom, { paddingBottom: 8 + insets.bottom }]}
+        onLayout={(e) => {
+          bottomBarH.current = e.nativeEvent.layout.height;
+        }}
+      >
         {archived ? (
           <Button
             variant="glass"

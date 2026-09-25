@@ -151,6 +151,11 @@ export default function History() {
               pagingEnabled
               initialScrollIndex={initialPage}
               scrollEnabled={!sheetOpen}
+              // Les feuilles du planning vivent DANS ce pager : en 'never', il
+              // volerait le 1er appui sur leurs boutons pour fermer le clavier.
+              // Hors feuille, 'never' reste voulu : cet appui ferme le clavier,
+              // donc enregistre la note du jour avant de changer de jour.
+              keyboardShouldPersistTaps={sheetOpen ? 'handled' : 'never'}
               showsHorizontalScrollIndicator={false}
               decelerationRate="fast"
               onMomentumScrollEnd={handleMomentumEnd}

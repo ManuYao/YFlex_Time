@@ -12,7 +12,7 @@ import {
   LEGACY_ACTIVE_KEY,
   LIBRARY_MIGRATION_KEY,
 } from '../lib/mixes';
-import { getMixTotalDuration } from '../lib/mix-blocks';
+import { getMixTotalDuration, hasEstimatedDuration } from '../lib/mix-blocks';
 
 const STORAGE_KEY = 'flexTimer_timerOverrides';
 
@@ -33,7 +33,10 @@ const applyMixToTimer = (timer, currentMix) => {
   const stats = timer.stats.map((s) => {
     if (s.key === 'name') return { ...s, value: nameValue };
     if (s.key === 'blocks') return { ...s, value: String(blocks.length) };
-    if (s.key === 'duration') return { ...s, value: formatComputedTotal(total) };
+    if (s.key === 'duration') {
+      const prefix = hasEstimatedDuration(blocks) ? '~' : '';
+      return { ...s, value: `${prefix}${formatComputedTotal(total)}` };
+    }
     return s;
   });
   const phases = blocks.length === 0

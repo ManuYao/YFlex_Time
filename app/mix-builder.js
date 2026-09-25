@@ -4,14 +4,12 @@ import {
   Text,
   Pressable,
   TextInput,
-  Modal,
   ScrollView,
   StyleSheet,
-  Share,
   Keyboard,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useRouter } from 'expo-router';
@@ -30,17 +28,20 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import GradientBackground from '../components/common/GradientBackground';
+import BottomSheet from '../components/common/BottomSheet';
 import WheelPicker from '../components/common/WheelPicker';
 import PressTap from '../components/common/PressTap';
 import Button from '../components/common/Button';
 import IconButton from '../components/common/IconButton';
 import BlockRoleIcon from '../components/common/BlockRoleIcon';
 import AppIcon from '../components/common/AppIcon';
+import ShareTipCard from '../components/common/ShareTipCard';
 import {
   BLOCK_TYPES,
   getBlockType,
   getBlockDuration,
   getMixTotalDuration,
+  hasEstimatedDuration,
   formatBlockSubtitle,
   makeBlock,
 } from '../lib/mix-blocks';
@@ -53,6 +54,8 @@ import {
 } from '../lib/mixShare';
 import { BLOCK_ROLES, getBlockRole, resolveBlockRole } from '../lib/blockRoles';
 import { getTimeRange } from '../lib/timeRanges';
+import { copyToClipboard } from '../lib/clipboard';
+import { isShareOnboarded, markShareOnboarded } from '../lib/shareOnboarding';
 import { fonts } from '../lib/fonts';
 import { easeImpact, springBouncy, springEnergetic } from '../lib/animations';
 import {
@@ -73,6 +76,7 @@ const SAVE_HOLD_MS = 3000;
 export default function MixBuilder() {
   const router = useRouter();
   const haptic = useHaptic();
+  const { height: screenH } = useWindowDimensions();
   const {
     currentMix,
     library,
@@ -107,6 +111,7 @@ export default function MixBuilder() {
   }
 
   const totalSec = getMixTotalDuration(draft.blocks);
+  const totalIsEstimate = hasEstimatedDuration(draft.blocks);
   const totalMin = Math.floor(totalSec / 60);
   const totalRest = totalSec % 60;
 
@@ -118,8 +123,8 @@ export default function MixBuilder() {
     haptic.light();
     // Pas de rôle figé à la création : il suit le nom du bloc (resolveBlockRole)
     // tant que l'utilisateur n'a pas touché une pastille.
+    // La feuille se referme elle-même (animation), puis onClose remet addOpen à false.
     setDraft((d) => ({ ...d, blocks: [...d.blocks, block] }));
-    setAddOpen(false);
   };
 
   const removeBlock = (id) => {
@@ -169,7 +174,6 @@ export default function MixBuilder() {
     if (loaded) {
       setDraft({ ...loaded, blocks: loaded.blocks.map((b) => ({ ...b })) });
     }
-    setLibraryOpen(false);
   };
 
   const handleDeleteMix = async (mixId) => {
@@ -191,7 +195,6 @@ export default function MixBuilder() {
 
   const handleImported = (mix) => {
     setDraft({ ...mix, blocks: mix.blocks.map((b) => ({ ...b })) });
-    setShareOpen(false);
   };
 
   const editingBlock = editingBlockId
@@ -214,11 +217,12 @@ export default function MixBuilder() {
           />
           <Text style={styles.heroMeta}>
             {draft.blocks.length} bloc{draft.blocks.length > 1 ? 's' : ''} ·{' '}
+            {totalIsEstimate ? '~' : ''}
             {formatTotalShort(totalSec)}
           </Text>
         </View>
         <View style={styles.heroRight}>
-          <Text style={styles.heroDurLabel}>Durée</Text>
+          <Text style={styles.heroDurLabel}>{totalIsEstimate ? 'Durée estimée' : 'Durée'}</Text>
           <Text style={styles.heroDurValue}>
             {String(totalMin).padStart(2, '0')}
             <Text style={styles.heroDurSep}>:</Text>
@@ -333,35 +337,49 @@ export default function MixBuilder() {
         </View>
       </SafeAreaView>
 
-      <AddBlockSheet
-        visible={addOpen}
-        onClose={() => setAddOpen(false)}
-        onPick={addBlock}
-      />
+      {/* Feuilles dans la fenêtre principale, pas dans des <Modal> : Android
+          n'envoie ni les événements ni les insets du clavier à une Modal, le
+          clavier y recouvrait les champs. Rendues en dernier pour passer
+          au-dessus de la liste et de la barre du bas. */}
+      {addOpen && (
+        <AddBlockSheet
+          screenH={screenH}
+          onClose={() => setAddOpen(false)}
+          onPick={addBlock}
+        />
+      )}
 
-      <EditBlockSheet
-        block={editingBlock}
-        onClose={() => setEditingBlockId(null)}
-        onUpdate={(patch) => editingBlock && updateBlock(editingBlock.id, patch)}
-      />
+      {!!editingBlock && (
+        <EditBlockSheet
+          screenH={screenH}
+          block={editingBlock}
+          onClose={() => setEditingBlockId(null)}
+          onUpdate={(patch) => updateBlock(editingBlock.id, patch)}
+        />
+      )}
 
-      <LibrarySheet
-        visible={libraryOpen}
-        library={library}
-        onClose={() => setLibraryOpen(false)}
-        onLoad={handleLoadMix}
-        onDelete={handleDeleteMix}
-        onShare={(m) => {
-          setLibraryOpen(false);
-          openShare(m);
-        }}
-      />
-      <ShareSheet
-        visible={shareOpen}
-        mix={shareMix}
-        onClose={() => setShareOpen(false)}
-        onImported={handleImported}
-      />
+      {libraryOpen && (
+        <LibrarySheet
+          screenH={screenH}
+          library={library}
+          onClose={() => setLibraryOpen(false)}
+          onLoad={handleLoadMix}
+          onDelete={handleDeleteMix}
+          onShare={(m) => {
+            setShareMix(m);
+            setShareOpen(true);
+          }}
+        />
+      )}
+
+      {shareOpen && (
+        <ShareSheet
+          screenH={screenH}
+          mix={shareMix}
+          onClose={() => setShareOpen(false)}
+          onImported={handleImported}
+        />
+      )}
     </GradientBackground>
   );
 }
@@ -628,16 +646,15 @@ function SaveButton({ disabled, onTap, onLongComplete }) {
   );
 }
 
-function AddBlockSheet({ visible, onClose, onPick }) {
+function AddBlockSheet({ screenH, onClose, onPick }) {
   const haptic = useHaptic();
+  // La feuille reste touchable pendant son animation de fermeture : sans ce
+  // verrou, un double tap ajouterait deux blocs.
+  const pickedRef = useRef(false);
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={sheetStyles.root}>
-        <BlurView intensity={40} tint="dark" pointerEvents="none" style={StyleSheet.absoluteFill} />
-        <View pointerEvents="none" style={sheetStyles.dim} />
-        <Pressable style={sheetStyles.tap} onPress={onClose} />
-        <View style={sheetStyles.sheet}>
-          <View style={sheetStyles.handle} />
+    <BottomSheet screenH={screenH} onClose={onClose}>
+      {({ close }) => (
+        <View>
           <View style={sheetStyles.headerRow}>
             <View>
               <Text style={sheetStyles.kicker}>NOUVEAU BLOC</Text>
@@ -647,7 +664,7 @@ function AddBlockSheet({ visible, onClose, onPick }) {
               icon="close"
               size={ROUND_SIZE.sheet}
               haptic={haptic.light}
-              onPress={onClose}
+              onPress={close}
               accessibilityLabel="Fermer"
             />
           </View>
@@ -656,7 +673,12 @@ function AddBlockSheet({ visible, onClose, onPick }) {
             {BLOCK_TYPES.map((t) => (
               <Pressable
                 key={t.id}
-                onPress={() => onPick(t.id)}
+                onPress={() => {
+                  if (pickedRef.current) return;
+                  pickedRef.current = true;
+                  onPick(t.id);
+                  close();
+                }}
                 style={({ pressed }) => [
                   sheetStyles.gridCell,
                   pressed && { opacity: 0.85, transform: [{ scale: 0.96 }] },
@@ -678,14 +700,14 @@ function AddBlockSheet({ visible, onClose, onPick }) {
             <View style={[sheetStyles.gridCell, { opacity: 0 }]} pointerEvents="none" />
           </View>
         </View>
-      </View>
-    </Modal>
+      )}
+    </BottomSheet>
   );
 }
 
-function EditBlockSheet({ block, onClose, onUpdate }) {
+function EditBlockSheet({ screenH, block, onClose, onUpdate }) {
   const haptic = useHaptic();
-  const [labelDraft, setLabelDraft] = useState('');
+  const [labelDraft, setLabelDraft] = useState(block?.label || '');
   const roleScrollRef = useRef(null);
   const roleRevealedFor = useRef(null);
 
@@ -706,6 +728,9 @@ function EditBlockSheet({ block, onClose, onUpdate }) {
   const type = getBlockType(block.type);
 
   const ranges = getRangesForType(block.type, block);
+  // BASIC se règle comme le BASIC normal : travail libre, donc pas de roue
+  // de travail, seulement le repos et les tours.
+  const showWork = block.type !== 'basic';
   const showRest = block.type === 'tabata' || block.type === 'basic';
   const showRounds = block.type !== 'rest' && block.type !== 'amrap';
   const currentRole = resolveBlockRole(block);
@@ -734,13 +759,9 @@ function EditBlockSheet({ block, onClose, onUpdate }) {
   ));
 
   return (
-    <Modal visible={!!block} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={sheetStyles.root}>
-        <BlurView intensity={40} tint="dark" pointerEvents="none" style={StyleSheet.absoluteFill} />
-        <View pointerEvents="none" style={sheetStyles.dim} />
-        <Pressable style={sheetStyles.tap} onPress={onClose} />
-        <View style={[sheetStyles.sheet, { paddingBottom: 24 }]}>
-          <View style={sheetStyles.handle} />
+    <BottomSheet screenH={screenH} onClose={onClose} keyboardAware>
+      {({ close }) => (
+        <View>
           <View style={sheetStyles.headerRow}>
             <View style={{ flex: 1, paddingRight: 12 }}>
               <Text style={sheetStyles.kicker}>BLOC {type.name}</Text>
@@ -761,7 +782,7 @@ function EditBlockSheet({ block, onClose, onUpdate }) {
               icon="close"
               size={ROUND_SIZE.sheet}
               haptic={haptic.light}
-              onPress={onClose}
+              onPress={close}
               accessibilityLabel="Fermer"
             />
           </View>
@@ -769,9 +790,12 @@ function EditBlockSheet({ block, onClose, onUpdate }) {
           <View style={sheetStyles.roleSection}>
             <Text style={sheetStyles.pickerLabel}>RÔLE</Text>
             {rolesInline ? (
+              // "handled" : clavier ouvert, un tap sur une pastille la choisit
+              // au lieu de seulement fermer le clavier.
               <ScrollView
                 ref={roleScrollRef}
                 horizontal
+                keyboardShouldPersistTaps="handled"
                 showsHorizontalScrollIndicator={false}
                 style={sheetStyles.roleScroll}
                 contentContainerStyle={sheetStyles.roleScrollContent}
@@ -784,27 +808,28 @@ function EditBlockSheet({ block, onClose, onUpdate }) {
           </View>
 
           <View style={sheetStyles.pickersRow}>
-            <View style={sheetStyles.pickerCol}>
-              <Text style={sheetStyles.pickerLabel}>
-                {block.type === 'rest' ? 'DURÉE'
-                  : block.type === 'amrap' ? 'DURÉE'
-                  : block.type === 'emom' ? 'INTERVALLE'
-                  : block.type === 'basic' ? '~TRAVAIL'
-                  : 'TRAVAIL'}
-              </Text>
-              <WheelPicker
-                values={ranges.duration}
-                selectedValue={block.duration}
-                type="seconds"
-                accentColor={type.color}
-                onChange={(v) => onUpdate({ duration: v })}
-                visibleItems={wheelItems}
-              />
-            </View>
+            {showWork && (
+              <View style={sheetStyles.pickerCol}>
+                <Text style={sheetStyles.pickerLabel}>
+                  {block.type === 'rest' ? 'DURÉE'
+                    : block.type === 'amrap' ? 'DURÉE'
+                    : block.type === 'emom' ? 'INTERVALLE'
+                    : 'TRAVAIL'}
+                </Text>
+                <WheelPicker
+                  values={ranges.duration}
+                  selectedValue={block.duration}
+                  type="seconds"
+                  accentColor={type.color}
+                  onChange={(v) => onUpdate({ duration: v })}
+                  visibleItems={wheelItems}
+                />
+              </View>
+            )}
 
             {showRest && (
               <View style={sheetStyles.pickerCol}>
-                <Text style={sheetStyles.pickerLabel}>{block.type === 'tabata' ? 'REPOS' : 'PAUSE'}</Text>
+                <Text style={sheetStyles.pickerLabel}>REPOS</Text>
                 <WheelPicker
                   values={ranges.rest}
                   selectedValue={block.rest || 0}
@@ -837,25 +862,29 @@ function EditBlockSheet({ block, onClose, onUpdate }) {
             fullWidth
             label="OK"
             haptic={haptic.light}
-            onPress={onClose}
+            onPress={close}
             style={sheetStyles.doneCta}
           />
         </View>
-      </View>
-    </Modal>
+      )}
+    </BottomSheet>
   );
 }
 
-function LibrarySheet({ visible, library, onClose, onLoad, onDelete, onShare }) {
+function LibrarySheet({ screenH, library, onClose, onLoad, onDelete, onShare }) {
   const haptic = useHaptic();
+  // Partager depuis la liste : cette feuille se referme d'abord, la feuille
+  // de partage monte ensuite (jamais deux feuilles l'une sur l'autre).
+  const shareAfterCloseRef = useRef(null);
+  const handleClosed = () => {
+    const m = shareAfterCloseRef.current;
+    onClose();
+    if (m) onShare(m);
+  };
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={sheetStyles.root}>
-        <BlurView intensity={40} tint="dark" pointerEvents="none" style={StyleSheet.absoluteFill} />
-        <View pointerEvents="none" style={sheetStyles.dim} />
-        <Pressable style={sheetStyles.tap} onPress={onClose} />
-        <View style={sheetStyles.sheet}>
-          <View style={sheetStyles.handle} />
+    <BottomSheet screenH={screenH} onClose={handleClosed}>
+      {({ close }) => (
+        <View>
           <View style={sheetStyles.headerRow}>
             <View>
               <Text style={sheetStyles.kicker}>MES MIX</Text>
@@ -867,7 +896,7 @@ function LibrarySheet({ visible, library, onClose, onLoad, onDelete, onShare }) 
               icon="close"
               size={ROUND_SIZE.sheet}
               haptic={haptic.light}
-              onPress={onClose}
+              onPress={close}
               accessibilityLabel="Fermer"
             />
           </View>
@@ -885,7 +914,10 @@ function LibrarySheet({ visible, library, onClose, onLoad, onDelete, onShare }) 
               return (
                 <View key={m.id} style={sheetStyles.libRow}>
                   <Pressable
-                    onPress={() => onLoad(m.id)}
+                    onPress={() => {
+                      onLoad(m.id);
+                      close();
+                    }}
                     style={({ pressed }) => [
                       sheetStyles.libRowMain,
                       pressed && { opacity: 0.7 },
@@ -895,12 +927,16 @@ function LibrarySheet({ visible, library, onClose, onLoad, onDelete, onShare }) 
                     <View style={{ flex: 1 }}>
                       <Text style={sheetStyles.libName} numberOfLines={1}>{m.name}</Text>
                       <Text style={sheetStyles.libMeta}>
-                        {(m.blocks?.length || 0)} blocs · {String(min).padStart(2, '0')}:{String(sec).padStart(2, '0')}
+                        {(m.blocks?.length || 0)} blocs · {hasEstimatedDuration(m.blocks) ? '~' : ''}{String(min).padStart(2, '0')}:{String(sec).padStart(2, '0')}
                       </Text>
                     </View>
                   </Pressable>
                   <Pressable
-                    onPress={() => onShare(m)}
+                    onPress={() => {
+                      haptic.light();
+                      shareAfterCloseRef.current = m;
+                      close();
+                    }}
                     style={({ pressed }) => [
                       sheetStyles.libShare,
                       pressed && { opacity: 0.7 },
@@ -930,8 +966,8 @@ function LibrarySheet({ visible, library, onClose, onLoad, onDelete, onShare }) 
             Tap = charger · 3s sur Enregistrer = nouveau mix
           </Text>
         </View>
-      </View>
-    </Modal>
+      )}
+    </BottomSheet>
   );
 }
 
@@ -946,43 +982,66 @@ function LibrarySheet({ visible, library, onClose, onLoad, onDelete, onShare }) 
  *    cliquable dans une conversation, donc taper le lien ne suffit pas
  *    toujours : le coller ici est le chemin fiable.
  */
-function ShareSheet({ visible, mix, onClose, onImported }) {
+function ShareSheet({ screenH, mix, onClose, onImported }) {
+  return (
+    <BottomSheet screenH={screenH} onClose={onClose} keyboardAware>
+      {({ close, scrollToEnd }) => (
+        <ShareSheetContent
+          mix={mix}
+          close={close}
+          scrollToEnd={scrollToEnd}
+          onImported={onImported}
+        />
+      )}
+    </BottomSheet>
+  );
+}
+
+// Composant à part : l'effet qui fait défiler a besoin de scrollToEnd, que
+// BottomSheet ne fournit qu'à ses enfants.
+function ShareSheetContent({ mix, close, scrollToEnd, onImported }) {
   const haptic = useHaptic();
   const { saveAsLibraryEntry, saveCurrentMix } = useTimers();
   const [pasted, setPasted] = useState('');
   const [preview, setPreview] = useState(null);
   const [error, setError] = useState(false);
-  const scrollRef = useRef(null);
+  const [copied, setCopied] = useState(false);
+  const [showTip, setShowTip] = useState(false);
+  const importingRef = useRef(false);
+  const copiedTimer = useRef(null);
 
-  useEffect(() => {
-    if (!visible) {
-      setPasted('');
-      setPreview(null);
-      setError(false);
-    }
-  }, [visible]);
+  useEffect(() => () => clearTimeout(copiedTimer.current), []);
 
   // Le clavier reste ouvert après le collage : sans le fermer ni faire
   // défiler, le résultat (aperçu OU message d'erreur) se rend sous la
   // ligne de flottaison, cachée par le clavier — on dirait que le bouton
-  // ne fait rien (retour utilisateur, v14.3.0).
+  // ne fait rien (retour utilisateur, v14.3.0). Si le clavier était ouvert,
+  // on attend que la feuille soit redescendue et ait repris sa hauteur.
   useEffect(() => {
     if (!preview && !error) return;
+    const keyboardWasOpen = Keyboard.isVisible();
     Keyboard.dismiss();
-    const t = setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
+    const t = setTimeout(scrollToEnd, keyboardWasOpen ? 350 : 80);
     return () => clearTimeout(t);
   }, [preview, error]);
 
-  const handleShareNow = async () => {
+  // Copie seulement le lien (demande utilisateur) : la personne choisit elle-
+  // même où l'envoyer. Beaucoup d'apps ne rendent pas cliquable un lien
+  // flextimer://, le destinataire le colle de toute façon dans « Recevoir un mix ».
+  const handleCopy = async () => {
     if (!mix?.blocks?.length) return;
-    haptic.light();
-    try {
-      const link = Linking.createURL('import-mix', { queryParams: { m: serializeMix(mix) } });
-      await Share.share({
-        message: `${mix.name || 'Mon mix'} — un enchaînement Flex Timer.\n${link}`,
-      });
-    } catch {
-      // Annulation de la feuille système : pas une vraie erreur.
+    const link = Linking.createURL('import-mix', { queryParams: { m: serializeMix(mix) } });
+    if (!copyToClipboard(link)) {
+      haptic.error();
+      return;
+    }
+    haptic.success();
+    setCopied(true);
+    clearTimeout(copiedTimer.current);
+    copiedTimer.current = setTimeout(() => setCopied(false), 2200);
+    if (!(await isShareOnboarded())) {
+      await markShareOnboarded();
+      setShowTip(true);
     }
   };
 
@@ -995,11 +1054,14 @@ function ShareSheet({ visible, mix, onClose, onImported }) {
   };
 
   const handleImport = async () => {
-    if (!preview) return;
+    // La feuille reste touchable pendant sa fermeture : pas de double import.
+    if (!preview || importingRef.current) return;
+    importingRef.current = true;
     haptic.success();
     await saveAsLibraryEntry(preview);
     await saveCurrentMix(preview);
     onImported?.(preview);
+    close();
   };
 
   const renderBlockRow = (block, key) => {
@@ -1018,112 +1080,104 @@ function ShareSheet({ visible, mix, onClose, onImported }) {
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={sheetStyles.root}>
-        <BlurView intensity={40} tint="dark" pointerEvents="none" style={StyleSheet.absoluteFill} />
-        <View pointerEvents="none" style={sheetStyles.dim} />
-        <Pressable style={sheetStyles.tap} onPress={onClose} />
-        <View style={[sheetStyles.sheet, shareStyles.sheetMax]}>
-          <ScrollView ref={scrollRef} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-            <View style={sheetStyles.handle} />
-            <View style={sheetStyles.headerRow}>
-              <View style={{ flex: 1, paddingRight: 12 }}>
-                <Text style={sheetStyles.kicker}>PARTAGER</Text>
-                <Text style={sheetStyles.title} numberOfLines={1}>{mix?.name || 'Ce mix'}</Text>
-              </View>
-              <IconButton
-                icon="close"
-                size={ROUND_SIZE.sheet}
-                haptic={haptic.light}
-                onPress={onClose}
-                accessibilityLabel="Fermer"
-              />
-            </View>
-
-            {!!mix?.blocks?.length && (
-              <>
-                <Text style={shareStyles.sectionLabel}>APERÇU · CE QUI SERA ENVOYÉ</Text>
-                <View style={shareStyles.list}>
-                  {mix.blocks.map((b, i) => renderBlockRow(b, b.id ?? i))}
-                </View>
-                <Button
-                  variant="accent"
-                  color={ACCENT}
-                  fullWidth
-                  icon="share"
-                  label="Partager"
-                  onPress={handleShareNow}
-                  style={{ marginTop: 14, marginBottom: 22 }}
-                />
-              </>
-            )}
-
-            <View style={shareStyles.divider}>
-              <View style={shareStyles.dividerLine} />
-              <Text style={shareStyles.dividerText}>OU</Text>
-              <View style={shareStyles.dividerLine} />
-            </View>
-
-            <Text style={shareStyles.sectionLabel}>RECEVOIR UN MIX</Text>
-            <TextInput
-              value={pasted}
-              onChangeText={(v) => {
-                setPasted(v);
-                setPreview(null);
-                setError(false);
-              }}
-              placeholder="Colle ici le lien reçu…"
-              placeholderTextColor="rgba(255,255,255,0.30)"
-              selectionColor="#FFFFFF"
-              multiline
-              textAlignVertical="top"
-              style={shareStyles.pasteInput}
-            />
-            <Button
-              variant="glass"
-              fullWidth
-              label="Prévisualiser"
-              onPress={handlePreview}
-              disabled={!pasted.trim()}
-              style={{ marginTop: 10 }}
-            />
-
-            {error && (
-              <Text style={shareStyles.errorText}>
-                Lien non reconnu — vérifie qu'il est collé en entier.
-              </Text>
-            )}
-
-            {!!preview && (
-              <View style={shareStyles.importBox}>
-                <Text style={shareStyles.importName} numberOfLines={1}>{preview.name}</Text>
-                <Text style={shareStyles.importMeta}>
-                  {preview.blocks.length} bloc{preview.blocks.length > 1 ? 's' : ''}
-                </Text>
-                <View style={shareStyles.list}>
-                  {preview.blocks.map((b, i) => renderBlockRow(b, b.id ?? i))}
-                </View>
-                <Button
-                  variant="accent"
-                  color={ACCENT}
-                  fullWidth
-                  label="Ajouter à ma bibliothèque"
-                  onPress={handleImport}
-                  style={{ marginTop: 12 }}
-                />
-              </View>
-            )}
-          </ScrollView>
+    <View>
+      <View style={sheetStyles.headerRow}>
+        <View style={{ flex: 1, paddingRight: 12 }}>
+          <Text style={sheetStyles.kicker}>PARTAGER</Text>
+          <Text style={sheetStyles.title} numberOfLines={1}>{mix?.name || 'Ce mix'}</Text>
         </View>
+        <IconButton
+          icon="close"
+          size={ROUND_SIZE.sheet}
+          haptic={haptic.light}
+          onPress={close}
+          accessibilityLabel="Fermer"
+        />
       </View>
-    </Modal>
+
+      {!!mix?.blocks?.length && (
+        <>
+          <Text style={shareStyles.sectionLabel}>APERÇU · CE QUI SERA ENVOYÉ</Text>
+          <View style={shareStyles.list}>
+            {mix.blocks.map((b, i) => renderBlockRow(b, b.id ?? i))}
+          </View>
+          <Button
+            variant="accent"
+            color={copied ? '#1FC777' : ACCENT}
+            fullWidth
+            icon={copied ? 'check' : 'share'}
+            label={copied ? 'Lien copié' : 'Copier le lien'}
+            onPress={handleCopy}
+            style={{ marginTop: 14, marginBottom: showTip ? 0 : 22 }}
+          />
+          {showTip && (
+            <View style={{ marginBottom: 22 }}>
+              <ShareTipCard onDismiss={() => setShowTip(false)} />
+            </View>
+          )}
+        </>
+      )}
+
+      <View style={shareStyles.divider}>
+        <View style={shareStyles.dividerLine} />
+        <Text style={shareStyles.dividerText}>OU</Text>
+        <View style={shareStyles.dividerLine} />
+      </View>
+
+      <Text style={shareStyles.sectionLabel}>RECEVOIR UN MIX</Text>
+      <TextInput
+        value={pasted}
+        onChangeText={(v) => {
+          setPasted(v);
+          setPreview(null);
+          setError(false);
+        }}
+        placeholder="Colle ici le lien reçu…"
+        placeholderTextColor="rgba(255,255,255,0.30)"
+        selectionColor="#FFFFFF"
+        multiline
+        textAlignVertical="top"
+        style={shareStyles.pasteInput}
+      />
+      <Button
+        variant="glass"
+        fullWidth
+        label="Prévisualiser"
+        onPress={handlePreview}
+        disabled={!pasted.trim()}
+        style={{ marginTop: 10 }}
+      />
+
+      {error && (
+        <Text style={shareStyles.errorText}>
+          Lien non reconnu — vérifie qu'il est collé en entier.
+        </Text>
+      )}
+
+      {!!preview && (
+        <View style={shareStyles.importBox}>
+          <Text style={shareStyles.importName} numberOfLines={1}>{preview.name}</Text>
+          <Text style={shareStyles.importMeta}>
+            {preview.blocks.length} bloc{preview.blocks.length > 1 ? 's' : ''}
+          </Text>
+          <View style={shareStyles.list}>
+            {preview.blocks.map((b, i) => renderBlockRow(b, b.id ?? i))}
+          </View>
+          <Button
+            variant="accent"
+            color={ACCENT}
+            fullWidth
+            label="Ajouter à ma bibliothèque"
+            onPress={handleImport}
+            style={{ marginTop: 12 }}
+          />
+        </View>
+      )}
+    </View>
   );
 }
 
 const shareStyles = StyleSheet.create({
-  sheetMax: {
-    maxHeight: '85%',
-  },
   sectionLabel: {
     fontFamily: fonts.sansBold,
     fontSize: 10,
@@ -1240,7 +1294,7 @@ const getRangesForType = (typeId, block) => {
   if (typeId === 'amrap') return { duration: range(60, 1800, 30), rest: [], rounds: [] };
   if (typeId === 'rest') return { duration: getTimeRange(10, 600, d), rest: [], rounds: [] };
   if (typeId === 'tabata') return { duration: getTimeRange(5, 300, d), rest: getTimeRange(5, 300, r), rounds: range(1, 30) };
-  if (typeId === 'basic') return { duration: getTimeRange(5, 600, d), rest: getTimeRange(5, 600, r), rounds: range(1, 30) };
+  if (typeId === 'basic') return { duration: [], rest: getTimeRange(5, 600, r), rounds: range(1, 30) };
   if (typeId === 'emom') return { duration: getTimeRange(10, 300, d), rest: [], rounds: range(1, 30) };
   return { duration: range(10, 300), rest: [], rounds: [] };
 };
@@ -1574,36 +1628,8 @@ const styles = StyleSheet.create({
   },
 });
 
+// La coquille (voile, poignée, fond opaque) vient de BottomSheet.
 const sheetStyles = StyleSheet.create({
-  root: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  dim: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-  },
-  tap: {
-    flex: 1,
-  },
-  sheet: {
-    backgroundColor: 'rgba(10,10,10,0.92)',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingTop: 12,
-    paddingHorizontal: 20,
-    paddingBottom: 28,
-    borderTopWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-  },
-  handle: {
-    alignSelf: 'center',
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.30)',
-    marginBottom: 16,
-  },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
