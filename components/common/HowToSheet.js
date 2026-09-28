@@ -56,7 +56,11 @@ export default function HowToSheet({ timer, screenH, onClose }) {
   }));
 
   const items = getHowToItems(timer);
-  const sheetTint = timer.bgColors[1] + 'F2';
+  // Opaque (FF, pas F2) : avec la section RÉGLAGES en plus, on voyait la
+  // feuille Stats derrière transparaître (nombres qui se superposent aux
+  // pastilles, capture utilisateur du 28/09/2026) — cette feuille doit
+  // rester strictement au-dessus, rien ne doit transparaître derrière elle.
+  const sheetTint = timer.bgColors[1] + 'FF';
   // Réglages actuels du mode (TRAVAIL/REPOS/TOURS...) — donne du contexte
   // avant de lire les explications, en lecture seule (rien ne se modifie
   // ici). MIX n'a aucun stat `editable` (sa config est une liste de blocs,
