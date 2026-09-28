@@ -44,8 +44,10 @@ import {
   hasEstimatedDuration,
   formatBlockSubtitle,
   makeBlock,
+  MAX_BLOCK_NOTE_LENGTH,
 } from '../lib/mix-blocks';
 import { makeDefaultMix } from '../lib/mixes';
+import { DAYS, loadPlanning, formatBlockAsText } from '../lib/planning';
 import {
   serializeMix,
   deserializeMix,
@@ -471,6 +473,17 @@ function BlockRow({ block, index, drag, isActive, onEdit, onDelete }) {
                 {formatBlockSubtitle(block)}
               </Text>
             </View>
+            {/* Note libre : quelle séance/quel exercice ce bloc contient,
+                visible d'un coup d'œil chaque fois qu'on revoit la liste —
+                le seul "avant le lancement" qui existe vraiment pour un MIX,
+                puisqu'il se lance directement depuis Home sans écran
+                intermédiaire (v15.0.0). */}
+            {!!block.note && (
+              <View style={styles.rowNoteWrap}>
+                <AppIcon name="note" size={11} color="rgba(255,255,255,0.45)" />
+                <Text style={styles.rowNote} numberOfLines={1}>{block.note}</Text>
+              </View>
+            )}
           </View>
 
           <View style={styles.dragHandle} pointerEvents="none">
@@ -708,6 +721,8 @@ function AddBlockSheet({ screenH, onClose, onPick }) {
 function EditBlockSheet({ screenH, block, onClose, onUpdate }) {
   const haptic = useHaptic();
   const [labelDraft, setLabelDraft] = useState(block?.label || '');
+  const [noteDraft, setNoteDraft] = useState(block?.note || '');
+  const [importOpen, setImportOpen] = useState(false);
   const roleScrollRef = useRef(null);
   const roleRevealedFor = useRef(null);
 
@@ -721,6 +736,8 @@ function EditBlockSheet({ screenH, block, onClose, onUpdate }) {
 
   useEffect(() => {
     setLabelDraft(block?.label || '');
+    setNoteDraft(block?.note || '');
+    setImportOpen(false);
     roleRevealedFor.current = null;
   }, [block?.id]);
 
@@ -856,6 +873,57 @@ function EditBlockSheet({ screenH, block, onClose, onUpdate }) {
             )}
           </View>
 
+          {/* Note libre : quelle séance/quel exercice ce bloc contient — la
+              seule information "avant le lancement" qu'un MIX porte, puisqu'il
+              se lance directement depuis Home (v15.0.0, voir CLAUDE.md). */}
+          <View style={sheetStyles.noteSection}>
+            <View style={sheetStyles.noteHeaderRow}>
+              <Text style={sheetStyles.pickerLabel}>NOTE</Text>
+              <Pressable
+                hitSlop={8}
+                onPress={() => {
+                  haptic.light();
+                  setImportOpen((v) => !v);
+                }}
+              >
+                <Text style={[sheetStyles.noteImportLink, { color: type.color }]}>
+                  {importOpen ? 'Annuler' : 'Importer depuis le Planning'}
+                </Text>
+              </Pressable>
+            </View>
+
+            {importOpen ? (
+              <PlanningImportPicker
+                accentColor={type.color}
+                onPick={(text) => {
+                  if (!text) return;
+                  haptic.success();
+                  const merged = noteDraft.trim() ? `${noteDraft.trim()}\n${text}` : text;
+                  const clamped = merged.slice(0, MAX_BLOCK_NOTE_LENGTH);
+                  setNoteDraft(clamped);
+                  onUpdate({ note: clamped });
+                  setImportOpen(false);
+                }}
+              />
+            ) : (
+              <TextInput
+                value={noteDraft}
+                onChangeText={(v) => {
+                  const clamped = v.slice(0, MAX_BLOCK_NOTE_LENGTH);
+                  setNoteDraft(clamped);
+                  onUpdate({ note: clamped });
+                }}
+                style={sheetStyles.noteInput}
+                multiline
+                maxLength={MAX_BLOCK_NOTE_LENGTH}
+                placeholder="Ex : Pompes 3x15, Dips 3x12…"
+                placeholderTextColor="rgba(255,255,255,0.30)"
+                selectionColor={type.color}
+                textAlignVertical="top"
+              />
+            )}
+          </View>
+
           <Button
             variant="accent"
             color={type.color}
@@ -870,6 +938,101 @@ function EditBlockSheet({ screenH, block, onClose, onUpdate }) {
     </BottomSheet>
   );
 }
+
+// Pioche un bloc du Planning (jour -> bloc) et renvoie son contenu formaté en
+// texte, pour remplir la note d'un bloc MIX sans tout retaper (v15.0.0).
+// Chargement paresseux : seulement à l'ouverture, pas à chaque édition de bloc.
+function PlanningImportPicker({ accentColor, onPick }) {
+  const haptic = useHaptic();
+  const [planning, setPlanning] = useState(null);
+  const [dayKey, setDayKey] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    loadPlanning().then((p) => {
+      if (!alive) return;
+      setPlanning(p);
+      const firstDay = DAYS.find((d) => dayHasImportable(p[d.key]));
+      setDayKey(firstDay?.key ?? null);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  if (!planning) {
+    return <Text style={sheetStyles.importEmpty}>Chargement…</Text>;
+  }
+
+  const daysWithBlocks = DAYS.filter((d) => dayHasImportable(planning[d.key]));
+
+  if (daysWithBlocks.length === 0) {
+    return (
+      <Text style={sheetStyles.importEmpty}>
+        Ton Planning ne contient pas encore d'exercices à importer.
+      </Text>
+    );
+  }
+
+  const dayBlocks = (dayKey ? planning[dayKey]?.blocks || [] : []).filter(
+    (b) => (b.tags?.length || 0) > 0
+  );
+
+  return (
+    <View style={sheetStyles.importPicker}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={sheetStyles.importDayRow}
+      >
+        {daysWithBlocks.map((d) => {
+          const selected = d.key === dayKey;
+          return (
+            <Pressable
+              key={d.key}
+              onPress={() => {
+                haptic.selection();
+                setDayKey(d.key);
+              }}
+              style={[
+                sheetStyles.importDayChip,
+                selected && { backgroundColor: accentColor, borderColor: accentColor },
+              ]}
+            >
+              <Text
+                style={[sheetStyles.importDayChipText, selected && { color: '#0A0A0A' }]}
+              >
+                {d.short}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
+      <View style={sheetStyles.importBlockList}>
+        {dayBlocks.map((b) => (
+          <Pressable
+            key={b.id}
+            onPress={() => onPick(formatBlockAsText(b))}
+            style={({ pressed }) => [
+              sheetStyles.importBlockRow,
+              pressed && { opacity: 0.85 },
+            ]}
+          >
+            <Text style={sheetStyles.importBlockName} numberOfLines={1}>
+              {b.name || 'Bloc'}
+            </Text>
+            <Text style={sheetStyles.importBlockCount}>
+              {b.tags.length} exercice{b.tags.length > 1 ? 's' : ''}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+const dayHasImportable = (day) => (day?.blocks || []).some((b) => (b.tags?.length || 0) > 0);
 
 function LibrarySheet({ screenH, library, onClose, onLoad, onDelete, onShare }) {
   const haptic = useHaptic();
@@ -1074,6 +1237,9 @@ function ShareSheetContent({ mix, close, scrollToEnd, onImported }) {
         <View style={{ flex: 1 }}>
           <Text style={shareStyles.rowLabel} numberOfLines={1}>{block.label}</Text>
           <Text style={shareStyles.rowSub}>{formatBlockSubtitle(block)}</Text>
+          {!!block.note && (
+            <Text style={shareStyles.rowNote} numberOfLines={1}>{block.note}</Text>
+          )}
         </View>
       </View>
     );
@@ -1215,6 +1381,12 @@ const shareStyles = StyleSheet.create({
     fontSize: 10.5,
     color: 'rgba(255,255,255,0.50)',
     marginTop: 1,
+  },
+  rowNote: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 10.5,
+    color: 'rgba(255,255,255,0.42)',
+    marginTop: 2,
   },
   divider: {
     flexDirection: 'row',
@@ -1528,6 +1700,18 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: 'rgba(255,255,255,0.55)',
   },
+  rowNoteWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 4,
+  },
+  rowNote: {
+    flex: 1,
+    fontFamily: fonts.sansMedium,
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.45)',
+  },
   iconAction: {
     width: 40,
     height: 40,
@@ -1766,6 +1950,88 @@ const sheetStyles = StyleSheet.create({
   },
   doneCta: {
     marginTop: 4,
+  },
+
+  noteSection: {
+    marginBottom: 18,
+  },
+  noteHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  noteImportLink: {
+    fontFamily: fonts.sansBold,
+    fontSize: 11,
+    letterSpacing: 0.2,
+  },
+  noteInput: {
+    minHeight: 64,
+    maxHeight: 110,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontFamily: fonts.sansMedium,
+    fontSize: 13,
+    color: '#FFFFFF',
+  },
+  importEmpty: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.45)',
+    paddingVertical: 12,
+  },
+  importPicker: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    padding: 10,
+  },
+  importDayRow: {
+    gap: 6,
+    paddingBottom: 10,
+  },
+  importDayChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.16)',
+  },
+  importDayChipText: {
+    fontFamily: fonts.sansBold,
+    fontSize: 10,
+    letterSpacing: 1,
+    color: 'rgba(255,255,255,0.75)',
+  },
+  importBlockList: {
+    gap: 6,
+  },
+  importBlockRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+  importBlockName: {
+    flex: 1,
+    fontFamily: fonts.sansSemibold,
+    fontSize: 12.5,
+    color: '#FFFFFF',
+    paddingRight: 8,
+  },
+  importBlockCount: {
+    fontFamily: fonts.monoRegular,
+    fontSize: 10.5,
+    color: 'rgba(255,255,255,0.50)',
   },
 
   libList: {

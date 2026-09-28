@@ -120,7 +120,7 @@ export const ICON_NAMES = [
   'voice', 'sliders', 'voices', 'bandage', 'headphones', 'speaker', 'drop', 'stop', 'progress',
   'infinity', 'no-ads', 'palette',
   'reset', 'play', 'pause', 'finish', 'skip',
-  'back', 'plus', 'gear', 'more', 'arrow', 'list', 'share',
+  'back', 'plus', 'gear', 'more', 'arrow', 'list', 'share', 'note',
 ];
 
 export default function AppIcon({ name, size = 20, color = '#FFFFFF', opacity = 1, strokeWidth, style }) {
@@ -327,6 +327,18 @@ export default function AppIcon({ name, size = 20, color = '#FFFFFF', opacity = 
           <Circle {...solid} cx={5.6} cy={12} r={2.6} />
           <Circle {...solid} cx={18} cy={6} r={2.6} />
           <Circle {...solid} cx={18} cy={18} r={2.6} />
+        </>
+      );
+      break;
+    // Feuillet avec un coin plié : la note libre d'un bloc MIX ou d'un jour
+    // du Planning — distinct de 'list' (3 barres pleine largeur).
+    case 'note':
+      body = (
+        <>
+          <Path {...line} d="M6.5 4h8l3 3v13a1 1 0 0 1-1 1h-10a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z" />
+          <Path {...line} d="M14.5 4v3h3" />
+          <Line {...line} x1={8.5} y1={12} x2={15.5} y2={12} />
+          <Line {...line} x1={8.5} y1={15.7} x2={13} y2={15.7} />
         </>
       );
       break;
