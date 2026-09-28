@@ -12,6 +12,7 @@ import Animated, {
 import AppIcon from './AppIcon';
 import IconButton from './IconButton';
 import { fonts } from '../../lib/fonts';
+import { formatValue } from '../../lib/formatters';
 import { haptic } from '../../hooks/useHaptic';
 import { getHowToItems } from '../../lib/timers-config';
 import { ROUND_SIZE } from '../../lib/buttonTokens';
@@ -56,6 +57,11 @@ export default function HowToSheet({ timer, screenH, onClose }) {
 
   const items = getHowToItems(timer);
   const sheetTint = timer.bgColors[1] + 'F2';
+  // Réglages actuels du mode (TRAVAIL/REPOS/TOURS...) — donne du contexte
+  // avant de lire les explications, en lecture seule (rien ne se modifie
+  // ici). MIX n'a aucun stat `editable` (sa config est une liste de blocs,
+  // pas un réglage chiffré) : la section ne s'affiche simplement pas.
+  const settingsStats = timer.stats.filter((s) => s.editable);
 
   return (
     <View style={styles.root}>
@@ -88,6 +94,33 @@ export default function HowToSheet({ timer, screenH, onClose }) {
             accessibilityLabel="Fermer"
           />
         </View>
+
+        {settingsStats.length > 0 && (
+          <View style={styles.settingsSection}>
+            <View style={styles.settingsLabelRow}>
+              <AppIcon name="sliders" size={11} opacity={0.7} />
+              <Text style={styles.settingsLabel}>RÉGLAGES ACTUELS</Text>
+            </View>
+            <View style={styles.settingsRow}>
+              {settingsStats.map((stat) => {
+                const fmt = stat.type === 'seconds' ? formatValue(stat.value, stat.type) : null;
+                const displayValue = fmt ? fmt.main : stat.value;
+                const displayUnit = fmt ? fmt.unit : stat.unit;
+                return (
+                  <View key={stat.key} style={styles.settingBox}>
+                    <Text style={styles.settingBoxLabel} numberOfLines={1}>{stat.label}</Text>
+                    <View style={styles.settingValueRow}>
+                      <Text style={styles.settingValue} numberOfLines={1}>{displayValue}</Text>
+                      {!!displayUnit && (
+                        <Text style={styles.settingUnit} numberOfLines={1}>{displayUnit}</Text>
+                      )}
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        )}
 
         <View style={styles.list}>
           {items.map((item, i) => (
@@ -156,6 +189,57 @@ const styles = StyleSheet.create({
     fontSize: 17,
     letterSpacing: 0.3,
     color: '#FFFFFF',
+  },
+
+  // Réglages actuels (lecture seule) — fond sombre pour se distinguer des
+  // items d'explication en dessous : ici, rien ne se touche.
+  settingsSection: {
+    marginBottom: 18,
+  },
+  settingsLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginBottom: 8,
+  },
+  settingsLabel: {
+    fontFamily: fonts.sansBold,
+    fontSize: 9,
+    letterSpacing: 1.4,
+    color: 'rgba(255,255,255,0.6)',
+  },
+  settingsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  settingBox: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.20)',
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+  },
+  settingBoxLabel: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 9,
+    letterSpacing: 1.4,
+    color: 'rgba(255,255,255,0.55)',
+    marginBottom: 4,
+  },
+  settingValueRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+  },
+  settingValue: {
+    fontFamily: fonts.monoBold,
+    fontSize: 16,
+    color: 'rgba(255,255,255,0.85)',
+  },
+  settingUnit: {
+    fontFamily: fonts.monoRegular,
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.55)',
+    marginLeft: 3,
   },
 
   list: {

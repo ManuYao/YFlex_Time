@@ -31,7 +31,7 @@ import {
   openNotificationSettings,
 } from '../lib/notificationPrompt';
 import { useTimers } from '../contexts/TimersContext';
-import { computeSessionStats, computeTotalDuration } from '../lib/timer-engine';
+import { computeSessionStats, computeState } from '../lib/timer-engine';
 import { formatDuration } from '../lib/formatters';
 import { fonts } from '../lib/fonts';
 import { BOTTOM_GAP, PAIR_GAP, SIDE_GAP } from '../lib/buttonTokens';
@@ -41,7 +41,7 @@ import { loadCooldownMap, saveCooldownMap, getCooldownStatus, consumeLaunch } fr
 import { loadIsPremium } from '../lib/premium';
 import BadgeUnlockSheet from '../components/common/BadgeUnlockSheet';
 import { pendingBadges, markBadgeSeen } from '../lib/badgeCelebration';
-import { countSessionsByTimer, isShortSession } from '../lib/history';
+import { countSessionsByTimer, isEarlyQuit } from '../lib/history';
 
 const springEnergetic = { stiffness: 380, damping: 22, mass: 1 };
 
@@ -142,6 +142,12 @@ export default function EndSession() {
       try {
         const raw = await AsyncStorage.getItem(HISTORY_KEY);
         const list = raw ? JSON.parse(raw) : [];
+        // Abandon avant la fin du premier tour/bloc : l'état du moteur au
+        // moment où la séance s'arrête dit si on est encore dans le tour 1
+        // (currentRound), indépendamment de stats.completedRounds qui a une
+        // autre définition pour TABATA (un tour "compté" dès la fin de son
+        // travail, sans attendre son repos).
+        const liveState = computeState(timer, elapsedNum, ctx);
         list.push({
           id: Date.now().toString(),
           timerId: timer.id,
@@ -154,7 +160,7 @@ export default function EndSession() {
           workTotal: stats.workTotal,
           restTotal: stats.restTotal,
           date: new Date().toISOString(),
-          ...(isShortSession(elapsedNum, computeTotalDuration(timer)) ? { pendingDelete: true } : {}),
+          ...(isEarlyQuit(liveState?.currentRound, liveState?.isComplete) ? { pendingDelete: true } : {}),
         });
         await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(list));
 

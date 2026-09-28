@@ -39,6 +39,7 @@ import ModeStatsSheet from '../components/common/ModeStatsSheet';
 import { playSound } from '../lib/sounds';
 import ProgressionSheet from '../components/common/ProgressionSheet';
 import BadgeUnlockSheet from '../components/common/BadgeUnlockSheet';
+import CoachNudgeSheet from '../components/common/CoachNudgeSheet';
 import ConfirmSheet from '../components/common/ConfirmSheet';
 import PermissionPrimer from '../components/common/PermissionPrimer';
 import { shouldShowPermissionPrimer } from '../lib/permissionPrimer';
@@ -52,6 +53,12 @@ import {
   locateExerciseInPlanning,
   markProgressionSuggested,
 } from '../lib/progression';
+import {
+  loadCoachNudgeState,
+  shouldShowCoachNudge,
+  markCoachNudgeShown,
+  dismissCoachNudgeForever,
+} from '../lib/coachNudge';
 import { onSplashCleared } from '../lib/splash';
 import { waitForUpdateGateSettled } from '../lib/updateGateSignal';
 import { formatValue } from '../lib/formatters';
@@ -61,6 +68,7 @@ import { fonts } from '../lib/fonts';
 import { BOTTOM_GAP, BUTTON_HEIGHT, INK_TEXT, accentTextOn, buttonRecipe } from '../lib/buttonTokens';
 import { useUiScale, scaled, useLayoutLevel } from '../lib/responsive';
 import { useTimers } from '../contexts/TimersContext';
+import { useSettings } from '../contexts/SettingsContext';
 import { useHaptic } from '../hooks/useHaptic';
 import { useTimerHeat } from '../hooks/useTimerHeat';
 import { useLongPress } from '../hooks/useLongPress';
@@ -137,6 +145,7 @@ export default function Home() {
   const ctaRef = useRef(null);
   const [ctaRect, setCtaRect] = useState(null);
   const { timers, updateStat, hydrated } = useTimers();
+  const { settings } = useSettings();
   const { heatMap, statsMap } = useTimerHeat();
   const { getStatus: getCooldownStatusRaw, registerLaunch, registerBurn } = useCooldown();
   const { isPremium } = usePremium();
@@ -174,6 +183,16 @@ export default function Home() {
   const [statsOpen, setStatsOpen] = useState(false);
   const [isLaunching, setIsLaunching] = useState(false);
   const [progression, setProgression] = useState(null);
+  // Popup de découverte du coach vocal (lib/coachNudge.js) — proposée tant
+  // que settings.voiceCoach est faux, avec un délai de 7 jours entre deux
+  // propositions et un dismiss permanent séparé.
+  const [showCoachNudge, setShowCoachNudge] = useState(false);
+  // Lu par handleScrollBeginDrag (callback stable, sans dépendance) pour
+  // savoir si un swipe doit interrompre la popup — jamais lu par un render.
+  const showCoachNudgeRef = useRef(false);
+  useEffect(() => {
+    showCoachNudgeRef.current = showCoachNudge;
+  }, [showCoachNudge]);
   // Confirmation "cramer une place" (lib/cooldown.js) : { timerId, sourceRect } | null.
   const [burnPrompt, setBurnPrompt] = useState(null);
   // Page "chrono fiable" avant le 3-2-1 (lib/permissionPrimer.js, moment
@@ -209,7 +228,8 @@ export default function Home() {
 
   const overlayBusyRef = useRef(false);
   overlayBusyRef.current =
-    isLaunching || statsOpen || !!picker || badgeQueue.length > 0 || !!burnPrompt || !!primerLaunch;
+    isLaunching || statsOpen || !!picker || badgeQueue.length > 0 || !!burnPrompt || !!primerLaunch ||
+    showCoachNudge;
 
   useEffect(() => {
     shouldShowPermissionPrimer('firstSession').then((due) => {
@@ -251,7 +271,21 @@ export default function Home() {
         const [archives, seen] = await Promise.all([loadArchives(), loadProgressionSeen()]);
         if (cancelled || overlayBusyRef.current) return;
         const found = findProgressionSuggestion({ archives, seen });
-        if (found) setProgression(found);
+        if (found) {
+          setProgression(found);
+          return;
+        }
+
+        // Coach vocal — dernier de la file, le moins urgent (simple
+        // découverte de fonctionnalité). Le délai (splash + PROGRESSION_DELAY_MS)
+        // laisse largement le temps à SettingsContext de s'hydrater depuis
+        // AsyncStorage (une lecture, lancée dès le montage), donc
+        // settings.voiceCoach est fiable ici sans garde supplémentaire.
+        const coachSeen = await loadCoachNudgeState();
+        if (cancelled || overlayBusyRef.current) return;
+        if (shouldShowCoachNudge({ seen: coachSeen, voiceCoachEnabled: settings.voiceCoach })) {
+          setShowCoachNudge(true);
+        }
       }, PROGRESSION_DELAY_MS);
     });
     return () => {
@@ -279,6 +313,27 @@ export default function Home() {
     router.push({ pathname: '/history', params: { page: 'planning', ...(target || {}) } });
   }, [progression, router]);
 
+  // onClose couvre tout chemin de fermeture de CoachNudgeSheet (voile, retour
+  // Android, "Plus tard", "Activer" — close() le déclenche toujours, voir le
+  // composant) : c'est le seul endroit qui doit remettre le délai de 7 jours
+  // à zéro, quel que soit le bouton pressé.
+  const handleCoachNudgeClose = useCallback(() => {
+    setShowCoachNudge(false);
+    markCoachNudgeShown();
+  }, []);
+
+  // En plus de la fermeture générique ci-dessus : envoie sur Paramètres avec
+  // la surbrillance de la ligne "Voix du coach" (app/settings.js lit ce param).
+  const handleCoachNudgeActivate = useCallback(() => {
+    router.push({ pathname: '/settings', params: { highlight: 'voiceCoach' } });
+  }, [router]);
+
+  // En plus de la fermeture générique : dismiss permanent, spécifique à cette
+  // popup (n'affecte aucun autre rappel de l'app).
+  const handleCoachNudgeNeverShow = useCallback(() => {
+    dismissCoachNudgeForever();
+  }, []);
+
   // Effet de bord (haptique) dans le corps de la fonction, pas dans
   // l'updater passé à setActiveIndex : un setState appelé depuis l'intérieur
   // d'un autre updater peut être ignoré par React sans avertissement
@@ -297,6 +352,14 @@ export default function Home() {
   const draggingRef = useRef(false);
   const handleScrollBeginDrag = useCallback(() => {
     draggingRef.current = true;
+    // Swiper le carrousel pendant que CoachNudgeSheet est ouverte compte
+    // comme une interruption (demande utilisateur) : la popup se ferme et
+    // repart sur le même délai de 7 jours que les autres fermetures.
+    if (showCoachNudgeRef.current) {
+      showCoachNudgeRef.current = false;
+      setShowCoachNudge(false);
+      markCoachNudgeShown();
+    }
   }, []);
   const handleMomentumEnd = useCallback((e) => {
     if (!draggingRef.current) return;
@@ -653,6 +716,17 @@ export default function Home() {
           suggestion={progression}
           onAdjust={handleProgressionAdjust}
           onClose={handleProgressionClose}
+        />
+      )}
+
+      {/* (U bis) Découverte du coach vocal — voir lib/coachNudge.js. Même
+          garde que ci-dessus : jamais deux feuilles empilées. */}
+      {showCoachNudge && (
+        <CoachNudgeSheet
+          screenH={rootH}
+          onActivate={handleCoachNudgeActivate}
+          onNeverShow={handleCoachNudgeNeverShow}
+          onClose={handleCoachNudgeClose}
         />
       )}
     </View>

@@ -11,7 +11,7 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as MailComposer from 'expo-mail-composer';
 import Constants from 'expo-constants';
@@ -21,6 +21,7 @@ import AppIcon from '../components/common/AppIcon';
 import Button from '../components/common/Button';
 import IconButton from '../components/common/IconButton';
 import Toggle from '../components/common/Toggle';
+import HighlightPulse from '../components/common/HighlightPulse';
 import UpdateSheet from '../components/common/UpdateSheet';
 import ContactSheet from '../components/common/ContactSheet';
 import ConfirmSheet from '../components/common/ConfirmSheet';
@@ -65,6 +66,7 @@ const DENY_RED = '#FF5454';
 
 export default function Settings() {
   const router = useRouter();
+  const params = useLocalSearchParams();
   const { settings, update, reset } = useSettings();
   const { resetAll: resetAllTimers } = useTimers();
   const { isPremium } = usePremium();
@@ -88,6 +90,17 @@ export default function Settings() {
   // (lib/voiceCoach.js, detectVoices) — sinon voix femme, sans option.
   const [coachSheet, setCoachSheet] = useState(false);
   const [maleVoiceAvailable, setMaleVoiceAvailable] = useState(false);
+  // Surbrillance brève de la ligne "Voix du coach" (app/home.js,
+  // CoachNudgeSheet -> router.push avec ce param) — un seul passage par
+  // montage de l'écran : si l'utilisateur quitte avant la fin, l'écran se
+  // démonte et HighlightPulse s'arrête avec lui, sans jamais reprendre.
+  const [highlightVoiceCoach, setHighlightVoiceCoach] = useState(false);
+  useEffect(() => {
+    if (params.highlight !== 'voiceCoach') return undefined;
+    const t = setTimeout(() => setHighlightVoiceCoach(true), 350);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => {
     if (!settings.voiceCoach) return undefined;
     let alive = true;
@@ -190,6 +203,9 @@ export default function Settings() {
         'flexTimer_notificationPromptLastShown',
         'flexTimer_permissionPrimerSeen',
         'flexTimer_shareOnboarded',
+        // Popup de découverte du coach vocal (lib/coachNudge.js) : redevient
+        // proposable après un reset, comme les autres rappels ci-dessus.
+        'flexTimer_coachNudge',
         // Compteur et date de lancement (lib/splash.js) : après un reset
         // l'app redevient une première ouverture, donc la cinématique est
         // rejouée et le cycle de 8 repart de zéro.
@@ -315,6 +331,7 @@ export default function Settings() {
               label="Voix du coach"
               sub="Annonce les phases et les tours à voix haute, sans regarder l'écran"
               control={<Toggle value={settings.voiceCoach} onChange={(v) => update('voiceCoach', v)} />}
+              highlight={highlightVoiceCoach}
             />
             {settings.voiceCoach && (
               <LinkRow
@@ -509,16 +526,27 @@ function Section({ title, children }) {
   );
 }
 
-function Row({ label, sub, control, isLast }) {
-  return (
-    <View style={[styles.row, !isLast && styles.rowBorder]}>
+function Row({ label, sub, control, isLast, highlight }) {
+  const content = (
+    <>
       <View style={styles.rowText}>
         <Text style={styles.rowLabel}>{label}</Text>
         {!!sub && <Text style={styles.rowSub}>{sub}</Text>}
       </View>
       <View>{control}</View>
-    </View>
+    </>
   );
+  // HighlightPulse seulement pour la ligne qui en a besoin — les dizaines
+  // d'autres Row de cet écran gardent le View simple, sans le coût d'un
+  // shared value Reanimated par ligne pour rien.
+  if (highlight !== undefined) {
+    return (
+      <HighlightPulse active={highlight} style={[styles.row, !isLast && styles.rowBorder]}>
+        {content}
+      </HighlightPulse>
+    );
+  }
+  return <View style={[styles.row, !isLast && styles.rowBorder]}>{content}</View>;
 }
 
 // Les quatre couleurs des modes en pastilles dessinées (plus d'emojis ronds,
