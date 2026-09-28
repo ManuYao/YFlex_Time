@@ -284,7 +284,23 @@ export default function Home() {
   // d'un autre updater peut être ignoré par React sans avertissement
   // visible. La ref remplace la comparaison "prev" pour garder ce callback
   // stable (pas de dépendance sur activeIndex).
+  //
+  // draggingRef : quand on revient sur Home avec `lastTimerId` (ex. après une
+  // séance MIX), `initialScrollIndex` fait sauter le FlatList sur un index
+  // non nul. Sur Android, ce saut programmatique peut déclencher un
+  // onMomentumScrollEnd parasite pendant qu'il se stabilise, avec un
+  // contentOffset pas encore exact — le index recalculé ici écraserait alors
+  // le bon activeIndex (déjà correct depuis le useState initial) par un faux,
+  // rendant la carte MIX "inactive" et sa pastille "Modifier" injoignable
+  // (une View simple sans handler de tap, cf TimerCard). On n'accepte donc un
+  // changement d'index que s'il suit un vrai geste de l'utilisateur.
+  const draggingRef = useRef(false);
+  const handleScrollBeginDrag = useCallback(() => {
+    draggingRef.current = true;
+  }, []);
   const handleMomentumEnd = useCallback((e) => {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
     const index = Math.round(e.nativeEvent.contentOffset.x / rootW);
     if (index === activeIndexRef.current) return;
     activeIndexRef.current = index;
@@ -498,6 +514,7 @@ export default function Home() {
             horizontal
             pagingEnabled
             showsHorizontalScrollIndicator={false}
+            onScrollBeginDrag={handleScrollBeginDrag}
             onMomentumScrollEnd={handleMomentumEnd}
             keyExtractor={keyExtractor}
             initialScrollIndex={initialIndex}
