@@ -40,6 +40,7 @@ import { playSound } from '../lib/sounds';
 import ProgressionSheet from '../components/common/ProgressionSheet';
 import BadgeUnlockSheet from '../components/common/BadgeUnlockSheet';
 import CoachNudgeSheet from '../components/common/CoachNudgeSheet';
+import ModePickerSheet from '../components/common/ModePickerSheet';
 import ConfirmSheet from '../components/common/ConfirmSheet';
 import PermissionPrimer from '../components/common/PermissionPrimer';
 import { shouldShowPermissionPrimer } from '../lib/permissionPrimer';
@@ -181,6 +182,10 @@ export default function Home() {
   const [activeIndex, setActiveIndex] = useState(initialIndex);
   const [picker, setPicker] = useState(null);
   const [statsOpen, setStatsOpen] = useState(false);
+  // Aperçu rapide des 5 formats (components/common/ModePickerSheet.js) —
+  // ouvert en tapant les points de pagination, qui ne sautent plus
+  // directement (demande utilisateur, v14.15.0).
+  const [modePickerOpen, setModePickerOpen] = useState(false);
   const [isLaunching, setIsLaunching] = useState(false);
   const [progression, setProgression] = useState(null);
   // Popup de découverte du coach vocal (lib/coachNudge.js) — proposée tant
@@ -229,7 +234,7 @@ export default function Home() {
   const overlayBusyRef = useRef(false);
   overlayBusyRef.current =
     isLaunching || statsOpen || !!picker || badgeQueue.length > 0 || !!burnPrompt || !!primerLaunch ||
-    showCoachNudge;
+    showCoachNudge || modePickerOpen;
 
   useEffect(() => {
     shouldShowPermissionPrimer('firstSession').then((due) => {
@@ -479,9 +484,27 @@ export default function Home() {
     router.push('/mix-builder');
   }, [haptic, router]);
 
+  // Saut programmatique (choisi dans ModePickerSheet) : met à jour activeIndex
+  // tout de suite, sans attendre le momentum-end du scroll. Nécessaire depuis
+  // que ce dernier ne réagit plus qu'à un vrai geste de l'utilisateur
+  // (draggingRef, v14.9.0) — un scrollToIndex() ne déclenche jamais
+  // onScrollBeginDrag, donc handleMomentumEnd l'aurait ignoré.
   const handleDotPress = useCallback((index) => {
+    if (index !== activeIndexRef.current) {
+      activeIndexRef.current = index;
+      haptic.selection();
+      setActiveIndex(index);
+    }
     flatListRef.current?.scrollToIndex({ index, animated: true });
-  }, []);
+  }, [haptic]);
+
+  // Tap sur les points de pagination : ouvre l'aperçu des 5 formats au lieu
+  // de sauter directement (demande utilisateur, v14.15.0) — voir
+  // ModePickerSheet. Le saut direct reste possible depuis la feuille elle-même.
+  const handleOpenModePicker = useCallback(() => {
+    haptic.light();
+    setModePickerOpen(true);
+  }, [haptic]);
 
   const handleStatPress = useCallback((timerId, statKey) => {
     haptic.light();
@@ -594,7 +617,7 @@ export default function Home() {
             active={active}
             tokens={t}
             cooldown={activeCooldown}
-            onDotPress={handleDotPress}
+            onOpenModePicker={handleOpenModePicker}
             onLaunch={handleLaunch}
             isLaunching={hideChrome}
           />
@@ -727,6 +750,17 @@ export default function Home() {
           onActivate={handleCoachNudgeActivate}
           onNeverShow={handleCoachNudgeNeverShow}
           onClose={handleCoachNudgeClose}
+        />
+      )}
+
+      {/* (N bis) Aperçu des 5 formats — tap sur un point de pagination. */}
+      {modePickerOpen && (
+        <ModePickerSheet
+          screenH={rootH}
+          timers={timers}
+          activeIndex={activeIndex}
+          onPick={handleDotPress}
+          onClose={() => setModePickerOpen(false)}
         />
       )}
     </View>
@@ -1500,7 +1534,7 @@ function BreathingRing({ isActive, t, timerId, size = 320, gap = 24, children })
 /* ─────────────────────────────────────────────────────────────────
    (M+N+O) Bottom bar — indicators + CTA + hint
    ────────────────────────────────────────────────────────────────*/
-function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onDotPress, onLaunch, isLaunching }) {
+function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onOpenModePicker, onLaunch, isLaunching }) {
   const isLocked = !!cooldown?.isLocked;
   // (V) En fenêtre courte, chaque bloc compte : le rappel de swipe part en
   // premier (le geste s'apprend au premier essai, les points restent) et le
@@ -1546,14 +1580,19 @@ function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onDo
       pointerEvents={isLaunching ? 'none' : 'auto'}
     >
       <Animated.View style={[styles.bottomBar, isReduced && styles.bottomBarReduced, fadeStyle]}>
-      {/* (N) Indicators dots */}
+      {/* (N) Indicators dots — tap = aperçu des 5 formats (ModePickerSheet),
+          appui long sur un point = explication de CE format sans quitter
+          l'écran (IndicatorDot). Le saut direct par simple tap a été retiré
+          (demande utilisateur, v14.15.0) : glisser le carrousel reste le
+          moyen le plus rapide pour qui connaît déjà les formats. */}
       <View style={[styles.indicatorRow, isReduced && styles.indicatorRowReduced]}>
         {timers.map((timer, i) => (
           <IndicatorDot
             key={timer.id}
+            timer={timer}
             isActive={i === activeIndex}
             tokens={tokens}
-            onPress={() => onDotPress(i)}
+            onPress={onOpenModePicker}
           />
         ))}
       </View>
@@ -1595,7 +1634,7 @@ function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onDo
 
       {!isMini && (
         <Text style={[styles.hint, isReduced && styles.hintReduced, { color: tokens.muted }]}>
-          ← Glisse ou tape les points →
+          ← Glisse ou tape pour explorer →
         </Text>
       )}
       </Animated.View>
@@ -1603,8 +1642,15 @@ function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onDo
   );
 }
 
-function IndicatorDot({ isActive, tokens, onPress }) {
+function IndicatorDot({ timer, isActive, tokens, onPress }) {
+  const haptic = useHaptic();
   const w = useSharedValue(isActive ? 24 : 4);
+  // Aperçu au maintien : nom + description de CE format, sans quitter Home
+  // ni ouvrir ModePickerSheet — le geste rapide pour qui veut juste vérifier
+  // avant de swiper (demande utilisateur, v14.15.0). RN n'appelle jamais
+  // onPress après onLongPress sur le même geste : un relâchement après tenue
+  // ne rouvre donc pas aussi l'aperçu des 5 formats.
+  const [tooltip, setTooltip] = useState(false);
 
   useEffect(() => {
     w.value = withSpring(isActive ? 24 : 4, springBouncy);
@@ -1615,7 +1661,29 @@ function IndicatorDot({ isActive, tokens, onPress }) {
   }));
 
   return (
-    <Pressable onPress={onPress} hitSlop={10}>
+    <Pressable
+      onPress={onPress}
+      onLongPress={() => {
+        haptic.light();
+        setTooltip(true);
+      }}
+      delayLongPress={320}
+      onPressOut={() => setTooltip(false)}
+      hitSlop={10}
+    >
+      {tooltip && (
+        <Animated.View
+          entering={FadeIn.duration(120)}
+          exiting={FadeOut.duration(120)}
+          style={styles.dotTooltipWrap}
+          pointerEvents="none"
+        >
+          <View style={[styles.dotTooltip, { backgroundColor: tokens.chipBg, borderColor: tokens.chipBorder }]}>
+            <Text style={[styles.dotTooltipName, { color: tokens.primary }]}>{timer.name}</Text>
+            <Text style={[styles.dotTooltipText, { color: tokens.tertiary }]}>{timer.full}</Text>
+          </View>
+        </Animated.View>
+      )}
       <Animated.View
         style={[
           styles.indicatorDot,
@@ -2361,6 +2429,35 @@ const styles = StyleSheet.create({
   indicatorDot: {
     height: 4,
     borderRadius: 2,
+  },
+  // Boîte large et invisible (déborde largement du point, minuscule) pour que
+  // le contenu, lui de taille naturelle, puisse se centrer dessus sans être
+  // écrasé à 4-24px de large (technique : bornes gauche/droite loin du point,
+  // alignItems centre le contenu réel à l'intérieur).
+  dotTooltipWrap: {
+    position: 'absolute',
+    bottom: 14,
+    left: -120,
+    right: -120,
+    alignItems: 'center',
+  },
+  dotTooltip: {
+    maxWidth: 220,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  dotTooltipName: {
+    fontFamily: fonts.sansBold,
+    fontSize: 11,
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  dotTooltipText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 11,
+    lineHeight: 15,
   },
   // Même typo que le label d'un Button lg : le morph reprend ce texte tel quel.
   ctaText: {

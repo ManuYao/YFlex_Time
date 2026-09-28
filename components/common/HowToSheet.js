@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { View, Text, Pressable, StyleSheet, BackHandler } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import Animated, {
   runOnJS,
   useAnimatedStyle,
@@ -11,6 +12,7 @@ import Animated, {
 
 import AppIcon from './AppIcon';
 import IconButton from './IconButton';
+import Button from './Button';
 import { fonts } from '../../lib/fonts';
 import { formatValue } from '../../lib/formatters';
 import { haptic } from '../../hooks/useHaptic';
@@ -26,6 +28,7 @@ import { D, easeImpact, springSheet, slideInY } from '../../lib/animations';
  * (voir le commentaire dans ModeStatsSheet.js), donc simple voile sombre ici.
  */
 export default function HowToSheet({ timer, screenH, onClose }) {
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const translateY = useSharedValue(screenH);
   const backdropOpacity = useSharedValue(0);
@@ -143,6 +146,23 @@ export default function HowToSheet({ timer, screenH, onClose }) {
             </Animated.View>
           ))}
         </View>
+
+        {/* Va plus loin que le mécanisme ci-dessus : d'où vient le format,
+            dans quels sports on le retrouve. Une vraie page (pas une feuille
+            de plus empilée) : sujet assez long pour mériter de défiler et de
+            se lire tranquillement. */}
+        <Button
+          variant="glass"
+          fullWidth
+          label="En savoir plus"
+          icon="arrow"
+          haptic={haptic.light}
+          onPress={() => {
+            router.push({ pathname: '/mode-guide', params: { id: timer.id } });
+            handleClose();
+          }}
+          style={styles.moreCta}
+        />
       </Animated.View>
     </View>
   );
@@ -280,5 +300,9 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansBold,
     fontSize: 14.5,
     color: '#FFFFFF',
+  },
+
+  moreCta: {
+    marginTop: 16,
   },
 });
