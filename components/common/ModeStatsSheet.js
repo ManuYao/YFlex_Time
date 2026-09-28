@@ -16,6 +16,7 @@ import Button from './Button';
 import HowToSheet from './HowToSheet';
 import BadgeDetailSheet from './BadgeDetailSheet';
 import { fonts } from '../../lib/fonts';
+import { formatValue } from '../../lib/formatters';
 import { haptic } from '../../hooks/useHaptic';
 import { getBadgeProgress } from '../../lib/badges';
 import BadgeMedal, { TIER_PALETTE } from './BadgeMedal';
@@ -79,6 +80,12 @@ export default function ModeStatsSheet({ timer, stats, screenH, blurTargetRef, o
   const { tiers, nextTier, progressPct } = getBadgeProgress(timer.id, count);
   const overlayTint = timer.bgColors[2] + '80';
   const sheetTint = timer.bgColors[1] + 'E6';
+  // Réglages actuels du mode (TRAVAIL/REPOS/TOURS...) — mêmes données que les
+  // pastilles de l'accueil, en lecture seule ici : donne du contexte à "Comment
+  // ça marche" sans dupliquer la logique d'édition. MIX n'a aucun stat
+  // `editable` (sa config est une liste de blocs, pas un réglage chiffré) :
+  // la section ne s'affiche simplement pas pour lui.
+  const settingsStats = timer.stats.filter((s) => s.editable);
 
   return (
     <View style={styles.sheetRoot}>
@@ -123,6 +130,33 @@ export default function ModeStatsSheet({ timer, stats, screenH, blurTargetRef, o
             <Text style={styles.subtitle}>{MODE_TAGLINE[timer.id] || timer.full}</Text>
           </View>
         </View>
+
+        {settingsStats.length > 0 && (
+          <View style={styles.settingsSection}>
+            <View style={styles.statLabelRow}>
+              <AppIcon name="sliders" size={12} opacity={0.85} />
+              <Text style={styles.statLabel}>RÉGLAGES</Text>
+            </View>
+            <View style={styles.settingsRow}>
+              {settingsStats.map((stat) => {
+                const fmt = stat.type === 'seconds' ? formatValue(stat.value, stat.type) : null;
+                const displayValue = fmt ? fmt.main : stat.value;
+                const displayUnit = fmt ? fmt.unit : stat.unit;
+                return (
+                  <View key={stat.key} style={styles.settingBox}>
+                    <Text style={styles.settingLabel} numberOfLines={1}>{stat.label}</Text>
+                    <View style={styles.statValueRow}>
+                      <Text style={styles.settingValue} numberOfLines={1}>{displayValue}</Text>
+                      {!!displayUnit && (
+                        <Text style={styles.settingUnit} numberOfLines={1}>{displayUnit}</Text>
+                      )}
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        )}
 
         <View style={styles.statsGrid}>
           <View style={styles.statBox}>
@@ -302,6 +336,47 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: 'rgba(255,255,255,0.7)',
     marginTop: 2,
+  },
+
+  // Réglages actuels (lecture seule) — fond sombre pour se distinguer des
+  // pastilles séances/total plus claires juste en dessous : ici, rien ne se
+  // touche.
+  settingsSection: {
+    marginBottom: 18,
+  },
+  settingsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+  },
+  settingBox: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.20)',
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+  },
+  settingLabel: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 9,
+    letterSpacing: 1.4,
+    color: 'rgba(255,255,255,0.55)',
+    marginBottom: 4,
+  },
+  statValueRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+  },
+  settingValue: {
+    fontFamily: fonts.monoBold,
+    fontSize: 16,
+    color: 'rgba(255,255,255,0.85)',
+  },
+  settingUnit: {
+    fontFamily: fonts.monoRegular,
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.55)',
+    marginLeft: 3,
   },
 
   statsGrid: {

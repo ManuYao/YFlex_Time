@@ -31,7 +31,7 @@ import {
   openNotificationSettings,
 } from '../lib/notificationPrompt';
 import { useTimers } from '../contexts/TimersContext';
-import { computeSessionStats } from '../lib/timer-engine';
+import { computeSessionStats, computeTotalDuration } from '../lib/timer-engine';
 import { formatDuration } from '../lib/formatters';
 import { fonts } from '../lib/fonts';
 import { BOTTOM_GAP, PAIR_GAP, SIDE_GAP } from '../lib/buttonTokens';
@@ -41,7 +41,7 @@ import { loadCooldownMap, saveCooldownMap, getCooldownStatus, consumeLaunch } fr
 import { loadIsPremium } from '../lib/premium';
 import BadgeUnlockSheet from '../components/common/BadgeUnlockSheet';
 import { pendingBadges, markBadgeSeen } from '../lib/badgeCelebration';
-import { countSessionsByTimer, SHORT_SESSION_SECONDS } from '../lib/history';
+import { countSessionsByTimer, isShortSession } from '../lib/history';
 
 const springEnergetic = { stiffness: 380, damping: 22, mass: 1 };
 
@@ -154,7 +154,7 @@ export default function EndSession() {
           workTotal: stats.workTotal,
           restTotal: stats.restTotal,
           date: new Date().toISOString(),
-          ...(elapsedNum < SHORT_SESSION_SECONDS ? { pendingDelete: true } : {}),
+          ...(isShortSession(elapsedNum, computeTotalDuration(timer)) ? { pendingDelete: true } : {}),
         });
         await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(list));
 

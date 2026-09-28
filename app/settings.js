@@ -39,7 +39,7 @@ import { usePremium } from '../hooks/usePremium';
 import { useOtaUpdate } from '../hooks/useOtaUpdate';
 import { markUpdatePopupSeen, resolveUpdateCandidate } from '../lib/updatePopup';
 import { haptic, setHapticStrength } from '../hooks/useHaptic';
-import { playDenied, previewSound } from '../lib/sounds';
+import { playDenied, previewVolumeTap } from '../lib/sounds';
 import { detectVoices } from '../lib/voiceCoach';
 import { fonts } from '../lib/fonts';
 import { DANGER, ROUND_SIZE } from '../lib/buttonTokens';
@@ -303,7 +303,8 @@ export default function Settings() {
                     update('volume', v);
                     // Bip de test au niveau choisi : sans lui, régler le
                     // volume se faisait à l'aveugle (retour utilisateur).
-                    previewSound('countdown1', v / 100);
+                    // Cycle 3-2-1-GO-fin à chaque tap, voir previewVolumeTap.
+                    previewVolumeTap(v / 100);
                   }}
                   color="#1FC777"
                   disabled={!settings.sound}
