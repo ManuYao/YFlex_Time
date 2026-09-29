@@ -22,6 +22,7 @@ import { setAudioModeAsync } from 'expo-audio';
 import GrainOverlay from '../components/common/GrainOverlay';
 import LaunchSplash from '../components/common/LaunchSplash';
 import UpdateGate from '../components/common/UpdateGate';
+import HistorySyncGate from '../components/common/HistorySyncGate';
 import APKBlockedScreen from '../components/common/APKBlockedScreen';
 import MaintenanceBanner from '../components/common/MaintenanceBanner';
 import MaintenanceScreen from '../components/common/MaintenanceScreen';
@@ -173,6 +174,7 @@ export default function RootLayout() {
                   <Stack.Screen name="archive-detail" options={{ animation: 'fade' }} />
                 </Stack>
                 <UpdateGate />
+                <HistorySyncGate />
 
                 {splashCleared && !apk.isBlockedByForcedUpdate && apk.isMaintenance && !bannerClosed && (
                   <MaintenanceBanner

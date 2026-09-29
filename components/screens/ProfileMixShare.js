@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import PressTap from '../common/PressTap';
@@ -6,11 +6,10 @@ import AppIcon from '../common/AppIcon';
 import { BlockStrip } from '../common/MixPublicSheet';
 import { haptic } from '../../hooks/useHaptic';
 import { fonts } from '../../lib/fonts';
-import { MOCK_PUBLIC_MIXES } from '../../lib/profileMock';
+import { fetchFeed } from '../../lib/publicMixes';
 
-// Aperçu du fil : les blocs des mixes à la suite, pour que la rangée annonce
-// déjà la couleur de ce qu'on va y trouver.
-const PUBLIC_PREVIEW = MOCK_PUBLIC_MIXES.flatMap((m) => m.blocks).slice(0, 12);
+// Le fil est chargé par lots de PREVIEW_LIMIT : au-delà, on affiche « 12+ ».
+const PREVIEW_LIMIT = 12;
 
 function NavRow({ icon, title, sub, onPress, children }) {
   return (
@@ -28,7 +27,40 @@ function NavRow({ icon, title, sub, onPress, children }) {
   );
 }
 
-export default function ProfileMixShare({ onOpenPublic }) {
+/**
+ * Rangée « Fil public » du Hub Profil. Lit les VRAIS mixes publiés (compte
+ * facultatif : lire ne demande rien). `refreshKey` change quand la feuille du
+ * fil se referme, pour que le compte et la bande de couleurs suivent.
+ */
+export default function ProfileMixShare({ onOpenPublic, refreshKey = 0 }) {
+  const [state, setState] = useState({ status: 'loading', items: [] });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const res = await fetchFeed({ limit: PREVIEW_LIMIT });
+      if (cancelled) return;
+      if (!res.ok) {
+        setState({ status: res.reason === 'unavailable' ? 'unavailable' : 'error', items: [] });
+        return;
+      }
+      setState({ status: 'ok', items: res.items });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshKey]);
+
+  const { status, items } = state;
+  const strip = items.flatMap((m) => m.blockTypes).slice(0, 12);
+  let countLabel = ' ';
+  if (status === 'unavailable') countLabel = 'BIENTÔT DISPONIBLE';
+  else if (status === 'error') countLabel = 'À OUVRIR POUR RÉESSAYER';
+  else if (status === 'ok') {
+    if (items.length === 0) countLabel = 'SOIS LE PREMIER À PUBLIER';
+    else countLabel = `${items.length >= PREVIEW_LIMIT ? `${PREVIEW_LIMIT}+` : items.length} MIX À TESTER`;
+  }
+
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>MIX</Text>
@@ -39,8 +71,8 @@ export default function ProfileMixShare({ onOpenPublic }) {
           sub="Les mixes des autres, à tester en un geste."
           onPress={onOpenPublic}
         >
-          <Text style={styles.countText}>{MOCK_PUBLIC_MIXES.length} MIX À TESTER</Text>
-          <BlockStrip blocks={PUBLIC_PREVIEW} height={4} style={styles.strip} />
+          <Text style={styles.countText}>{countLabel}</Text>
+          {strip.length > 0 && <BlockStrip blocks={strip} height={4} style={styles.strip} />}
         </NavRow>
       </View>
     </View>

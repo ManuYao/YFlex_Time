@@ -122,6 +122,7 @@ export const ICON_NAMES = [
   'reset', 'play', 'pause', 'finish', 'skip',
   'back', 'plus', 'gear', 'more', 'arrow', 'list', 'share', 'note',
   'user', 'bar', 'swim', 'run',
+  'star', 'star-fill', 'globe',
 ];
 
 export default function AppIcon({ name, size = 20, color = '#FFFFFF', opacity = 1, strokeWidth, style }) {
@@ -340,6 +341,26 @@ export default function AppIcon({ name, size = 20, color = '#FFFFFF', opacity = 
           <Path {...line} d="M14.5 4v3h3" />
           <Line {...line} x1={8.5} y1={12} x2={15.5} y2={12} />
           <Line {...line} x1={8.5} y1={15.7} x2={13} y2={15.7} />
+        </>
+      );
+      break;
+    // Étoile : la note d'un mix du fil public. `star` = vide (à donner),
+    // `star-fill` = pleine (donnée ou moyenne) — même tracé, seul le
+    // remplissage change, pour que les deux s'alignent au pixel.
+    case 'star':
+      body = <Path {...line} d="M12 3.2l2.6 5.5 6 .8-4.4 4.2 1.1 6-5.3-2.9-5.3 2.9 1.1-6L3.4 9.5l6-.8L12 3.2z" />;
+      break;
+    case 'star-fill':
+      body = <Path {...rounded} d="M12 3.2l2.6 5.5 6 .8-4.4 4.2 1.1 6-5.3-2.9-5.3 2.9 1.1-6L3.4 9.5l6-.8L12 3.2z" />;
+      break;
+    // Globe : le fil PUBLIC (visible par tout le monde), par opposition au
+    // lien envoyé à une seule personne.
+    case 'globe':
+      body = (
+        <>
+          <Circle {...line} cx={12} cy={12} r={8.5} />
+          <Path {...line} d="M3.5 12h17" />
+          <Path {...line} d="M12 3.5c2.4 2.3 3.6 5.1 3.6 8.5s-1.2 6.2-3.6 8.5c-2.4-2.3-3.6-5.1-3.6-8.5S9.6 5.8 12 3.5z" />
         </>
       );
       break;

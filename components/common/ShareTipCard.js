@@ -16,7 +16,7 @@ const OK_GREEN = '#1FC777';
 
 const STEPS = [
   "Envoie-le à un ami ou à ton partenaire d'entraînement (WhatsApp, Instagram, SMS…).",
-  "De son côté, il ouvre Flex Timer, va dans le constructeur MIX, touche le bouton de partage et colle le lien dans « Recevoir un mix ».",
+  "De son côté, il ouvre Flex Timer, va dans le constructeur MIX, touche le bouton de partage, ouvre l'onglet « Recevoir » et colle le lien.",
 ];
 
 /**

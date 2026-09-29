@@ -11,6 +11,7 @@ import DisciplineSheet from '../components/common/DisciplineSheet';
 import MixPublicSheet from '../components/common/MixPublicSheet';
 import ShareSessionSheet from '../components/common/ShareSessionSheet';
 import ConfirmSheet from '../components/common/ConfirmSheet';
+import PseudoSheet from '../components/common/PseudoSheet';
 import ProfileHeader from '../components/screens/ProfileHeader';
 import ProfileAccount from '../components/screens/ProfileAccount';
 import ProfileAnalytics from '../components/screens/ProfileAnalytics';
@@ -22,7 +23,15 @@ import { usePremium } from '../hooks/usePremium';
 import { haptic } from '../hooks/useHaptic';
 import { fonts } from '../lib/fonts';
 import { getBadgeProgress } from '../lib/badges';
-import { loadProfile, saveProfile, formatMemberSince, initialsOf } from '../lib/profile';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  loadProfile,
+  saveProfile,
+  formatMemberSince,
+  initialsOf,
+  validatePseudo,
+  DEFAULT_PSEUDO,
+} from '../lib/profile';
 import { computeProfileStats } from '../lib/profileStats';
 import { loadHistory } from '../lib/history';
 
@@ -35,16 +44,19 @@ export default function Profile() {
   const { height: screenH } = useWindowDimensions();
   const { timers } = useTimers();
   const { isPremium } = usePremium();
-  const { user, signOut } = useAuth();
+  const { user, signOut, updateDisplayName } = useAuth();
   const blurTargetRef = useRef(null);
 
   const [profile, setProfile] = useState(null);
   const [sessions, setSessions] = useState([]);
   const [disciplineSheet, setDisciplineSheet] = useState(false);
   const [publicMixSheet, setPublicMixSheet] = useState(false);
+  const [feedRefresh, setFeedRefresh] = useState(0);
   const [statsTimerId, setStatsTimerId] = useState(null);
   const [shareSheet, setShareSheet] = useState(false);
   const [logoutConfirm, setLogoutConfirm] = useState(false);
+  const [pseudoSheet, setPseudoSheet] = useState(null); // null | 'edit' | 'welcome'
+  const nameSyncedForRef = useRef(null);
 
   // Charger le profil et l'historique au montage et au focus
   useFocusEffect(
@@ -64,6 +76,35 @@ export default function Profile() {
       const updated = await saveProfile({ ...profile, disciplineIds: newIds });
       setProfile(updated);
     }
+  };
+
+  // Nom du compte ↔ nom du Profil (une fois par connexion) : sur un nouveau
+  // téléphone le nom du compte est repris ; sinon le nom local part sur le
+  // compte ; sans aucun nom, on le demande une seule fois.
+  React.useEffect(() => {
+    if (!user || !profile || nameSyncedForRef.current === user.id) return;
+    nameSyncedForRef.current = user.id;
+    const meta = validatePseudo(user.user_metadata?.display_name);
+    const localIsDefault = profile.pseudo === DEFAULT_PSEUDO;
+    (async () => {
+      if (meta.ok && localIsDefault) {
+        setProfile(await saveProfile({ ...profile, pseudo: meta.value }));
+      } else if (!meta.ok && !localIsDefault) {
+        updateDisplayName(profile.pseudo).catch(() => {});
+      } else if (!meta.ok && localIsDefault) {
+        const asked = await AsyncStorage.getItem('flexTimer_namePrompted');
+        if (asked !== user.id) {
+          await AsyncStorage.setItem('flexTimer_namePrompted', user.id);
+          setPseudoSheet('welcome');
+        }
+      }
+    })();
+  }, [user, profile, updateDisplayName]);
+
+  const handlePseudoSubmit = async (name) => {
+    if (!profile) return;
+    setProfile(await saveProfile({ ...profile, pseudo: name }));
+    if (user) updateDisplayName(name).catch(() => {});
   };
 
   // Calculer les vraies stats
@@ -133,12 +174,13 @@ export default function Profile() {
                 trophyCount={trophies.unlocked}
                 trophyTotal={trophies.total}
                 onEditDisciplines={() => setDisciplineSheet(true)}
+                onEditPseudo={() => setPseudoSheet('edit')}
                 accountConnected={!!user}
                 onAccountPress={() => setLogoutConfirm(true)}
               />
               <ProfileAccount />
               <ProfileAnalytics stats={stats} isPremium={isPremium} onGoPremium={() => router.push('/premium')} />
-              <ProfileMixShare onOpenPublic={() => setPublicMixSheet(true)} />
+              <ProfileMixShare onOpenPublic={() => setPublicMixSheet(true)} refreshKey={feedRefresh} />
               <ProfileGamification
                 badgeCounts={stats.badgeCounts}
                 hasSession={!!stats.lastSession}
@@ -159,7 +201,24 @@ export default function Profile() {
           onClose={() => setDisciplineSheet(false)}
         />
       )}
-      {publicMixSheet && <MixPublicSheet screenH={screenH} onClose={() => setPublicMixSheet(false)} />}
+      {pseudoSheet && (
+        <PseudoSheet
+          screenH={screenH}
+          initialValue={profile?.pseudo ?? ''}
+          welcome={pseudoSheet === 'welcome'}
+          onSubmit={handlePseudoSubmit}
+          onClose={() => setPseudoSheet(null)}
+        />
+      )}
+      {publicMixSheet && (
+        <MixPublicSheet
+          screenH={screenH}
+          onClose={() => {
+            setPublicMixSheet(false);
+            setFeedRefresh((k) => k + 1);
+          }}
+        />
+      )}
       {shareSheet && stats.lastSession && (
         <ShareSessionSheet session={stats.lastSession} screenH={screenH} onClose={() => setShareSheet(false)} />
       )}

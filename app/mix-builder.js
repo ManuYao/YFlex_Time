@@ -6,14 +6,12 @@ import {
   TextInput,
   ScrollView,
   StyleSheet,
-  Keyboard,
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useRouter } from 'expo-router';
-import * as Linking from 'expo-linking';
 import Svg, { Path } from 'react-native-svg';
 import DraggableFlatList, {
   ScaleDecorator,
@@ -35,7 +33,8 @@ import Button from '../components/common/Button';
 import IconButton from '../components/common/IconButton';
 import BlockRoleIcon from '../components/common/BlockRoleIcon';
 import AppIcon from '../components/common/AppIcon';
-import ShareTipCard from '../components/common/ShareTipCard';
+import MixShareSheet from '../components/common/MixShareSheet';
+import MixPublicSheet from '../components/common/MixPublicSheet';
 import {
   BLOCK_TYPES,
   getBlockType,
@@ -49,15 +48,7 @@ import {
 } from '../lib/mix-blocks';
 import { makeDefaultMix } from '../lib/mixes';
 import { DAYS, loadPlanning, formatBlockAsText } from '../lib/planning';
-import {
-  serializeMix,
-  deserializeMix,
-  sanitizeImportedPayload,
-  extractShareCode,
-} from '../lib/mixShare';
 import { BLOCK_ROLES, getBlockRole, resolveBlockRole } from '../lib/blockRoles';
-import { copyToClipboard } from '../lib/clipboard';
-import { isShareOnboarded, markShareOnboarded } from '../lib/shareOnboarding';
 import { fonts } from '../lib/fonts';
 import { easeImpact, springBouncy, springEnergetic } from '../lib/animations';
 import {
@@ -94,6 +85,7 @@ export default function MixBuilder() {
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [shareMix, setShareMix] = useState(null);
+  const [feedOpen, setFeedOpen] = useState(false);
 
   useEffect(() => {
     if (draft) return;
@@ -183,12 +175,11 @@ export default function MixBuilder() {
     await removeFromLibrary(mixId);
   };
 
-  // Partage SANS backend (voir CLAUDE.md, section MIX PARTAGE). L'envoi et la
-  // réception passent tous les deux par ShareSheet (aperçu avant d'envoyer,
-  // et un champ pour coller un lien reçu — retour utilisateur v14.3.0 : le
-  // partage direct sans aperçu ne montrait rien avant l'envoi, et rien ne
-  // permettait de récupérer un mix si le lien n'était pas cliquable, ce qui
-  // arrive dans beaucoup d'apps de messagerie pour un scheme personnalisé).
+  // Partage : un lien pour un ami (sans compte, sans backend) et la publication
+  // dans le fil public (compte obligatoire) passent tous les deux par
+  // MixShareSheet — aperçu avant d'envoyer, onglet « Recevoir » pour coller un
+  // lien reçu (retour utilisateur v14.3.0 : beaucoup d'apps de messagerie ne
+  // rendent pas cliquable un scheme personnalisé).
   const openShare = (mix) => {
     haptic.light();
     setShareMix(mix);
@@ -196,6 +187,14 @@ export default function MixBuilder() {
   };
 
   const handleImported = (mix) => {
+    setDraft({ ...mix, blocks: mix.blocks.map((b) => ({ ...b })) });
+  };
+
+  // « Tester » dans le fil public, depuis le Constructeur : le mix devient le
+  // MIX courant ET le brouillon affiché (même geste que charger un mix de la
+  // bibliothèque) au lieu de quitter l'écran avec un brouillon non enregistré.
+  const handleTestFromFeed = async (mix) => {
+    await saveCurrentMix(mix);
     setDraft({ ...mix, blocks: mix.blocks.map((b) => ({ ...b })) });
   };
 
@@ -375,11 +374,20 @@ export default function MixBuilder() {
       )}
 
       {shareOpen && (
-        <ShareSheet
+        <MixShareSheet
           screenH={screenH}
           mix={shareMix}
           onClose={() => setShareOpen(false)}
           onImported={handleImported}
+          onOpenFeed={() => setFeedOpen(true)}
+        />
+      )}
+
+      {feedOpen && (
+        <MixPublicSheet
+          screenH={screenH}
+          onClose={() => setFeedOpen(false)}
+          onTest={handleTestFromFeed}
         />
       )}
     </GradientBackground>
@@ -1133,315 +1141,6 @@ function LibrarySheet({ screenH, library, onClose, onLoad, onDelete, onShare }) 
     </BottomSheet>
   );
 }
-
-/**
- * Un seul sous-menu pour les deux sens du partage (retour utilisateur,
- * v14.3.0 — le partage direct sans aperçu ne montrait rien avant l'envoi, et
- * rien nulle part ne permettait de coller un lien reçu) :
- *  - « APERÇU » : ce qui va être envoyé, avant de l'envoyer.
- *  - « RECEVOIR UN MIX » : coller un lien (ou juste le code) et le
- *    prévisualiser avant de l'ajouter — utile aussi parce que certaines apps
- *    de messagerie (Instagram en tête) ne rendent pas un lien flextimer://
- *    cliquable dans une conversation, donc taper le lien ne suffit pas
- *    toujours : le coller ici est le chemin fiable.
- */
-function ShareSheet({ screenH, mix, onClose, onImported }) {
-  return (
-    <BottomSheet screenH={screenH} onClose={onClose} keyboardAware>
-      {({ close, scrollToEnd }) => (
-        <ShareSheetContent
-          mix={mix}
-          close={close}
-          scrollToEnd={scrollToEnd}
-          onImported={onImported}
-        />
-      )}
-    </BottomSheet>
-  );
-}
-
-// Composant à part : l'effet qui fait défiler a besoin de scrollToEnd, que
-// BottomSheet ne fournit qu'à ses enfants.
-function ShareSheetContent({ mix, close, scrollToEnd, onImported }) {
-  const haptic = useHaptic();
-  const { saveAsLibraryEntry, saveCurrentMix } = useTimers();
-  const [pasted, setPasted] = useState('');
-  const [preview, setPreview] = useState(null);
-  const [error, setError] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [showTip, setShowTip] = useState(false);
-  const importingRef = useRef(false);
-  const copiedTimer = useRef(null);
-
-  useEffect(() => () => clearTimeout(copiedTimer.current), []);
-
-  // Le clavier reste ouvert après le collage : sans le fermer ni faire
-  // défiler, le résultat (aperçu OU message d'erreur) se rend sous la
-  // ligne de flottaison, cachée par le clavier — on dirait que le bouton
-  // ne fait rien (retour utilisateur, v14.3.0). Si le clavier était ouvert,
-  // on attend que la feuille soit redescendue et ait repris sa hauteur.
-  useEffect(() => {
-    if (!preview && !error) return;
-    const keyboardWasOpen = Keyboard.isVisible();
-    Keyboard.dismiss();
-    const t = setTimeout(scrollToEnd, keyboardWasOpen ? 350 : 80);
-    return () => clearTimeout(t);
-  }, [preview, error]);
-
-  // Copie seulement le lien (demande utilisateur) : la personne choisit elle-
-  // même où l'envoyer. Beaucoup d'apps ne rendent pas cliquable un lien
-  // flextimer://, le destinataire le colle de toute façon dans « Recevoir un mix ».
-  const handleCopy = async () => {
-    if (!mix?.blocks?.length) return;
-    const link = Linking.createURL('import-mix', { queryParams: { m: serializeMix(mix) } });
-    if (!copyToClipboard(link)) {
-      haptic.error();
-      return;
-    }
-    haptic.success();
-    setCopied(true);
-    clearTimeout(copiedTimer.current);
-    copiedTimer.current = setTimeout(() => setCopied(false), 2200);
-    if (!(await isShareOnboarded())) {
-      await markShareOnboarded();
-      setShowTip(true);
-    }
-  };
-
-  const handlePreview = () => {
-    haptic.light();
-    const { ok, payload } = deserializeMix(extractShareCode(pasted));
-    const sanitized = ok ? sanitizeImportedPayload(payload) : null;
-    setPreview(sanitized);
-    setError(!sanitized);
-  };
-
-  const handleImport = async () => {
-    // La feuille reste touchable pendant sa fermeture : pas de double import.
-    if (!preview || importingRef.current) return;
-    importingRef.current = true;
-    haptic.success();
-    await saveAsLibraryEntry(preview);
-    await saveCurrentMix(preview);
-    onImported?.(preview);
-    close();
-  };
-
-  const renderBlockRow = (block, key) => {
-    const type = getBlockType(block.type);
-    return (
-      <View key={key} style={shareStyles.row}>
-        <View style={[shareStyles.rowIconBox, { backgroundColor: `${type?.color || '#FFFFFF'}22` }]}>
-          <AppIcon name={type?.icon || 'mix'} size={13} color={type?.color || '#FFFFFF'} />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={shareStyles.rowLabel} numberOfLines={1}>{block.label}</Text>
-          <Text style={shareStyles.rowSub}>{formatBlockSubtitle(block)}</Text>
-          {!!block.note && (
-            <Text style={shareStyles.rowNote} numberOfLines={1}>{block.note}</Text>
-          )}
-        </View>
-      </View>
-    );
-  };
-
-  return (
-    <View>
-      <View style={sheetStyles.headerRow}>
-        <View style={{ flex: 1, paddingRight: 12 }}>
-          <Text style={sheetStyles.kicker}>PARTAGER</Text>
-          <Text style={sheetStyles.title} numberOfLines={1}>{mix?.name || 'Ce mix'}</Text>
-        </View>
-        <IconButton
-          icon="close"
-          size={ROUND_SIZE.sheet}
-          haptic={haptic.light}
-          onPress={close}
-          accessibilityLabel="Fermer"
-        />
-      </View>
-
-      {!!mix?.blocks?.length && (
-        <>
-          <Text style={shareStyles.sectionLabel}>APERÇU · CE QUI SERA ENVOYÉ</Text>
-          <View style={shareStyles.list}>
-            {mix.blocks.map((b, i) => renderBlockRow(b, b.id ?? i))}
-          </View>
-          <Button
-            variant="accent"
-            color={copied ? '#1FC777' : ACCENT}
-            fullWidth
-            icon={copied ? 'check' : 'share'}
-            label={copied ? 'Lien copié' : 'Copier le lien'}
-            onPress={handleCopy}
-            style={{ marginTop: 14, marginBottom: showTip ? 0 : 22 }}
-          />
-          {showTip && (
-            <View style={{ marginBottom: 22 }}>
-              <ShareTipCard onDismiss={() => setShowTip(false)} />
-            </View>
-          )}
-        </>
-      )}
-
-      <View style={shareStyles.divider}>
-        <View style={shareStyles.dividerLine} />
-        <Text style={shareStyles.dividerText}>OU</Text>
-        <View style={shareStyles.dividerLine} />
-      </View>
-
-      <Text style={shareStyles.sectionLabel}>RECEVOIR UN MIX</Text>
-      <TextInput
-        value={pasted}
-        onChangeText={(v) => {
-          setPasted(v);
-          setPreview(null);
-          setError(false);
-        }}
-        placeholder="Colle ici le lien reçu…"
-        placeholderTextColor="rgba(255,255,255,0.30)"
-        selectionColor="#FFFFFF"
-        multiline
-        textAlignVertical="top"
-        style={shareStyles.pasteInput}
-      />
-      <Button
-        variant="glass"
-        fullWidth
-        label="Prévisualiser"
-        onPress={handlePreview}
-        disabled={!pasted.trim()}
-        style={{ marginTop: 10 }}
-      />
-
-      {error && (
-        <Text style={shareStyles.errorText}>
-          Lien non reconnu — vérifie qu'il est collé en entier.
-        </Text>
-      )}
-
-      {!!preview && (
-        <View style={shareStyles.importBox}>
-          <Text style={shareStyles.importName} numberOfLines={1}>{preview.name}</Text>
-          <Text style={shareStyles.importMeta}>
-            {preview.blocks.length} bloc{preview.blocks.length > 1 ? 's' : ''}
-          </Text>
-          <View style={shareStyles.list}>
-            {preview.blocks.map((b, i) => renderBlockRow(b, b.id ?? i))}
-          </View>
-          <Button
-            variant="accent"
-            color={ACCENT}
-            fullWidth
-            label="Ajouter à ma bibliothèque"
-            onPress={handleImport}
-            style={{ marginTop: 12 }}
-          />
-        </View>
-      )}
-    </View>
-  );
-}
-
-const shareStyles = StyleSheet.create({
-  sectionLabel: {
-    fontFamily: fonts.sansBold,
-    fontSize: 10,
-    letterSpacing: 2,
-    color: 'rgba(255,255,255,0.45)',
-    marginBottom: 10,
-  },
-  list: {
-    gap: 8,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
-    borderRadius: 12,
-    padding: 10,
-  },
-  rowIconBox: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  rowLabel: {
-    fontFamily: fonts.sansSemibold,
-    fontSize: 13,
-    color: '#FFFFFF',
-  },
-  rowSub: {
-    fontFamily: fonts.monoRegular,
-    fontSize: 10.5,
-    color: 'rgba(255,255,255,0.50)',
-    marginTop: 1,
-  },
-  rowNote: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 10.5,
-    color: 'rgba(255,255,255,0.42)',
-    marginTop: 2,
-  },
-  divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 18,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: 'rgba(255,255,255,0.10)',
-  },
-  dividerText: {
-    fontFamily: fonts.sansBold,
-    fontSize: 10,
-    letterSpacing: 2,
-    color: 'rgba(255,255,255,0.35)',
-    marginHorizontal: 10,
-  },
-  pasteInput: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    minHeight: 60,
-    fontFamily: fonts.sansSemibold,
-    fontSize: 13,
-    color: '#FFFFFF',
-  },
-  errorText: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 12,
-    color: '#FF5454',
-    marginTop: 10,
-  },
-  importBox: {
-    marginTop: 16,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.08)',
-  },
-  importName: {
-    fontFamily: fonts.sansExtraBold,
-    fontSize: 17,
-    color: '#FFFFFF',
-    marginBottom: 2,
-  },
-  importMeta: {
-    fontFamily: fonts.monoBold,
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.50)',
-    marginBottom: 10,
-  },
-});
 
 const formatTotalShort = (s) => {
   if (s < 60) return `${s}s`;

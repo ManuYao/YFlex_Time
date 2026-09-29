@@ -41,7 +41,7 @@ import { loadCooldownMap, saveCooldownMap, getCooldownStatus, consumeLaunch } fr
 import { loadIsPremium } from '../lib/premium';
 import BadgeUnlockSheet from '../components/common/BadgeUnlockSheet';
 import { pendingBadges, markBadgeSeen } from '../lib/badgeCelebration';
-import { countSessionsByTimer, isEarlyQuit } from '../lib/history';
+import { countSessionsByTimer, isEarlyQuit, notifyHistoryChanged } from '../lib/history';
 
 const springEnergetic = { stiffness: 380, damping: 22, mass: 1 };
 
@@ -157,6 +157,7 @@ export default function EndSession() {
           ...(isEarlyQuit(elapsedNum, computeExpectedDuration(timer)) ? { pendingDelete: true } : {}),
         });
         await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(list));
+        notifyHistoryChanged();
 
         // Paliers de badge franchis PAR cette séance : le comptage se fait
         // sur la liste qu'on vient d'écrire, pas sur une relecture — inutile

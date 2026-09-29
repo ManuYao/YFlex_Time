@@ -12,6 +12,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useHaptic } from '../hooks/useHaptic';
 import { useKeyboardHeight, scrollToFocusedInput } from '../hooks/useKeyboardHeight';
 import { fonts } from '../lib/fonts';
+import { validatePseudo } from '../lib/profile';
 import { DANGER } from '../lib/buttonTokens';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -25,6 +26,7 @@ export default function Login() {
   const [mode, setMode] = useState('signin'); // 'signin' | 'signup'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
   const [error, setError] = useState(null);
   const [info, setInfo] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -48,6 +50,10 @@ export default function Login() {
   const validate = () => {
     if (!EMAIL_RE.test(email.trim())) return 'Adresse email invalide.';
     if (password.length < 6) return '6 caractères minimum pour le mot de passe.';
+    if (mode === 'signup' && name.trim()) {
+      const check = validatePseudo(name);
+      if (!check.ok) return check.reason;
+    }
     return null;
   };
 
@@ -64,7 +70,11 @@ export default function Login() {
     setBusy(true);
     try {
       if (mode === 'signup') {
-        const { session } = await signUpWithEmail(email, password);
+        const { session } = await signUpWithEmail(
+          email,
+          password,
+          name.trim() ? validatePseudo(name).value : undefined
+        );
         haptic.success();
         if (session) {
           router.back();
@@ -138,6 +148,20 @@ export default function Login() {
               </View>
             ) : (
               <>
+                {mode === 'signup' && (
+                  <TextInput
+                    value={name}
+                    onChangeText={setName}
+                    onFocus={() => setTimeout(() => scrollToFocusedInput(scrollRef, contentRef), 60)}
+                    placeholder="Ton nom ou pseudo (facultatif)"
+                    placeholderTextColor="rgba(255,255,255,0.30)"
+                    autoCapitalize="words"
+                    autoCorrect={false}
+                    maxLength={20}
+                    style={[styles.input, { marginBottom: 10 }]}
+                    returnKeyType="next"
+                  />
+                )}
                 <TextInput
                   value={email}
                   onChangeText={setEmail}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -41,7 +41,7 @@ import { usePremium } from '../hooks/usePremium';
 import { useOtaUpdate } from '../hooks/useOtaUpdate';
 import { markUpdatePopupSeen, resolveUpdateCandidate } from '../lib/updatePopup';
 import { haptic, setHapticStrength } from '../hooks/useHaptic';
-import { playDenied, previewVolumeTap } from '../lib/sounds';
+import { playDenied, playSound, previewVolumeTap } from '../lib/sounds';
 import { detectVoices } from '../lib/voiceCoach';
 import { fonts } from '../lib/fonts';
 import { DANGER, ROUND_SIZE } from '../lib/buttonTokens';
@@ -64,15 +64,34 @@ const APP_VERSION = Constants.expoConfig?.version ?? '?.?.?';
 
 const GOLD = '#F0C954';
 const DENY_RED = '#FF5454';
+const OK_GREEN = '#1FC777';
+
+// Interrupteur caché pour la bêta : 10 appuis d'affilée sur le bandeau Pro
+// l'activent ou le désactivent, pour que les testeurs puissent essayer l'app
+// des deux côtés (avec et sans les limites TABATA/MIX) et donner un retour
+// fiable. « D'affilée » = jamais plus de 2 s entre deux appuis, sinon le
+// compte repart de 1. À retirer avec le reste du mode test au passage en
+// version officielle (voir « À faire au passage en version officielle »).
+const PRO_TOGGLE_TAPS = 10;
+const PRO_TOGGLE_MAX_GAP_MS = 2000;
+const PRO_TOGGLE_FEEDBACK_MS = 2200;
 
 export default function Settings() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { settings, update, reset } = useSettings();
   const { resetAll: resetAllTimers } = useTimers();
-  const { isPremium } = usePremium();
+  const { isPremium, setIsPremium } = usePremium();
   const { signOut } = useAuth();
   const [premiumDenied, setPremiumDenied] = useState(false);
+  // null | 'on' | 'off' — confirmation brève après le 10e appui.
+  const [premiumToggled, setPremiumToggled] = useState(null);
+  const premiumTaps = useRef({ count: 0, last: 0 });
+  const premiumTimers = useRef([]);
+  useEffect(() => {
+    const timers = premiumTimers.current;
+    return () => timers.forEach(clearTimeout);
+  }, []);
   const { height: screenH } = useWindowDimensions();
   const { pending, updateId, runningUpdateId, restart, checkNow, status, lastCheckAt, lastError, diagnostics } =
     useOtaUpdate();
@@ -147,12 +166,33 @@ export default function Settings() {
   }, []);
 
   // Achat Premium désactivé pendant la bêta — pas de navigation vers
-  // /premium, juste un refus visuel + haptique clair.
+  // /premium, juste un refus visuel + haptique clair. Sauf au 10e appui
+  // d'affilée : là, on bascule le mode Pro de test (voir PRO_TOGGLE_TAPS).
   const handlePremiumPress = () => {
+    const now = Date.now();
+    const taps = premiumTaps.current;
+    taps.count = now - taps.last > PRO_TOGGLE_MAX_GAP_MS ? 1 : taps.count + 1;
+    taps.last = now;
+
+    if (taps.count >= PRO_TOGGLE_TAPS) {
+      taps.count = 0;
+      const next = !isPremium;
+      setIsPremium(next);
+      playSound('achievement');
+      if (next) haptic.success();
+      else haptic.warning();
+      setPremiumDenied(false);
+      setPremiumToggled(next ? 'on' : 'off');
+      premiumTimers.current.push(
+        setTimeout(() => setPremiumToggled(null), PRO_TOGGLE_FEEDBACK_MS)
+      );
+      return;
+    }
+
     haptic.error();
     playDenied();
     setPremiumDenied(true);
-    setTimeout(() => setPremiumDenied(false), 350);
+    premiumTimers.current.push(setTimeout(() => setPremiumDenied(false), 350));
   };
 
   // Confirmation dans la charte de l'app (`ConfirmSheet`) plutôt que
@@ -173,6 +213,8 @@ export default function Settings() {
       await AsyncStorage.multiRemove([
         'flexTimer_settings',
         'flexTimer_history',
+        'flexTimer_historyDeleted',
+        'flexTimer_namePrompted',
         'flexTimer_onboarded',
         'flexTimer_planning',
         'flexTimer_planningArchives',
@@ -295,16 +337,29 @@ export default function Settings() {
             style={({ pressed }) => [
               styles.premiumBanner,
               premiumDenied && styles.premiumBannerDenied,
+              premiumToggled && styles.premiumBannerToggled,
               pressed && !premiumDenied && { opacity: 0.85 },
             ]}
           >
             <AppIcon name="crown" size={26} color={GOLD} />
             <View style={styles.rowText}>
-              <Text style={[styles.premiumTitle, premiumDenied && styles.premiumTitleDenied]}>
+              <Text
+                style={[
+                  styles.premiumTitle,
+                  premiumDenied && styles.premiumTitleDenied,
+                  premiumToggled && styles.premiumTitleToggled,
+                ]}
+              >
                 {isPremium ? 'Tu es Pro' : 'Passer Pro'}
               </Text>
               <Text style={styles.premiumSub}>
-                Version bêta test — désactivé pour l'instant, disponible dans une prochaine mise à jour.
+                {premiumToggled === 'on'
+                  ? 'Mode Pro de test activé.'
+                  : premiumToggled === 'off'
+                    ? 'Mode Pro de test désactivé.'
+                    : isPremium
+                      ? 'Mode Pro de test actif — 10 appuis d\'affilée sur ce bandeau pour le désactiver.'
+                      : "Version bêta test — désactivé pour l'instant, disponible dans une prochaine mise à jour."}
               </Text>
             </View>
           </Pressable>
@@ -753,6 +808,13 @@ const styles = StyleSheet.create({
   },
   premiumTitleDenied: {
     color: DENY_RED,
+  },
+  premiumBannerToggled: {
+    backgroundColor: 'rgba(31,199,119,0.16)',
+    borderColor: 'rgba(31,199,119,0.5)',
+  },
+  premiumTitleToggled: {
+    color: OK_GREEN,
   },
   premiumTitle: {
     fontFamily: fonts.sansBold,

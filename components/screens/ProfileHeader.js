@@ -27,6 +27,7 @@ export default function ProfileHeader({
   trophyCount,
   trophyTotal,
   onEditDisciplines,
+  onEditPseudo,
   // Connexion optionnelle (contexts/AuthContext.js) : un petit point vert sur
   // l'avatar suffit à dire "connecté", pas besoin d'une ligne entière dans le
   // menu — voir CLAUDE.md, section CONNEXION UTILISATEUR + BACKEND, pour
@@ -64,9 +65,20 @@ export default function ProfileHeader({
         </View>
 
         <View style={styles.identityText}>
-          <Text style={styles.pseudo} numberOfLines={1}>
-            {identity.pseudo}
-          </Text>
+          <PressTap
+            onPress={() => {
+              haptic.light();
+              onEditPseudo?.();
+            }}
+            tapScale={0.97}
+            style={styles.pseudoRow}
+            accessibilityLabel="Modifier mon nom"
+          >
+            <Text style={styles.pseudo} numberOfLines={1}>
+              {identity.pseudo}
+            </Text>
+            <AppIcon name="sliders" size={14} color="rgba(255,255,255,0.45)" />
+          </PressTap>
           <View style={styles.chipsRow}>
             {isPremium ? (
               <View style={[styles.statusChip, styles.statusPremium]}>
@@ -235,7 +247,13 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
+  pseudoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   pseudo: {
+    flexShrink: 1,
     fontFamily: fonts.sansExtraBold,
     fontSize: 28,
     color: '#FFFFFF',

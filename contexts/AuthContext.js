@@ -81,9 +81,13 @@ export function AuthProvider({ children }) {
     };
   }, []);
 
-  const signUpWithEmail = useCallback(async (email, password) => {
+  const signUpWithEmail = useCallback(async (email, password, displayName) => {
     if (!isSupabaseConfigured) throw new Error('La connexion arrive bientôt.');
-    const { data, error } = await supabase.auth.signUp({ email: email.trim(), password });
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: displayName ? { data: { display_name: displayName } } : undefined,
+    });
     if (error) throw new Error(friendlyAuthError(error));
     return data;
   }, []);
@@ -108,6 +112,14 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
+  // Le nom vit dans les métadonnées du compte : il suit la personne sur un
+  // autre téléphone, sans table de base de données en plus.
+  const updateDisplayName = useCallback(async (name) => {
+    if (!isSupabaseConfigured) return;
+    const { error } = await supabase.auth.updateUser({ data: { display_name: name } });
+    if (error) throw new Error(friendlyAuthError(error));
+  }, []);
+
   const signOut = useCallback(async () => {
     if (!isSupabaseConfigured) return;
     await supabase.auth.signOut();
@@ -122,9 +134,10 @@ export function AuthProvider({ children }) {
       signUpWithEmail,
       signInWithEmail,
       signInWithGoogle,
+      updateDisplayName,
       signOut,
     }),
-    [session, hydrated, signUpWithEmail, signInWithEmail, signInWithGoogle, signOut]
+    [session, hydrated, signUpWithEmail, signInWithEmail, signInWithGoogle, updateDisplayName, signOut]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
