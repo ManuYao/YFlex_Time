@@ -133,8 +133,8 @@ export default function Login() {
           <View ref={contentRef} collapsable={false}>
             <Text style={styles.heading}>{mode === 'signup' ? 'Créer un compte' : 'Connecte-toi'}</Text>
             <Text style={styles.subheading}>
-              Optionnel : l'app marche très bien sans compte. Se connecter servira plus tard à
-              retrouver tes données sur un autre téléphone.
+              Optionnel : l'app marche très bien sans compte. Un compte sert à retrouver ton
+              historique sur un autre téléphone et à publier tes MIX.
             </Text>
 
             <View style={styles.tabs}>
@@ -218,6 +218,18 @@ export default function Login() {
                 >
                   {googleBusy ? <ActivityIndicator color="#FFFFFF" /> : undefined}
                 </Button>
+
+                <Text style={styles.legalNote}>
+                  En continuant, tu acceptes les{' '}
+                  <Text style={styles.legalLink} onPress={() => router.push('/terms')}>
+                    conditions d'utilisation
+                  </Text>{' '}
+                  et la{' '}
+                  <Text style={styles.legalLink} onPress={() => router.push('/privacy')}>
+                    politique de confidentialité
+                  </Text>
+                  .
+                </Text>
               </>
             )}
           </View>
@@ -342,6 +354,18 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
     color: 'rgba(255,255,255,0.35)',
     marginHorizontal: 12,
+  },
+  legalNote: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
+    lineHeight: 18,
+    color: 'rgba(255,255,255,0.45)',
+    textAlign: 'center',
+    marginTop: 18,
+  },
+  legalLink: {
+    color: 'rgba(255,255,255,0.75)',
+    textDecorationLine: 'underline',
   },
   noticeBox: {
     backgroundColor: 'rgba(255,255,255,0.05)',

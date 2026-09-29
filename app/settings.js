@@ -82,7 +82,7 @@ export default function Settings() {
   const { settings, update, reset } = useSettings();
   const { resetAll: resetAllTimers } = useTimers();
   const { isPremium, setIsPremium } = usePremium();
-  const { signOut } = useAuth();
+  const { user, signOut, deleteAccount } = useAuth();
   const [premiumDenied, setPremiumDenied] = useState(false);
   // null | 'on' | 'off' — confirmation brève après le 10e appui.
   const [premiumToggled, setPremiumToggled] = useState(null);
@@ -106,6 +106,12 @@ export default function Settings() {
   const [updateSheet, setUpdateSheet] = useState(null);
   const [contactSheet, setContactSheet] = useState(false);
   const [resetConfirm, setResetConfirm] = useState(false);
+  // Suppression du compte en ligne (section « Compte », visible seulement si
+  // on est connecté).
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [accountDeleted, setAccountDeleted] = useState(false);
+  const [accountError, setAccountError] = useState(null);
   // Fenêtre « Ton coach » (style de parole, voix…). Le choix Homme/Femme
   // n'y apparaît que si le téléphone a une vraie voix d'homme en français
   // (lib/voiceCoach.js, detectVoices) — sinon voix femme, sans option.
@@ -267,6 +273,26 @@ export default function Settings() {
     // active alors que tout le reste est reparti de zéro.
     await signOut();
     router.replace('/onboarding');
+  };
+
+  const handleDeleteAccount = () => {
+    haptic.light();
+    setAccountError(null);
+    setDeleteConfirm(true);
+  };
+
+  const runDeleteAccount = async () => {
+    setDeletingAccount(true);
+    try {
+      await deleteAccount();
+      haptic.success();
+      setAccountDeleted(true);
+    } catch (e) {
+      haptic.error();
+      setAccountError(e?.message || "Impossible de supprimer le compte pour l'instant.");
+    } finally {
+      setDeletingAccount(false);
+    }
   };
 
   // Rappel de ce qui aide vraiment (contexte + pièces jointes) AVANT le
@@ -467,6 +493,31 @@ export default function Settings() {
             />
           </Section>
 
+          {(user || accountDeleted) && (
+            <Section title="Compte">
+              {user ? (
+                <>
+                  <Row label="Connecté" sub={user.email} />
+                  <LinkRow
+                    label="Supprimer mon compte"
+                    sub={accountError || 'Efface ton compte, ton historique en ligne et tes mixes publiés'}
+                    subStyle={accountError ? styles.rowSubError : null}
+                    danger
+                    disabled={deletingAccount}
+                    onPress={handleDeleteAccount}
+                    isLast
+                  />
+                </>
+              ) : (
+                <Row
+                  label="Compte supprimé"
+                  sub="Ton compte et tes données en ligne ont été effacés. Les données de ce téléphone restent."
+                  isLast
+                />
+              )}
+            </Section>
+          )}
+
           <Section title="À propos">
             <LinkRow
               label="Version"
@@ -565,10 +616,26 @@ export default function Settings() {
           <ConfirmSheet
             screenH={screenH}
             title="Réinitialiser l'application"
-            body="Tous tes réglages, timers personnalisés, ton planning et l'historique seront supprimés. Cette action est irréversible."
+            body={
+              "Tous tes réglages, timers personnalisés, ton planning et l'historique seront supprimés. Cette action est irréversible." +
+              (user
+                ? " Ton compte en ligne et les données synchronisées ne sont pas supprimés : pour cela, utilise « Supprimer mon compte »."
+                : '')
+            }
             confirmLabel="Réinitialiser"
             onConfirm={runResetAll}
             onClose={() => setResetConfirm(false)}
+          />
+        )}
+
+        {deleteConfirm && (
+          <ConfirmSheet
+            screenH={screenH}
+            title="Supprimer mon compte"
+            body="Ton compte, ton historique synchronisé, tes mixes publiés, tes notes et tes signalements seront effacés définitivement. Les données de ce téléphone ne sont pas touchées. Cette action est irréversible."
+            confirmLabel="Supprimer"
+            onConfirm={runDeleteAccount}
+            onClose={() => setDeleteConfirm(false)}
           />
         )}
 
@@ -624,7 +691,7 @@ function ModeDots() {
   );
 }
 
-function LinkRow({ label, sub, subPrefix, onPress, isLast, disabled }) {
+function LinkRow({ label, sub, subPrefix, subStyle, danger, onPress, isLast, disabled }) {
   return (
     <Pressable
       onPress={onPress}
@@ -637,7 +704,7 @@ function LinkRow({ label, sub, subPrefix, onPress, isLast, disabled }) {
       ]}
     >
       <View style={styles.rowText}>
-        <Text style={styles.rowLabel}>{label}</Text>
+        <Text style={[styles.rowLabel, danger && styles.rowLabelDanger]}>{label}</Text>
         {!!sub &&
           (subPrefix ? (
             <View style={styles.subRow}>
@@ -645,7 +712,7 @@ function LinkRow({ label, sub, subPrefix, onPress, isLast, disabled }) {
               <Text style={[styles.rowSub, styles.subRowText]}>{sub}</Text>
             </View>
           ) : (
-            <Text style={styles.rowSub}>{sub}</Text>
+            <Text style={[styles.rowSub, subStyle]}>{sub}</Text>
           ))}
       </View>
       <Text style={styles.chevron}>›</Text>
@@ -870,11 +937,17 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     letterSpacing: -0.2,
   },
+  rowLabelDanger: {
+    color: DANGER,
+  },
   rowSub: {
     fontFamily: fonts.sansMedium,
     fontSize: 11,
     color: 'rgba(255,255,255,0.50)',
     marginTop: 2,
+  },
+  rowSubError: {
+    color: DANGER,
   },
   subRow: {
     flexDirection: 'row',

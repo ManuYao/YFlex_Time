@@ -6,6 +6,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { exchangeCodeOnce, beginGoogleFlow, endGoogleFlow } from '../lib/authCode';
 
 // Nécessaire pour que le retour du navigateur système (Google) referme
 // proprement la session ouverte par openAuthSessionAsync.
@@ -42,7 +43,9 @@ async function applySessionFromUrl(url) {
   const { queryParams } = Linking.parse(url);
   const code = queryParams?.code;
   if (code) {
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    // Partagé avec l'écran auth-callback (lib/authCode.js) : le même code peut
+    // arriver par les deux chemins, il ne doit être échangé qu'une fois.
+    const { error } = await exchangeCodeOnce(code);
     if (error) throw error;
     return;
   }
@@ -86,7 +89,13 @@ export function AuthProvider({ children }) {
     const { data, error } = await supabase.auth.signUp({
       email: email.trim(),
       password,
-      options: displayName ? { data: { display_name: displayName } } : undefined,
+      options: {
+        // Le lien de confirmation du mail rouvre l'app (app/auth-callback.js)
+        // au lieu d'une page web. Doit figurer dans Supabase > Authentication
+        // > URL Configuration > Redirect URLs, sinon Supabase l'ignore.
+        emailRedirectTo: REDIRECT_URL,
+        ...(displayName ? { data: { display_name: displayName } } : {}),
+      },
     });
     if (error) throw new Error(friendlyAuthError(error));
     return data;
@@ -106,9 +115,16 @@ export function AuthProvider({ children }) {
       options: { redirectTo: REDIRECT_URL, skipBrowserRedirect: true },
     });
     if (error) throw new Error(friendlyAuthError(error));
-    const result = await WebBrowser.openAuthSessionAsync(data.url, REDIRECT_URL);
-    if (result.type === 'success' && result.url) {
-      await applySessionFromUrl(result.url);
+    // Pendant tout le trajet navigateur, l'écran auth-callback sait qu'il n'a
+    // qu'à s'effacer (voir lib/authCode.js).
+    beginGoogleFlow();
+    try {
+      const result = await WebBrowser.openAuthSessionAsync(data.url, REDIRECT_URL);
+      if (result.type === 'success' && result.url) {
+        await applySessionFromUrl(result.url);
+      }
+    } finally {
+      endGoogleFlow();
     }
   }, []);
 
@@ -125,6 +141,27 @@ export function AuthProvider({ children }) {
     await supabase.auth.signOut();
   }, []);
 
+  // Efface le compte ET tout ce qui y est rattaché côté serveur (historique
+  // synchronisé, mixes publiés, notes, signalements) : la fonction SQL
+  // delete_my_account() (supabase-durcissement.sql) supprime l'utilisateur et
+  // la suppression se propage aux tables en cascade. Les données stockées sur
+  // ce téléphone ne sont pas touchées.
+  const deleteAccount = useCallback(async () => {
+    if (!isSupabaseConfigured) return;
+    const { error } = await supabase.rpc('delete_my_account');
+    if (error) {
+      // PGRST202 : la fonction n'existe pas encore côté Supabase.
+      throw new Error(
+        error.code === 'PGRST202'
+          ? "La suppression du compte n'est pas encore disponible. Réessaie plus tard."
+          : "Impossible de supprimer le compte pour l'instant. Réessaie dans un instant."
+      );
+    }
+    // Le compte n'existe plus : on ferme la session ici seulement, sans appel
+    // serveur (il répondrait « utilisateur introuvable »).
+    await supabase.auth.signOut({ scope: 'local' });
+  }, []);
+
   const value = useMemo(
     () => ({
       session,
@@ -136,8 +173,18 @@ export function AuthProvider({ children }) {
       signInWithGoogle,
       updateDisplayName,
       signOut,
+      deleteAccount,
     }),
-    [session, hydrated, signUpWithEmail, signInWithEmail, signInWithGoogle, updateDisplayName, signOut]
+    [
+      session,
+      hydrated,
+      signUpWithEmail,
+      signInWithEmail,
+      signInWithGoogle,
+      updateDisplayName,
+      signOut,
+      deleteAccount,
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
