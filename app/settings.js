@@ -359,7 +359,7 @@ export default function Settings() {
                     ? 'Mode Pro de test désactivé.'
                     : isPremium
                       ? 'Mode Pro de test actif — 10 appuis d\'affilée sur ce bandeau pour le désactiver.'
-                      : "Version bêta test — désactivé pour l'instant, disponible dans une prochaine mise à jour."}
+                      : "Version bêta test — pas encore disponible. Pour essayer le mode Pro : 10 appuis d'affilée sur ce bandeau."}
               </Text>
             </View>
           </Pressable>

@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import Animated, { FadeIn, interpolate, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, { FadeIn } from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
 
 import AppIcon from '../common/AppIcon';
 import Button from '../common/Button';
@@ -18,29 +19,21 @@ import { HEATMAP_DAY_LABELS } from '../../lib/profileMock';
 // chargée par l'utilisateur (29/09/2026).
 const VOLUME_COLOR = '#FFFFFF';
 
-const LOCKED_OPACITY = 0.3;
+// Fondu de l'aperçu verrouillé : net en haut, fond noir en bas, avec des
+// paliers intermédiaires pour éviter une barre visible.
+const FADE_COLORS = [
+  'rgba(0,0,0,0)',
+  'rgba(0,0,0,0.25)',
+  'rgba(0,0,0,0.6)',
+  'rgba(0,0,0,0.88)',
+  'rgba(0,0,0,1)',
+];
+const FADE_LOCATIONS = [0, 0.3, 0.55, 0.8, 1];
 
 const average = (list) => (list.length ? list.reduce((s, v) => s + v, 0) / list.length : 0);
 
 export default function ProfileAnalytics({ stats, isPremium, onGoPremium }) {
-  const [demo, setDemo] = useState(false);
-  const locked = !isPremium && !demo;
-  const showDemoChrome = !isPremium && demo;
-
-  const reveal = useSharedValue(locked ? 0 : 1);
-  useEffect(() => {
-    reveal.value = withTiming(locked ? 0 : 1, { duration: 320 });
-  }, [locked]);
-  const contentStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(reveal.value, [0, 1], [LOCKED_OPACITY, 1]),
-  }));
-  const overlayStyle = useAnimatedStyle(() => ({ opacity: 1 - reveal.value }));
-
-  const openDemo = () => setDemo(true);
-  const closeDemo = () => {
-    haptic.light();
-    setDemo(false);
-  };
+  const locked = !isPremium;
 
   const [showMore, setShowMore] = useState(false);
   const r = stats;
@@ -108,125 +101,110 @@ export default function ProfileAnalytics({ stats, isPremium, onGoPremium }) {
         <View style={styles.premiumHead}>
           <AppIcon name="crown" size={12} color={GOLD} />
           <Text style={[styles.sectionTitle, styles.premiumTitle]}>ANALYSE AVANCÉE</Text>
-          <View style={styles.headSpacer} />
-          {showDemoChrome ? (
-            <PressTap onPress={closeDemo} tapScale={0.94} accessibilityLabel="Quitter la démo">
-              <View style={styles.demoChip}>
-                <Text style={styles.demoChipText}>DÉMO</Text>
-                <AppIcon name="close" size={10} color={GOLD} />
+        </View>
+
+        {locked ? (
+          <View>
+            {/* Aperçu : les premières cartes se voient nettement, puis tout
+                s'estompe progressivement vers le fond. Pas de vrai flou
+                (BlurView fait ressortir du banding, voir GrainOverlay) : un
+                fondu vers le noir donne le même effet « il y a la suite ». */}
+            <PressTap onPress={onGoPremium} tapScale={0.99} accessibilityLabel="Débloquer l'analyse avancée">
+              <View style={styles.teaser} pointerEvents="none">
+                <PremiumContent stats={stats} preview />
+                <LinearGradient
+                  colors={FADE_COLORS}
+                  locations={FADE_LOCATIONS}
+                  style={StyleSheet.absoluteFill}
+                />
               </View>
             </PressTap>
-          ) : null}
-        </View>
-
-        <View>
-          <Animated.View style={contentStyle} pointerEvents={locked ? 'none' : 'auto'}>
+            <View style={styles.teaserCta}>
+              <Button
+                variant="glass"
+                size="sm"
+                icon="crown"
+                label="Voir toute l'analyse avancée"
+                onPress={onGoPremium}
+                haptic={haptic.medium}
+              />
+            </View>
+          </View>
+        ) : (
+          <Animated.View entering={FadeIn.duration(320)}>
             <PremiumContent stats={stats} />
-            {showDemoChrome ? (
-              <View style={styles.demoActions}>
-                <Button
-                  variant="glass"
-                  size="sm"
-                  icon="crown"
-                  label="DÉBLOQUE AVEC PREMIUM"
-                  onPress={onGoPremium}
-                  haptic={haptic.medium}
-                />
-                <Button variant="ghost" size="sm" label="Quitter la démo" onPress={closeDemo} />
-              </View>
-            ) : null}
           </Animated.View>
-
-          {!isPremium ? (
-            <Animated.View
-              style={[StyleSheet.absoluteFill, styles.overlay, overlayStyle]}
-              pointerEvents={locked ? 'box-none' : 'none'}
-            >
-              <View style={styles.lockPanel}>
-                <View style={styles.crownBadge}>
-                  <AppIcon name="crown" size={22} color={GOLD} />
-                </View>
-                <Text style={styles.lockTitle}>Va plus loin dans tes stats</Text>
-                <Text style={styles.lockText}>
-                  Temps sous tension, formats préférés et comparatif mensuel.
-                </Text>
-                <Button
-                  variant="glass"
-                  size="sm"
-                  icon="crown"
-                  label="DÉBLOQUE AVEC PREMIUM"
-                  onPress={onGoPremium}
-                  haptic={haptic.medium}
-                />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  label="Voir la démo"
-                  onPress={openDemo}
-                  haptic={haptic.light}
-                  style={styles.demoLink}
-                />
-              </View>
-            </Animated.View>
-          ) : null}
-        </View>
+        )}
       </View>
     </View>
   );
 }
 
-function PremiumContent({ stats }) {
+function PremiumContent({ stats, preview = false }) {
   const tut = stats.tension;
   const monthlyAvg = Math.round(average(stats.monthlyCounts));
   const [showMore, setShowMore] = useState(false);
   const deltaLabel = tut.deltaPct === null ? '—' : `${tut.deltaPct > 0 ? '+' : ''}${tut.deltaPct} %`;
 
-  return (
-    <View>
-      <View style={styles.card}>
-        <CardHeader title="Temps sous tension" subtitle="Effort réel, repos exclus · ce mois" />
-        <View style={styles.tutRow}>
-          <View style={styles.tutLeft}>
-            <Text style={styles.tutValue} numberOfLines={1}>
-              {tut.label}
-            </Text>
-            <View style={styles.deltaRow}>
-              <View style={styles.deltaChip}>
-                <Text style={styles.deltaText}>{deltaLabel}</Text>
-              </View>
-              <Text style={styles.deltaCaption}>vs mois dernier</Text>
+  const tensionCard = (
+    <View style={styles.card}>
+      <CardHeader title="Temps sous tension" subtitle="Effort réel, repos exclus · ce mois" />
+      <View style={styles.tutRow}>
+        <View style={styles.tutLeft}>
+          <Text style={styles.tutValue} numberOfLines={1}>
+            {tut.label}
+          </Text>
+          <View style={styles.deltaRow}>
+            <View style={styles.deltaChip}>
+              <Text style={styles.deltaText}>{deltaLabel}</Text>
             </View>
-          </View>
-          <View style={styles.tutBars}>
-            <BarChart data={tut.weekly} height={52} color={GOLD} showValue={false} maxBarWidth={14} dimOpacity={0.3} />
-            <Text style={styles.tutBarsCaption}>4 SEM.</Text>
+            <Text style={styles.deltaCaption}>vs mois dernier</Text>
           </View>
         </View>
+        <View style={styles.tutBars}>
+          <BarChart data={tut.weekly} height={52} color={GOLD} showValue={false} maxBarWidth={14} dimOpacity={0.3} />
+          <Text style={styles.tutBarsCaption}>4 SEM.</Text>
+        </View>
       </View>
+    </View>
+  );
+  const formatsCard = (
+    <View style={styles.card}>
+      <CardHeader title="Répartition des formats" subtitle="Toutes tes séances" />
+      <FormatBreakdown data={stats.formatBreakdown} />
+    </View>
+  );
+  const monthlyCard = (
+    <View style={styles.card}>
+      <CardHeader
+        title="Comparatif mensuel"
+        subtitle="6 derniers mois"
+        rightLabel="MOY."
+        rightValue={`${monthlyAvg}/mois`}
+      />
+      <BarChart
+        data={stats.monthlyCounts}
+        labels={stats.monthlyLabels}
+        height={140}
+        color={GOLD}
+        dimOpacity={0.3}
+        interactive
+      />
+    </View>
+  );
+
+  // Aperçu verrouillé : toujours le MÊME bloc (jamais au hasard), sinon un
+  // non-Premium pourrait relancer l'écran pour voir tour à tour toutes les stats.
+  if (preview) return <View>{tensionCard}</View>;
+
+  return (
+    <View>
+      {tensionCard}
 
       {showMore ? (
         <Animated.View entering={FadeIn.duration(260)}>
-          <View style={[styles.card, styles.cardSpaced]}>
-            <CardHeader title="Répartition des formats" subtitle="Toutes tes séances" />
-            <FormatBreakdown data={stats.formatBreakdown} />
-          </View>
-
-          <View style={[styles.card, styles.cardSpaced]}>
-            <CardHeader
-              title="Comparatif mensuel"
-              subtitle="6 derniers mois"
-              rightLabel="MOY."
-              rightValue={`${monthlyAvg}/mois`}
-            />
-            <BarChart
-              data={stats.monthlyCounts}
-              labels={stats.monthlyLabels}
-              height={140}
-              color={GOLD}
-              dimOpacity={0.3}
-              interactive
-            />
-          </View>
+          <View style={styles.cardSpaced}>{formatsCard}</View>
+          <View style={styles.cardSpaced}>{monthlyCard}</View>
         </Animated.View>
       ) : null}
 
@@ -473,79 +451,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
     marginLeft: 6,
   },
-  headSpacer: {
-    flexGrow: 1,
-  },
-  demoChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: withAlpha(GOLD, 0.4),
-    backgroundColor: withAlpha(GOLD, 0.12),
-  },
-  demoChipText: {
-    fontFamily: fonts.monoBold,
-    fontSize: 9,
-    letterSpacing: 1.4,
-    color: GOLD,
-    marginRight: 6,
-  },
-  demoActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 14,
-  },
 
-  overlay: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  lockPanel: {
-    alignItems: 'center',
-    maxWidth: 300,
-    marginHorizontal: 12,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 12,
+  teaser: {
+    maxHeight: 230,
+    overflow: 'hidden',
     borderRadius: 18,
-    borderWidth: 1,
-    borderColor: withAlpha(GOLD, 0.28),
-    backgroundColor: 'rgba(0,0,0,0.72)',
   },
-  crownBadge: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+  teaserCta: {
     alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: withAlpha(GOLD, 0.35),
-    backgroundColor: withAlpha(GOLD, 0.12),
-    marginBottom: 12,
-  },
-  lockTitle: {
-    fontFamily: fonts.sansExtraBold,
-    fontSize: 17,
-    color: '#FFFFFF',
-    textAlign: 'center',
-  },
-  lockText: {
-    marginTop: 6,
-    marginBottom: 14,
-    fontFamily: fonts.sansMedium,
-    fontSize: 12.5,
-    lineHeight: 17,
-    color: 'rgba(255,255,255,0.60)',
-    textAlign: 'center',
-  },
-  demoLink: {
-    marginTop: 4,
+    marginTop: -34,
   },
 
   tutRow: {
