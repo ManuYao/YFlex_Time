@@ -155,6 +155,7 @@ export default function RootLayout() {
                   name="end-session"
                   options={{ animation: 'fade', animationDuration: 400 }}
                 />
+                <Stack.Screen name="profile" options={{ animation: 'fade' }} />
                 <Stack.Screen name="settings" options={{ animation: 'fade' }} />
                 <Stack.Screen name="terms" options={{ animation: 'fade' }} />
                 <Stack.Screen name="privacy" options={{ animation: 'fade' }} />

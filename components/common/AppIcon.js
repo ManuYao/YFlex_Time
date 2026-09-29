@@ -121,6 +121,7 @@ export const ICON_NAMES = [
   'infinity', 'no-ads', 'palette',
   'reset', 'play', 'pause', 'finish', 'skip',
   'back', 'plus', 'gear', 'more', 'arrow', 'list', 'share', 'note',
+  'user', 'bar', 'swim', 'run',
 ];
 
 export default function AppIcon({ name, size = 20, color = '#FFFFFF', opacity = 1, strokeWidth, style }) {
@@ -516,6 +517,45 @@ export default function AppIcon({ name, size = 20, color = '#FFFFFF', opacity = 
         </>
       );
       break;
+    // Profil (entrée Hub Profil, remplace l'accès direct aux réglages).
+    case 'user':
+      body = (
+        <>
+          <Circle {...line} cx={12} cy={8.2} r={3.4} />
+          <Path {...line} d="M4.8 19.6a7.2 7.2 0 0 1 14.4 0" />
+        </>
+      );
+      break;
+    // Street workout / calisthenics : une barre de traction.
+    case 'bar':
+      body = (
+        <>
+          <Line {...line} x1={3.5} y1={5.5} x2={20.5} y2={5.5} />
+          <Line {...line} x1={7} y1={5.5} x2={7} y2={19} />
+          <Line {...line} x1={17} y1={5.5} x2={17} y2={19} />
+        </>
+      );
+      break;
+    // Natation : lignes d'eau + tête de nageur.
+    case 'swim':
+      body = (
+        <>
+          <Path {...line} d="M2.5 9c1.8 1.8 3.6 1.8 5.4 0s3.6-1.8 5.4 0 3.6 1.8 5.4 0" />
+          <Path {...line} d="M2.5 15c1.8 1.8 3.6 1.8 5.4 0s3.6-1.8 5.4 0 3.6 1.8 5.4 0" />
+          <Circle {...solid} cx={17.5} cy={5.3} r={1.7} />
+        </>
+      );
+      break;
+    // Athlétisme : silhouette de course, abstraite comme le reste du set.
+    case 'run':
+      body = (
+        <>
+          <Circle {...solid} cx={14.4} cy={4.9} r={1.8} />
+          <Path {...line} d="M5.5 19.5l3-4.3-1.2-3.6M8.5 15.2l2.6-2.6 3.3 1 2.1 4M9.4 8.4l3.4-1.4 2 2.4-2.7 2.6" />
+        </>
+      );
+      break;
+
     // Engrenage déjà dessiné à la main dans la barre de l'accueil, rapatrié ici.
     case 'gear':
       body = (

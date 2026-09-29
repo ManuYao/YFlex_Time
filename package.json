@@ -1,6 +1,6 @@
 {
   "name": "flex-timer",
-  "version": "14.16.0",
+  "version": "14.19.2",
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",

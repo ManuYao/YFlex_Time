@@ -14,12 +14,15 @@ import BlockSheet from '../common/BlockSheet';
 import ExerciseLibrarySheet from '../common/ExerciseLibrarySheet';
 import ExerciseDetailSheet from '../common/ExerciseDetailSheet';
 import SaveFlashRing from '../common/SaveFlashRing';
+import ShineSweep from '../common/ShineSweep';
 import { fonts } from '../../lib/fonts';
 import { categoryChip } from '../../lib/exercises';
 import { loadHistory } from '../../lib/history';
+import { buildMixFromBlock } from '../../lib/planningMix';
 import { useLongPress } from '../../hooks/useLongPress';
 import { haptic } from '../../hooks/useHaptic';
 import { useKeyboardHeight, scrollToFocusedInput } from '../../hooks/useKeyboardHeight';
+import { useTimers } from '../../contexts/TimersContext';
 import ChipRow from '../common/ChipRow';
 import {
   DAYS,
@@ -32,6 +35,7 @@ import {
   daysUsedThisWeek,
   formatArchiveDate,
   getDay,
+  isBlockLaunchable,
   loadPlanning,
   removeBlock,
   removeTag,
@@ -42,6 +46,12 @@ import {
   todayKey,
   updateTag,
 } from '../../lib/planning';
+
+const LAUNCH_HOLD_MS = 2000;
+// Couleur MIX (lib/timers-config.js) : la carte d'un bloc "activable" se
+// teinte de cette couleur sans jamais perdre sa base noire (jamais remplacer
+// une couleur, voir CLAUDE.md), même geste que le reste de l'app.
+const MIX_COLOR = '#9575FF';
 
 const ARCHIVE_HOLD_MS = 2000;
 // Note en cours de saisie : distance gardée sous le haut de la zone qui
@@ -64,6 +74,7 @@ export default function PlanningPage({
 }) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { saveCurrentMix } = useTimers();
   const [planning, setPlanning] = useState(emptyPlanning);
   const [dayKey, setDayKey] = useState(() =>
     focus?.dayKey && DAYS.some((d) => d.key === focus.dayKey) ? focus.dayKey : todayKey()
@@ -307,6 +318,12 @@ export default function PlanningPage({
                   haptic.warning();
                   setPlanning(await removeBlock(planning, dayKey, block.id));
                 }}
+                onLaunch={async () => {
+                  const mix = buildMixFromBlock(block);
+                  if (!mix) return;
+                  await saveCurrentMix(mix);
+                  router.push('/mix-builder');
+                }}
               />
             ))
           )}
@@ -416,15 +433,30 @@ function BlockCard({
   onAddTag,
   onOpenTag,
   onDelete,
+  onLaunch,
 }) {
   const swipeRef = useRef(null);
   const blockArchived = !!block.archivedAt;
   // Lecture seule si le jour OU le bloc est archivé. Le menu ⋮ reste visible
   // sur un bloc archivé dans un jour vivant : c'est par là qu'on le rouvre.
   const archived = dayArchived || blockArchived;
+  // "Activable" (v15.1.0) : au moins une étiquette a un type de chrono réglé,
+  // voir isBlockLaunchable() dans lib/planning.js.
+  const launchable = !archived && isBlockLaunchable(block);
+  const [cardSize, setCardSize] = useState({ width: 0, height: 0 });
+  const { isPressing, progress, start, cancel } = useLongPress(
+    () => onLaunch?.(),
+    LAUNCH_HOLD_MS
+  );
 
   const card = (
-    <View style={[styles.card, blockArchived && styles.cardArchived]}>
+    <View
+      style={[
+        styles.card,
+        blockArchived && styles.cardArchived,
+        launchable && styles.cardLaunchable,
+      ]}
+    >
       <View style={styles.cardHeader}>
         <View style={styles.cardTitleRow}>
           <Text style={styles.cardTitle} numberOfLines={1}>{block.name}</Text>
@@ -498,6 +530,28 @@ function BlockCard({
   );
 
   if (archived) return <View style={styles.cardSpacing}>{card}</View>;
+
+  // Appui long 2 s pour lancer le bloc en MIX (v15.1.0), SANS Swipeable ici :
+  // nicher un appui long dans un Swipeable a déjà causé un conflit de geste
+  // documenté ailleurs (CLAUDE.md, suppression d'étiquette) — le pan handler
+  // du swipe vole le toucher avant que le long-press n'aboutisse. La
+  // suppression du bloc reste possible via ⋮ → BlockSheet → Supprimer.
+  if (launchable) {
+    return (
+      <Pressable
+        onPressIn={start}
+        onPressOut={cancel}
+        onLayout={(e) => setCardSize(e.nativeEvent.layout)}
+        style={styles.launchWrap}
+      >
+        {card}
+        <ShineSweep width={cardSize.width} height={cardSize.height} />
+        {isPressing && (
+          <View pointerEvents="none" style={[styles.launchFill, { width: `${progress * 100}%` }]} />
+        )}
+      </Pressable>
+    );
+  }
 
   return (
     <Swipeable
@@ -799,6 +853,20 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     overflow: 'hidden',
   },
+  // Carte "activable" (v15.1.0) : même radius/marge que swipeContainer, pour
+  // que ShineSweep découpe son reflet à la bonne forme.
+  launchWrap: {
+    marginBottom: 10,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  launchFill: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: `${MIX_COLOR}59`,
+  },
   deleteAction: {
     width: 96,
     backgroundColor: '#FF5454',
@@ -822,6 +890,12 @@ const styles = StyleSheet.create({
   cardArchived: {
     backgroundColor: 'rgba(255,255,255,0.02)',
     borderColor: 'rgba(255,255,255,0.06)',
+  },
+  // Teinte MIX sans jamais remplacer le noir de base (CLAUDE.md) : signale
+  // qu'un appui long sur la carte lance un MIX généré depuis ses étiquettes.
+  cardLaunchable: {
+    backgroundColor: `${MIX_COLOR}14`,
+    borderColor: `${MIX_COLOR}4D`,
   },
   cardTitleRow: {
     flex: 1,

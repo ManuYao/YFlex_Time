@@ -45,6 +45,7 @@ import {
   formatBlockSubtitle,
   makeBlock,
   MAX_BLOCK_NOTE_LENGTH,
+  getRangesForType,
 } from '../lib/mix-blocks';
 import { makeDefaultMix } from '../lib/mixes';
 import { DAYS, loadPlanning, formatBlockAsText } from '../lib/planning';
@@ -55,7 +56,6 @@ import {
   extractShareCode,
 } from '../lib/mixShare';
 import { BLOCK_ROLES, getBlockRole, resolveBlockRole } from '../lib/blockRoles';
-import { getTimeRange } from '../lib/timeRanges';
 import { copyToClipboard } from '../lib/clipboard';
 import { isShareOnboarded, markShareOnboarded } from '../lib/shareOnboarding';
 import { fonts } from '../lib/fonts';
@@ -1448,27 +1448,6 @@ const formatTotalShort = (s) => {
   const m = Math.floor(s / 60);
   const sec = s % 60;
   return sec === 0 ? `${m}min` : `${m}min ${sec}s`;
-};
-
-const range = (a, b, step = 1) => {
-  const out = [];
-  for (let i = a; i <= b; i += step) out.push(i);
-  return out;
-};
-
-// Paliers progressifs (lib/timeRanges.js), comme sur l'accueil. La valeur
-// déjà enregistrée dans le bloc est toujours gardée dans la roue : un mix
-// créé avec l'ancien pas de 5s (125s, 305s...) ne doit pas perdre son réglage.
-// AMRAP garde ses paliers de 30s, déjà adaptés à une durée d'endurance.
-const getRangesForType = (typeId, block) => {
-  const d = block?.duration;
-  const r = block?.rest;
-  if (typeId === 'amrap') return { duration: range(60, 1800, 30), rest: [], rounds: [] };
-  if (typeId === 'rest') return { duration: getTimeRange(10, 600, d), rest: [], rounds: [] };
-  if (typeId === 'tabata') return { duration: getTimeRange(5, 300, d), rest: getTimeRange(5, 300, r), rounds: range(1, 30) };
-  if (typeId === 'basic') return { duration: [], rest: getTimeRange(5, 600, r), rounds: range(1, 30) };
-  if (typeId === 'emom') return { duration: getTimeRange(10, 300, d), rest: [], rounds: range(1, 30) };
-  return { duration: range(10, 300), rest: [], rounds: [] };
 };
 
 const styles = StyleSheet.create({

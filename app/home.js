@@ -265,7 +265,8 @@ export default function Home() {
         // passent AVANT le conseil de surcharge. Une médaille est un moment
         // gratifiant, le conseil de charge peut attendre le lancement
         // suivant — et surtout on n'empile jamais deux feuilles.
-        const fresh = await pendingBadges(countSessionsByTimer(await loadHistory()));
+        const countsByTimer = countSessionsByTimer(await loadHistory());
+        const fresh = await pendingBadges(countsByTimer);
         if (cancelled || overlayBusyRef.current) return;
         if (fresh.length) {
           badgeTotalRef.current = fresh.length;
@@ -286,9 +287,12 @@ export default function Home() {
         // laisse largement le temps à SettingsContext de s'hydrater depuis
         // AsyncStorage (une lecture, lancée dès le montage), donc
         // settings.voiceCoach est fiable ici sans garde supplémentaire.
+        // `totalRuns` (COACH_NUDGE_MIN_RUNS dans lib/coachNudge.js) évite de
+        // la proposer dès le tout premier lancement, déjà chargé en popups.
         const coachSeen = await loadCoachNudgeState();
         if (cancelled || overlayBusyRef.current) return;
-        if (shouldShowCoachNudge({ seen: coachSeen, voiceCoachEnabled: settings.voiceCoach })) {
+        const totalRuns = Object.values(countsByTimer).reduce((a, b) => a + b, 0);
+        if (shouldShowCoachNudge({ seen: coachSeen, voiceCoachEnabled: settings.voiceCoach, totalRuns })) {
           setShowCoachNudge(true);
         }
       }, PROGRESSION_DELAY_MS);
@@ -588,7 +592,7 @@ export default function Home() {
             tag={active.tag}
             tokens={t}
             tone={active.textMode}
-            onSettings={() => router.push('/settings')}
+            onProfile={() => router.push('/profile')}
             onHistory={() => router.push('/history')}
             onTapHaptic={haptic.light}
             isLaunching={hideChrome}
@@ -923,7 +927,7 @@ function Ember({ id, xPct, yPct, size, drift, duration, delay, peakOpacity, colo
 /* ─────────────────────────────────────────────────────────────────
    (B+C) Top bar — status + tag central + boutons ronds
    ────────────────────────────────────────────────────────────────*/
-function TopBar({ tag, tokens, tone, onSettings, onHistory, onTapHaptic, isLaunching }) {
+function TopBar({ tag, tokens, tone, onProfile, onHistory, onTapHaptic, isLaunching }) {
   const dotPulse = useSharedValue(0.4);
   useEffect(() => {
     dotPulse.value = withRepeat(
@@ -977,12 +981,13 @@ function TopBar({ tag, tokens, tone, onSettings, onHistory, onTapHaptic, isLaunc
           {tag}
         </Animated.Text>
 
+        {/* Hub Profil : les Paramètres y sont accessibles par l'engrenage. */}
         <IconButton
-          icon="gear"
+          icon="user"
           tone={tone}
-          onPress={onSettings}
+          onPress={onProfile}
           haptic={onTapHaptic}
-          accessibilityLabel="Réglages"
+          accessibilityLabel="Profil"
         />
       </Animated.View>
     </>

@@ -7,11 +7,28 @@ import PressTap from './PressTap';
 import WheelPicker from './WheelPicker';
 import Button from './Button';
 import IconButton from './IconButton';
+import AppIcon from './AppIcon';
 import { fonts } from '../../lib/fonts';
 import { getCategory } from '../../lib/exercises';
+import { BLOCK_TYPES, getBlockType, getRangesForType } from '../../lib/mix-blocks';
+import { PLANNING_TIMER_TYPES } from '../../lib/planningMix';
 import { useLayoutLevel } from '../../lib/responsive';
 import { DANGER, ROUND_SIZE } from '../../lib/buttonTokens';
 import { haptic } from '../../hooks/useHaptic';
+
+// Les 4 types utilisables comme chrono d'une étiquette (jamais MIX ni REPOS),
+// dans l'ordre du menu de l'accueil (AMRAP, BASIC, EMOM, TABATA), pas celui
+// de BLOCK_TYPES.
+const TIMER_TYPE_OPTIONS = PLANNING_TIMER_TYPES.map((id) => BLOCK_TYPES.find((t) => t.id === id)).filter(Boolean);
+
+const TIMER_FIELD_LABEL = (typeId, key) => {
+  if (key === 'rest') return 'REPOS';
+  if (key === 'rounds') return 'TOURS';
+  // key === 'duration'
+  if (typeId === 'emom') return 'INTERVALLE';
+  if (typeId === 'tabata') return 'TRAVAIL';
+  return 'DURÉE';
+};
 
 const range = (from, to, step) => {
   const out = [];
@@ -53,6 +70,20 @@ export default function ExerciseDetailSheet({
   }));
   const [editing, setEditing] = useState(null);
 
+  // Type de chrono à lancer pour cet exercice (v15.1.0, import Planning→MIX,
+  // voir lib/planningMix.js) — distinct de `draft.rest` ci-dessus (repos entre
+  // séries de musculation, pas le repos d'un cycle TABATA). `timerParams` n'a
+  // de sens que si `timerType` est réglé ; changer de type repart des
+  // réglages par défaut de CE type plutôt que de garder les anciens chiffres,
+  // qui n'auraient pas la même signification d'un type à l'autre.
+  const [timerType, setTimerType] = useState(() => tag.timerConfig?.type ?? null);
+  const [timerParams, setTimerParams] = useState(() => {
+    const cfg = tag.timerConfig;
+    if (!cfg?.type) return null;
+    return { duration: cfg.duration, rest: cfg.rest, rounds: cfg.rounds };
+  });
+  const [timerEditing, setTimerEditing] = useState(null); // 'duration' | 'rest' | 'rounds'
+
   const category = getCategory(snapshot.category);
   const values = useMemo(
     () => ({
@@ -64,6 +95,28 @@ export default function ExerciseDetailSheet({
   );
 
   const field = FIELDS.find((f) => f.key === editing);
+
+  const pickTimerType = (id) => {
+    haptic.selection();
+    if (timerType === id) {
+      setTimerType(null);
+      setTimerParams(null);
+      return;
+    }
+    const type = getBlockType(id);
+    setTimerType(id);
+    setTimerParams({
+      duration: type.defaults.duration ?? 0,
+      rest: type.defaults.rest ?? 0,
+      rounds: type.defaults.rounds ?? 1,
+    });
+  };
+
+  const timerTypeInfo = timerType ? getBlockType(timerType) : null;
+  const showTimerDuration = timerType && timerType !== 'basic';
+  const showTimerRest = timerType === 'tabata' || timerType === 'basic';
+  const showTimerRounds = !!timerType && timerType !== 'amrap';
+  const timerRanges = timerType ? getRangesForType(timerType, timerParams) : null;
 
   return (
     <BottomSheet screenH={screenH} onClose={onClose} zIndex={94}>
@@ -109,6 +162,42 @@ export default function ExerciseDetailSheet({
                 onPress={() => {
                   haptic.medium();
                   setEditing(null);
+                }}
+                style={styles.cta}
+              />
+            </View>
+          ) : timerEditing ? (
+            <View>
+              <View style={styles.editHeader}>
+                <IconButton
+                  icon="back"
+                  size={ROUND_SIZE.sheet}
+                  onPress={() => {
+                    haptic.light();
+                    setTimerEditing(null);
+                  }}
+                  accessibilityLabel="Retour"
+                />
+                <Text style={styles.editLabel}>{TIMER_FIELD_LABEL(timerType, timerEditing)}</Text>
+              </View>
+
+              <WheelPicker
+                key={`${timerType}-${timerEditing}`}
+                values={timerRanges[timerEditing]}
+                selectedValue={timerParams[timerEditing]}
+                type={timerEditing === 'rounds' ? 'rounds' : 'seconds'}
+                accentColor={timerTypeInfo.color}
+                onChange={(v) => setTimerParams((prev) => ({ ...prev, [timerEditing]: v }))}
+                visibleItems={wheelItems}
+              />
+
+              <Button
+                variant="solid"
+                fullWidth
+                label="OK"
+                onPress={() => {
+                  haptic.medium();
+                  setTimerEditing(null);
                 }}
                 style={styles.cta}
               />
@@ -163,13 +252,101 @@ export default function ExerciseDetailSheet({
                 ))}
               </View>
 
+              {/* Type de chrono à lancer pour cet exercice (v15.1.0) — voir
+                  lib/planningMix.js. Optionnel : une étiquette sans type est
+                  quand même incluse au lancement du bloc, à configurer ou
+                  retirer depuis le Mix Builder. */}
+              <Text style={styles.sectionLabel}>TYPE DE CHRONO</Text>
+              <View style={styles.typeGrid}>
+                {TIMER_TYPE_OPTIONS.map((t) => {
+                  const selected = timerType === t.id;
+                  return (
+                    <PressTap
+                      key={t.id}
+                      onPress={() => pickTimerType(t.id)}
+                      tapScale={0.95}
+                      style={[
+                        styles.typeCell,
+                        selected && { backgroundColor: `${t.color}22`, borderColor: t.color },
+                      ]}
+                    >
+                      <AppIcon name={t.icon} size={24} color={selected ? t.color : 'rgba(255,255,255,0.5)'} />
+                      <Text style={[styles.typeCellText, selected && { color: t.color }]}>
+                        {t.name}
+                      </Text>
+                    </PressTap>
+                  );
+                })}
+              </View>
+
+              {!!timerType && (
+                <View style={[styles.grid, styles.timerParamsGrid]}>
+                  {showTimerDuration && (
+                    <View style={styles.cellWrap}>
+                      <PressTap
+                        onPress={() => {
+                          haptic.selection();
+                          setTimerEditing('duration');
+                        }}
+                        tapScale={0.95}
+                        style={styles.cell}
+                      >
+                        <Text style={styles.cellLabel}>{TIMER_FIELD_LABEL(timerType, 'duration')}</Text>
+                        <View style={styles.cellValueRow}>
+                          <Text style={styles.cellValue}>{timerParams.duration}</Text>
+                          <Text style={[styles.cellUnit, { color: timerTypeInfo.color }]}>s</Text>
+                        </View>
+                      </PressTap>
+                    </View>
+                  )}
+                  {showTimerRest && (
+                    <View style={styles.cellWrap}>
+                      <PressTap
+                        onPress={() => {
+                          haptic.selection();
+                          setTimerEditing('rest');
+                        }}
+                        tapScale={0.95}
+                        style={styles.cell}
+                      >
+                        <Text style={styles.cellLabel}>REPOS</Text>
+                        <View style={styles.cellValueRow}>
+                          <Text style={styles.cellValue}>{timerParams.rest}</Text>
+                          <Text style={[styles.cellUnit, { color: timerTypeInfo.color }]}>s</Text>
+                        </View>
+                      </PressTap>
+                    </View>
+                  )}
+                  {showTimerRounds && (
+                    <View style={styles.cellWrap}>
+                      <PressTap
+                        onPress={() => {
+                          haptic.selection();
+                          setTimerEditing('rounds');
+                        }}
+                        tapScale={0.95}
+                        style={styles.cell}
+                      >
+                        <Text style={styles.cellLabel}>TOURS</Text>
+                        <View style={styles.cellValueRow}>
+                          <Text style={styles.cellValue}>{timerParams.rounds}</Text>
+                        </View>
+                      </PressTap>
+                    </View>
+                  )}
+                </View>
+              )}
+
               <Button
                 variant="solid"
                 fullWidth
                 label="Enregistrer"
                 onPress={() => {
                   haptic.medium();
-                  onSave(draft);
+                  onSave({
+                    ...draft,
+                    timerConfig: timerType ? { type: timerType, ...timerParams } : null,
+                  });
                   close();
                 }}
                 style={styles.cta}
@@ -253,6 +430,38 @@ const styles = StyleSheet.create({
     fontFamily: fonts.monoBold,
     fontSize: 11,
     marginLeft: 2,
+  },
+
+  sectionLabel: {
+    fontFamily: fonts.sansBold,
+    fontSize: 9,
+    letterSpacing: 1.5,
+    color: 'rgba(255,255,255,0.40)',
+    marginTop: 18,
+    marginBottom: 8,
+  },
+  typeGrid: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  typeCell: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.09)',
+  },
+  typeCellText: {
+    fontFamily: fonts.sansBold,
+    fontSize: 10,
+    letterSpacing: 1,
+    color: 'rgba(255,255,255,0.55)',
+  },
+  timerParamsGrid: {
+    marginTop: 10,
   },
 
   editHeader: {
