@@ -27,6 +27,11 @@ create table if not exists public.shared_mixes (
   unique (owner_id, name)
 );
 
+-- Masqué automatiquement quand trois personnes différentes le signalent
+-- (voir mix_reports plus bas). Personne ne peut l'écrire à la main.
+alter table public.shared_mixes
+  add column if not exists hidden boolean not null default false;
+
 create index if not exists shared_mixes_category_recent
   on public.shared_mixes (category, created_at desc);
 create index if not exists shared_mixes_top
@@ -39,7 +44,7 @@ create policy "shared_mixes_read_all"
   on public.shared_mixes
   for select
   to anon, authenticated
-  using (true);
+  using (not hidden or auth.uid() = owner_id);
 
 drop policy if exists "shared_mixes_insert_own" on public.shared_mixes;
 create policy "shared_mixes_insert_own"
@@ -175,3 +180,68 @@ drop trigger if exists mix_ratings_refresh on public.mix_ratings;
 create trigger mix_ratings_refresh
   after insert or update or delete on public.mix_ratings
   for each row execute function public.refresh_mix_rating();
+
+-- ---------------------------------------------------------------------------
+-- Les signalements
+-- ---------------------------------------------------------------------------
+-- Pour les lire : Supabase > Table Editor > mix_reports. Pour remettre un mix
+-- masqué dans le fil : ouvre shared_mixes et passe sa case « hidden » à false.
+create table if not exists public.mix_reports (
+  mix_id      uuid        not null references public.shared_mixes (id) on delete cascade,
+  reporter_id uuid        not null references auth.users (id) on delete cascade,
+  reason      text        not null check (reason in ('inappropriate', 'spam', 'dangerous', 'other')),
+  created_at  timestamptz not null default now(),
+  primary key (mix_id, reporter_id)
+);
+
+alter table public.mix_reports enable row level security;
+
+-- Chacun ne voit que SES signalements (pour afficher « Signalé »).
+drop policy if exists "mix_reports_read_own" on public.mix_reports;
+create policy "mix_reports_read_own"
+  on public.mix_reports
+  for select
+  to authenticated
+  using (auth.uid() = reporter_id);
+
+-- On signale avec son compte, et jamais son propre mix. Pas de modification
+-- ni de suppression : un signalement fait est définitif.
+drop policy if exists "mix_reports_insert_own" on public.mix_reports;
+create policy "mix_reports_insert_own"
+  on public.mix_reports
+  for insert
+  to authenticated
+  with check (
+    auth.uid() = reporter_id
+    and not exists (
+      select 1 from public.shared_mixes m
+      where m.id = mix_id and m.owner_id = auth.uid()
+    )
+  );
+
+revoke all on public.mix_reports from anon, authenticated;
+grant select on public.mix_reports to authenticated;
+grant insert (mix_id, reporter_id, reason) on public.mix_reports to authenticated;
+
+-- Trois personnes différentes ont signalé le mix : il disparaît du fil
+-- (« security definer » : les utilisateurs ne peuvent pas écrire hidden).
+create or replace function public.auto_hide_reported_mix()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if (select count(*) from public.mix_reports where mix_id = new.mix_id) >= 3 then
+    update public.shared_mixes set hidden = true where id = new.mix_id;
+  end if;
+  return null;
+end;
+$$;
+
+revoke all on function public.auto_hide_reported_mix() from public;
+
+drop trigger if exists mix_reports_auto_hide on public.mix_reports;
+create trigger mix_reports_auto_hide
+  after insert on public.mix_reports
+  for each row execute function public.auto_hide_reported_mix();

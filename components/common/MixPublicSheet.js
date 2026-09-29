@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import BottomSheet from './BottomSheet';
 import Button from './Button';
 import IconButton from './IconButton';
+import MiniToast from './MiniToast';
 import PressTap from './PressTap';
 import AppIcon from './AppIcon';
 import StarRating, { STAR_ON } from './StarRating';
@@ -16,9 +17,10 @@ import { ROUND_SIZE } from '../../lib/buttonTokens';
 import { TIMERS } from '../../lib/timers-config';
 import { DISCIPLINES, getDiscipline } from '../../lib/disciplines';
 import { makeDefaultMix } from '../../lib/mixes';
-import { fetchFeed, fetchMyRatings, rateMix } from '../../lib/publicMixes';
+import { fetchFeed, fetchMyRatings, fetchMyReports, rateMix, reportMix } from '../../lib/publicMixes';
 import {
   FEED_SORTS,
+  REPORT_REASONS,
   feedItemToMix,
   formatFeedDuration,
   formatRating,
@@ -26,6 +28,8 @@ import {
 
 const MODE_COLOR = Object.fromEntries(TIMERS.map((t) => [t.id, t.color]));
 const MIX_COLOR = MODE_COLOR.mix;
+// Durée d'affichage du petit message « connecte-toi… ».
+const TOAST_MS = 3200;
 // Un bloc repos n'a pas de couleur de mode : blanc translucide, plus court.
 const REST_COLOR = 'rgba(255,255,255,0.22)';
 
@@ -63,7 +67,20 @@ function initialsOf(author) {
 const isDefaultMix = (mix) =>
   JSON.stringify(mix?.blocks) === JSON.stringify(makeDefaultMix().blocks);
 
-function FeedCard({ item, user, myStars, saved, onRate, onSave, onTest, onLogin }) {
+function FeedCard({
+  item,
+  user,
+  myStars,
+  saved,
+  reported,
+  reporting,
+  onRate,
+  onSave,
+  onTest,
+  onOpenReport,
+  onCancelReport,
+  onReport,
+}) {
   const isOwn = !!user && item.ownerId === user.id;
   const discipline = getDiscipline(item.category);
   // L'avatar prend la couleur du premier bloc : aucune couleur inventée.
@@ -97,22 +114,15 @@ function FeedCard({ item, user, myStars, saved, onRate, onSave, onTest, onLogin 
         <Text style={styles.metaText}>{formatRating(item.ratingAvg, item.ratingCount)}</Text>
       </View>
 
-      {!user ? (
-        <Button
-          variant="glass"
-          size="sm"
-          icon="lock"
-          label="Connecte-toi pour tester"
-          onPress={onLogin}
-          style={styles.cardAction}
-        />
-      ) : isOwn ? (
+      {isOwn ? (
         <View style={styles.ownPill}>
           <AppIcon name="user" size={12} color="rgba(255,255,255,0.70)" />
           <Text style={styles.ownText}>TON MIX</Text>
         </View>
       ) : (
         <>
+          {/* Tester est ouvert à tous ; Enregistrer, noter et signaler demandent un
+              compte (le parent répond par un petit message si personne n'est connecté). */}
           <View style={styles.cardActions}>
             <Button
               variant="glass"
@@ -137,6 +147,45 @@ function FeedCard({ item, user, myStars, saved, onRate, onSave, onTest, onLogin 
             <Text style={styles.rateLabel}>TA NOTE</Text>
             <StarRating value={myStars} size={20} gap={6} onRate={onRate} />
           </View>
+
+          {reporting ? (
+            <View style={styles.reportBox}>
+              <Text style={styles.reportTitle}>Pourquoi signaler ce mix ?</Text>
+              <View style={styles.reportChips}>
+                {REPORT_REASONS.map((r) => (
+                  <PressTap
+                    key={r.id}
+                    tapScale={0.94}
+                    onHapticIn={haptic.selection}
+                    onPress={() => onReport(r.id)}
+                    style={styles.reportChip}
+                  >
+                    <Text style={styles.reportChipText}>{r.label}</Text>
+                  </PressTap>
+                ))}
+              </View>
+              <PressTap tapScale={0.96} hitSlop={8} onPress={onCancelReport} containerStyle={styles.reportCancel}>
+                <Text style={styles.reportLink}>Annuler</Text>
+              </PressTap>
+            </View>
+          ) : reported ? (
+            <View style={styles.reportRow}>
+              <AppIcon name="check" size={12} color="rgba(255,255,255,0.45)" />
+              <Text style={styles.reportDone}>Signalé, merci</Text>
+            </View>
+          ) : (
+            <PressTap
+              tapScale={0.96}
+              hitSlop={8}
+              onHapticIn={haptic.light}
+              onPress={onOpenReport}
+              containerStyle={styles.reportRow}
+              accessibilityLabel="Signaler ce mix"
+            >
+              <AppIcon name="flag" size={12} color="rgba(255,255,255,0.45)" />
+              <Text style={styles.reportLink}>Signaler</Text>
+            </PressTap>
+          )}
         </>
       )}
     </View>
@@ -154,8 +203,21 @@ function PublicContent({ screenH, close, afterClose, onTest }) {
   const [items, setItems] = useState([]);
   const [myRatings, setMyRatings] = useState({});
   const [reloadKey, setReloadKey] = useState(0);
+  const [reportedIds, setReportedIds] = useState(() => new Set());
+  const [reportingId, setReportingId] = useState(null);
+  const [toast, setToast] = useState(null);
+  const toastTimer = useRef(null);
 
   const userId = user?.id ?? null;
+
+  useEffect(() => () => clearTimeout(toastTimer.current), []);
+
+  // Petit message qui se retire tout seul (MiniToast).
+  const showToast = (t) => {
+    clearTimeout(toastTimer.current);
+    setToast({ ...t, id: Date.now() });
+    toastTimer.current = setTimeout(() => setToast(null), TOAST_MS);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -170,8 +232,11 @@ function PublicContent({ screenH, close, afterClose, onTest }) {
       setItems(res.items);
       setStatus('ok');
       if (userId && res.items.length) {
-        const mine = await fetchMyRatings(res.items.map((i) => i.id));
-        if (!cancelled && mine.ok) setMyRatings(mine.ratings);
+        const ids = res.items.map((i) => i.id);
+        const [mine, flagged] = await Promise.all([fetchMyRatings(ids), fetchMyReports(ids)]);
+        if (cancelled) return;
+        if (mine.ok) setMyRatings(mine.ratings);
+        if (flagged.ok) setReportedIds(new Set(flagged.reported));
       }
     })();
     return () => {
@@ -185,8 +250,17 @@ function PublicContent({ screenH, close, afterClose, onTest }) {
     close();
   };
 
+  // Sans compte : pas de fenêtre, un petit message qui propose de se connecter.
+  const promptLogin = (text) => {
+    haptic.warning();
+    showToast({ text, icon: 'lock', actionLabel: 'Connexion', onAction: goLogin });
+  };
+
   const handleRate = async (item, stars) => {
-    if (!userId) return;
+    if (!userId) {
+      promptLogin('Connecte-toi pour noter ce mix.');
+      return;
+    }
     const previous = myRatings[item.id] ?? 0;
     setMyRatings((r) => ({ ...r, [item.id]: stars }));
     const res = await rateMix(item.id, userId, stars);
@@ -204,6 +278,10 @@ function PublicContent({ screenH, close, afterClose, onTest }) {
   };
 
   const handleSave = async (item) => {
+    if (!userId) {
+      promptLogin('Connecte-toi pour enregistrer ce mix.');
+      return;
+    }
     const mix = feedItemToMix(item);
     if (!mix) {
       haptic.error();
@@ -211,6 +289,32 @@ function PublicContent({ screenH, close, afterClose, onTest }) {
     }
     haptic.success();
     await saveAsLibraryEntry(mix);
+  };
+
+  const handleOpenReport = (item) => {
+    if (!userId) {
+      promptLogin('Connecte-toi pour signaler un mix.');
+      return;
+    }
+    setReportingId(item.id);
+  };
+
+  const handleReport = async (item, reason) => {
+    setReportingId(null);
+    setReportedIds((s) => new Set(s).add(item.id));
+    const res = await reportMix(item.id, userId, reason);
+    if (!res.ok) {
+      setReportedIds((s) => {
+        const next = new Set(s);
+        next.delete(item.id);
+        return next;
+      });
+      haptic.error();
+      showToast({ text: 'Signalement impossible, réessaie.', icon: 'flag' });
+      return;
+    }
+    haptic.success();
+    showToast({ text: 'Merci, signalement envoyé.', icon: 'check' });
   };
 
   const handleTest = async (item) => {
@@ -258,7 +362,7 @@ function PublicContent({ screenH, close, afterClose, onTest }) {
         <View style={styles.notice}>
           <AppIcon name="lock" size={14} color="rgba(255,255,255,0.60)" />
           <Text style={styles.noticeText}>
-            Tu peux tout voir. Pour tester, enregistrer ou noter un mix, il faut un compte.
+            Tu peux voir et tester. Pour enregistrer, noter ou signaler un mix, il faut un compte.
           </Text>
           <Button variant="glass" size="sm" label="Connexion" onPress={goLogin} />
         </View>
@@ -359,13 +463,27 @@ function PublicContent({ screenH, close, afterClose, onTest }) {
               user={user}
               myStars={myRatings[item.id] ?? 0}
               saved={library.some((m) => m.id === `mix_pub_${item.id}`)}
+              reported={reportedIds.has(item.id)}
+              reporting={reportingId === item.id}
               onRate={(n) => handleRate(item, n)}
               onSave={() => handleSave(item)}
               onTest={() => handleTest(item)}
-              onLogin={goLogin}
+              onOpenReport={() => handleOpenReport(item)}
+              onCancelReport={() => setReportingId(null)}
+              onReport={(reason) => handleReport(item, reason)}
             />
           ))}
       </ScrollView>
+
+      {!!toast && (
+        <MiniToast
+          key={toast.id}
+          text={toast.text}
+          icon={toast.icon}
+          actionLabel={toast.actionLabel}
+          onAction={toast.onAction}
+        />
+      )}
     </View>
   );
 }
@@ -637,6 +755,58 @@ const styles = StyleSheet.create({
     fontSize: 10,
     letterSpacing: 2,
     color: 'rgba(255,255,255,0.45)',
+  },
+  reportRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-end',
+    gap: 6,
+    marginTop: 10,
+  },
+  reportLink: {
+    fontFamily: fonts.sansBold,
+    fontSize: 10.5,
+    letterSpacing: 1,
+    color: 'rgba(255,255,255,0.45)',
+  },
+  reportDone: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.45)',
+  },
+  reportBox: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+  },
+  reportTitle: {
+    fontFamily: fonts.sansBold,
+    fontSize: 12,
+    color: '#FFFFFF',
+    marginBottom: 10,
+  },
+  reportChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  reportChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  reportChipText: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 11.5,
+    color: 'rgba(255,255,255,0.85)',
+  },
+  reportCancel: {
+    alignSelf: 'flex-end',
+    marginTop: 10,
   },
   ownPill: {
     flexDirection: 'row',

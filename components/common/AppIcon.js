@@ -122,7 +122,7 @@ export const ICON_NAMES = [
   'reset', 'play', 'pause', 'finish', 'skip',
   'back', 'plus', 'gear', 'more', 'arrow', 'list', 'share', 'note',
   'user', 'bar', 'swim', 'run',
-  'star', 'star-fill', 'globe',
+  'star', 'star-fill', 'globe', 'flag',
 ];
 
 export default function AppIcon({ name, size = 20, color = '#FFFFFF', opacity = 1, strokeWidth, style }) {
@@ -363,6 +363,10 @@ export default function AppIcon({ name, size = 20, color = '#FFFFFF', opacity = 
           <Path {...line} d="M12 3.5c2.4 2.3 3.6 5.1 3.6 8.5s-1.2 6.2-3.6 8.5c-2.4-2.3-3.6-5.1-3.6-8.5S9.6 5.8 12 3.5z" />
         </>
       );
+      break;
+    // Drapeau : signaler un mix du fil public.
+    case 'flag':
+      body = <Path {...line} d="M6 21V4M6 4h11l-2.4 4.2L17 12.4H6" />;
       break;
     case 'blocks':
       body = (
