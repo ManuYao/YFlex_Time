@@ -24,30 +24,9 @@ import {
   MOCK_WEEKLY_VOLUME,
 } from '../../lib/profileMock';
 
-// Échelle de chaleur du volume hebdomadaire : les teintes de la flamme de
-// série (StreakFlame), qui se colore déjà quand la série grandit — même
-// langage, aucune couleur inventée. Seuils en séances par semaine.
-const HEAT_STEPS = [
-  { min: 7, color: '#FF5454', label: '7+' },
-  { min: 5, color: '#FF7A1A', label: '5-6' },
-  { min: 3, color: '#FFC933', label: '3-4' },
-  { min: 0, color: '#FFFFFF', label: '0-2' },
-];
-const volumeHeatColor = (v) => HEAT_STEPS.find((s) => v >= s.min).color;
-
-function HeatLegend() {
-  return (
-    <View style={styles.heatLegend}>
-      {[...HEAT_STEPS].reverse().map((s) => (
-        <View key={s.label} style={styles.heatLegendItem}>
-          <View style={[styles.heatLegendDot, { backgroundColor: s.color }]} />
-          <Text style={styles.heatLegendText}>{s.label}</Text>
-        </View>
-      ))}
-      <Text style={styles.heatLegendUnit}>séances / sem.</Text>
-    </View>
-  );
-}
+// Bleu doux unique : l'échelle de chaleur multicolore a été jugée trop
+// chargée par l'utilisateur (29/09/2026).
+const VOLUME_BLUE = '#6C9EFF';
 
 const LOCKED_OPACITY = 0.3;
 
@@ -93,13 +72,12 @@ export default function ProfileAnalytics({ isPremium, onGoPremium }) {
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>ACTIVITÉ</Text>
-        {/* Décision utilisateur : le volume reste en tête et se colore avec
-            l'effort (pas tout blanc pour les non-Premium) ; la grille de
-            régularité se déplie sous « Voir plus » pour garder le bloc compact. */}
+        {/* Le volume reste en tête ; la grille de régularité se déplie sous
+            « Voir plus » pour garder le bloc compact. */}
         <View style={styles.card}>
           <CardHeader
             title="Volume de séances"
-            subtitle="8 dernières semaines · plus ça chauffe, plus tu as enchaîné"
+            subtitle="8 dernières semaines"
             rightLabel="MOY."
             rightValue={`${weeklyAvg}/sem.`}
           />
@@ -107,11 +85,10 @@ export default function ProfileAnalytics({ isPremium, onGoPremium }) {
             data={MOCK_WEEKLY_VOLUME}
             labels={MOCK_WEEKLY_LABELS}
             height={140}
-            colorFor={volumeHeatColor}
+            color={VOLUME_BLUE}
             dimOpacity={0.5}
             interactive
           />
-          <HeatLegend />
 
           {showMore ? (
             <Animated.View entering={FadeIn.duration(260)} style={styles.moreBlock}>
@@ -211,6 +188,7 @@ export default function ProfileAnalytics({ isPremium, onGoPremium }) {
 function PremiumContent() {
   const tut = MOCK_TIME_UNDER_TENSION;
   const monthlyAvg = Math.round(average(MOCK_MONTHLY_COMPARISON));
+  const [showMore, setShowMore] = useState(false);
 
   return (
     <View>
@@ -235,27 +213,41 @@ function PremiumContent() {
         </View>
       </View>
 
-      <View style={[styles.card, styles.cardSpaced]}>
-        <CardHeader title="Répartition des formats" subtitle="Toutes tes séances" />
-        <FormatBreakdown />
-      </View>
+      {showMore ? (
+        <Animated.View entering={FadeIn.duration(260)}>
+          <View style={[styles.card, styles.cardSpaced]}>
+            <CardHeader title="Répartition des formats" subtitle="Toutes tes séances" />
+            <FormatBreakdown />
+          </View>
 
-      <View style={[styles.card, styles.cardSpaced]}>
-        <CardHeader
-          title="Comparatif mensuel"
-          subtitle="6 derniers mois"
-          rightLabel="MOY."
-          rightValue={`${monthlyAvg}/mois`}
-        />
-        <BarChart
-          data={MOCK_MONTHLY_COMPARISON}
-          labels={MOCK_MONTHLY_LABELS}
-          height={140}
-          color={GOLD}
-          dimOpacity={0.3}
-          interactive
-        />
-      </View>
+          <View style={[styles.card, styles.cardSpaced]}>
+            <CardHeader
+              title="Comparatif mensuel"
+              subtitle="6 derniers mois"
+              rightLabel="MOY."
+              rightValue={`${monthlyAvg}/mois`}
+            />
+            <BarChart
+              data={MOCK_MONTHLY_COMPARISON}
+              labels={MOCK_MONTHLY_LABELS}
+              height={140}
+              color={GOLD}
+              dimOpacity={0.3}
+              interactive
+            />
+          </View>
+        </Animated.View>
+      ) : null}
+
+      <Button
+        variant="ghost"
+        size="sm"
+        icon={showMore ? 'close' : 'plus'}
+        label={showMore ? 'Voir moins' : 'Voir plus'}
+        haptic={haptic.light}
+        onPress={() => setShowMore((v) => !v)}
+        style={styles.premiumMoreBtn}
+      />
     </View>
   );
 }
@@ -425,32 +417,9 @@ const styles = StyleSheet.create({
   cardSpaced: {
     marginTop: 10,
   },
-  heatLegend: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 10,
-    marginTop: 10,
-  },
-  heatLegendItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  heatLegendDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 2,
-  },
-  heatLegendText: {
-    fontFamily: fonts.monoBold,
-    fontSize: 9.5,
-    color: 'rgba(255,255,255,0.7)',
-  },
-  heatLegendUnit: {
-    fontFamily: fonts.monoRegular,
-    fontSize: 9.5,
-    color: 'rgba(255,255,255,0.4)',
+  premiumMoreBtn: {
+    alignSelf: 'center',
+    marginTop: 6,
   },
   moreBlock: {
     marginTop: 18,
