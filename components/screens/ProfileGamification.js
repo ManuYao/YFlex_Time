@@ -11,16 +11,9 @@ import { TIMERS } from '../../lib/timers-config';
 import { BADGE_TIERS, getBadgeProgress } from '../../lib/badges';
 import { fonts } from '../../lib/fonts';
 import { haptic } from '../../hooks/useHaptic';
-import { MOCK_BADGE_COUNTS, MOCK_CUSTOMIZATION } from '../../lib/profileMock';
+import { MOCK_CUSTOMIZATION } from '../../lib/profileMock';
 
 const MEDAL_SIZE = 38;
-
-// Maquette : les compteurs viennent de lib/profileMock.js, mais les paliers
-// sont calculés par le vrai getBadgeProgress, comme dans ModeStatsSheet.
-const ROWS = TIMERS.map((timer) => {
-  const count = MOCK_BADGE_COUNTS[timer.id] ?? 0;
-  return { timer, count, badges: getBadgeProgress(timer.id, count) };
-});
 
 function rowCaption({ count, badges }) {
   const next = badges.nextTier;
@@ -28,14 +21,23 @@ function rowCaption({ count, badges }) {
   return `${count} / ${next.threshold} · ${next.label}`;
 }
 
-export default function ProfileGamification({ onOpenModeStats, onShareSession }) {
+export default function ProfileGamification({ badgeCounts, onOpenModeStats, hasSession, onShareSession }) {
   const customTargetRef = useRef(null);
+  const ROWS = React.useMemo(
+    () =>
+      TIMERS.map((timer) => {
+        const count = badgeCounts?.[timer.id] ?? 0;
+        return { timer, count, badges: getBadgeProgress(timer.id, count) };
+      }),
+    [badgeCounts]
+  );
   const unlocked = ROWS.reduce((n, r) => n + r.badges.tiers.filter((t) => t.unlocked).length, 0);
   const total = ROWS.reduce((n, r) => n + r.badges.tiers.length, 0);
   const perTier = BADGE_TIERS.map((tier) => ({
     key: tier.key,
     count: ROWS.filter((r) => r.badges.tiers.find((t) => t.key === tier.key)?.unlocked).length,
   }));
+
 
   return (
     <View>
@@ -171,6 +173,7 @@ export default function ProfileGamification({ onOpenModeStats, onShareSession })
           label="Partager ma séance"
           haptic={haptic.medium}
           onPress={onShareSession}
+          disabled={!hasSession}
           fullWidth
         />
       </View>

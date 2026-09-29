@@ -11,7 +11,6 @@ import { TIMERS } from '../../lib/timers-config';
 import { getTokens } from '../../lib/tokens';
 import { fonts } from '../../lib/fonts';
 import { haptic } from '../../hooks/useHaptic';
-import { MOCK_LAST_SESSION } from '../../lib/profileMock';
 
 // Tout ce qui entoure la carte dans la feuille (poignée, titre, deux
 // boutons, marges) + un peu de voile au-dessus pour qu'on voie encore que
@@ -20,10 +19,9 @@ import { MOCK_LAST_SESSION } from '../../lib/profileMock';
 const SHEET_CHROME = 300;
 const MIN_CARD_H = 220;
 
-export default function ShareSessionSheet({ screenH, onClose }) {
+export default function ShareSessionSheet({ session, screenH, onClose }) {
   const { width: winW, height: winH } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const session = MOCK_LAST_SESSION;
   const timer = TIMERS.find((t) => t.id === session.timerId) ?? TIMERS[0];
   const tokens = getTokens(timer.textMode);
 

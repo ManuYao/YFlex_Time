@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { BlurTargetView } from 'expo-blur';
 
 import GradientBackground from '../components/common/GradientBackground';
@@ -19,12 +19,13 @@ import { usePremium } from '../hooks/usePremium';
 import { haptic } from '../hooks/useHaptic';
 import { fonts } from '../lib/fonts';
 import { getBadgeProgress } from '../lib/badges';
-import { MOCK_IDENTITY, MOCK_REGULARITY, MOCK_BADGE_COUNTS, MOCK_MODE_TIME } from '../lib/profileMock';
+import { loadProfile, saveProfile, formatMemberSince, initialsOf } from '../lib/profile';
+import { computeProfileStats } from '../lib/profileStats';
+import { loadHistory } from '../lib/history';
 
 /**
- * Hub Profil — remplace l'accès direct aux Paramètres depuis l'accueil (les
- * Paramètres restent à un tap, via l'engrenage en haut). Étape maquette :
- * tout le contenu vient de lib/profileMock.js, rien n'est persisté.
+ * Hub Profil — remplace l'accès direct aux Paramètres depuis l'accueil.
+ * Données réelles : profil persisté, historique, disciplines, stats calculées.
  */
 export default function Profile() {
   const router = useRouter();
@@ -33,19 +34,58 @@ export default function Profile() {
   const { isPremium } = usePremium();
   const blurTargetRef = useRef(null);
 
-  const [disciplineIds, setDisciplineIds] = useState(MOCK_IDENTITY.disciplineIds);
+  const [profile, setProfile] = useState(null);
+  const [sessions, setSessions] = useState([]);
   const [disciplineSheet, setDisciplineSheet] = useState(false);
   const [publicMixSheet, setPublicMixSheet] = useState(false);
   const [statsTimerId, setStatsTimerId] = useState(null);
   const [shareSheet, setShareSheet] = useState(false);
 
+  // Charger le profil et l'historique au montage et au focus
+  useFocusEffect(
+    React.useCallback(() => {
+      (async () => {
+        const prof = await loadProfile();
+        setProfile(prof);
+        const hist = await loadHistory();
+        setSessions(hist);
+      })();
+    }, [])
+  );
+
+  // Persister les disciplines quand elles changent
+  const handleDisciplinesChange = async (newIds) => {
+    if (profile) {
+      const updated = await saveProfile({ ...profile, disciplineIds: newIds });
+      setProfile(updated);
+    }
+  };
+
+  // Calculer les vraies stats
+  const stats = useMemo(() => computeProfileStats(sessions, timers), [sessions, timers]);
+
+  // Identité du profil
+  const identity = useMemo(
+    () =>
+      profile
+        ? {
+            pseudo: profile.pseudo,
+            initials: initialsOf(profile.pseudo),
+            memberSince: formatMemberSince(profile, stats.oldestSessionDate),
+          }
+        : { pseudo: 'Athlète', initials: 'A', memberSince: 'jamais' },
+    [profile, stats.oldestSessionDate]
+  );
+
+  // Trophées réels
   const trophies = useMemo(() => {
     let unlocked = 0;
     for (const t of timers) {
-      unlocked += getBadgeProgress(t.id, MOCK_BADGE_COUNTS[t.id] ?? 0).tiers.filter((x) => x.unlocked).length;
+      const count = stats.badgeCounts?.[t.id] ?? 0;
+      unlocked += getBadgeProgress(t.id, count).tiers.filter((x) => x.unlocked).length;
     }
     return { unlocked, total: timers.length * 3 };
-  }, [timers]);
+  }, [timers, stats.badgeCounts]);
 
   const statsTimer = statsTimerId ? timers.find((t) => t.id === statsTimerId) : null;
 
@@ -80,18 +120,20 @@ export default function Profile() {
               showsVerticalScrollIndicator={false}
             >
               <ProfileHeader
-                identity={MOCK_IDENTITY}
-                disciplineIds={disciplineIds}
+                identity={identity}
+                disciplineIds={profile?.disciplineIds ?? []}
                 isPremium={isPremium}
-                streak={MOCK_REGULARITY.streak}
-                bestStreak={MOCK_REGULARITY.bestStreak}
+                streak={stats.streak}
+                bestStreak={stats.bestStreak}
                 trophyCount={trophies.unlocked}
                 trophyTotal={trophies.total}
                 onEditDisciplines={() => setDisciplineSheet(true)}
               />
-              <ProfileAnalytics isPremium={isPremium} onGoPremium={() => router.push('/premium')} />
+              <ProfileAnalytics stats={stats} isPremium={isPremium} onGoPremium={() => router.push('/premium')} />
               <ProfileMixShare onOpenPublic={() => setPublicMixSheet(true)} />
               <ProfileGamification
+                badgeCounts={stats.badgeCounts}
+                hasSession={!!stats.lastSession}
                 onOpenModeStats={setStatsTimerId}
                 onShareSession={() => setShareSheet(true)}
               />
@@ -104,17 +146,23 @@ export default function Profile() {
       {disciplineSheet && (
         <DisciplineSheet
           screenH={screenH}
-          value={disciplineIds}
-          onChange={setDisciplineIds}
+          value={profile?.disciplineIds ?? []}
+          onChange={handleDisciplinesChange}
           onClose={() => setDisciplineSheet(false)}
         />
       )}
       {publicMixSheet && <MixPublicSheet screenH={screenH} onClose={() => setPublicMixSheet(false)} />}
-      {shareSheet && <ShareSessionSheet screenH={screenH} onClose={() => setShareSheet(false)} />}
+      {shareSheet && stats.lastSession && (
+        <ShareSessionSheet session={stats.lastSession} screenH={screenH} onClose={() => setShareSheet(false)} />
+      )}
       {statsTimer && (
         <ModeStatsSheet
           timer={statsTimer}
-          stats={{ count: MOCK_BADGE_COUNTS[statsTimer.id] ?? 0, totalSeconds: 0, timeLabel: MOCK_MODE_TIME[statsTimer.id] ?? '0min' }}
+          stats={{
+            count: stats.badgeCounts?.[statsTimer.id] ?? 0,
+            totalSeconds: stats.modeSeconds?.[statsTimer.id] ?? 0,
+            timeLabel: stats.modeTimeLabels?.[statsTimer.id] ?? '0min',
+          }}
           screenH={screenH}
           blurTargetRef={blurTargetRef}
           onClose={() => setStatsTimerId(null)}

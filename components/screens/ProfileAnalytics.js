@@ -12,17 +12,7 @@ import { fonts } from '../../lib/fonts';
 import { GOLD } from '../../lib/buttonTokens';
 import { withAlpha } from '../../lib/phase-colors';
 import { haptic } from '../../hooks/useHaptic';
-import {
-  HEATMAP_DAY_LABELS,
-  MOCK_FORMAT_BREAKDOWN,
-  MOCK_HEATMAP_WEEKS,
-  MOCK_MONTHLY_COMPARISON,
-  MOCK_MONTHLY_LABELS,
-  MOCK_REGULARITY,
-  MOCK_TIME_UNDER_TENSION,
-  MOCK_WEEKLY_LABELS,
-  MOCK_WEEKLY_VOLUME,
-} from '../../lib/profileMock';
+import { HEATMAP_DAY_LABELS } from '../../lib/profileMock';
 
 // Blanc unique : l'échelle de chaleur multicolore a été jugée trop
 // chargée par l'utilisateur (29/09/2026).
@@ -32,7 +22,7 @@ const LOCKED_OPACITY = 0.3;
 
 const average = (list) => (list.length ? list.reduce((s, v) => s + v, 0) / list.length : 0);
 
-export default function ProfileAnalytics({ isPremium, onGoPremium }) {
+export default function ProfileAnalytics({ stats, isPremium, onGoPremium }) {
   const [demo, setDemo] = useState(false);
   const locked = !isPremium && !demo;
   const showDemoChrome = !isPremium && demo;
@@ -53,9 +43,9 @@ export default function ProfileAnalytics({ isPremium, onGoPremium }) {
   };
 
   const [showMore, setShowMore] = useState(false);
-  const r = MOCK_REGULARITY;
-  const weeklyAvg = average(MOCK_WEEKLY_VOLUME).toFixed(1).replace('.', ',');
-  const allDays = MOCK_HEATMAP_WEEKS.flat();
+  const r = stats;
+  const weeklyAvg = average(stats.weeklyVolume).toFixed(1).replace('.', ',');
+  const allDays = stats.heatmapWeeks.flat();
   const activeDays = allDays.filter((v) => v > 0).length;
   const totalDays = allDays.length;
 
@@ -82,8 +72,8 @@ export default function ProfileAnalytics({ isPremium, onGoPremium }) {
             rightValue={`${weeklyAvg}/sem.`}
           />
           <BarChart
-            data={MOCK_WEEKLY_VOLUME}
-            labels={MOCK_WEEKLY_LABELS}
+            data={stats.weeklyVolume}
+            labels={stats.weeklyLabels}
             height={140}
             color={VOLUME_COLOR}
             dimOpacity={0.5}
@@ -98,7 +88,7 @@ export default function ProfileAnalytics({ isPremium, onGoPremium }) {
                 rightLabel="JOURS ACTIFS"
                 rightValue={`${activeDays}/${totalDays}`}
               />
-              <HeatmapGrid weeks={MOCK_HEATMAP_WEEKS} dayLabels={HEATMAP_DAY_LABELS} />
+              <HeatmapGrid weeks={stats.heatmapWeeks} dayLabels={HEATMAP_DAY_LABELS} />
             </Animated.View>
           ) : null}
 
@@ -131,7 +121,7 @@ export default function ProfileAnalytics({ isPremium, onGoPremium }) {
 
         <View>
           <Animated.View style={contentStyle} pointerEvents={locked ? 'none' : 'auto'}>
-            <PremiumContent />
+            <PremiumContent stats={stats} />
             {showDemoChrome ? (
               <View style={styles.demoActions}>
                 <Button
@@ -185,10 +175,11 @@ export default function ProfileAnalytics({ isPremium, onGoPremium }) {
   );
 }
 
-function PremiumContent() {
-  const tut = MOCK_TIME_UNDER_TENSION;
-  const monthlyAvg = Math.round(average(MOCK_MONTHLY_COMPARISON));
+function PremiumContent({ stats }) {
+  const tut = stats.tension;
+  const monthlyAvg = Math.round(average(stats.monthlyCounts));
   const [showMore, setShowMore] = useState(false);
+  const deltaLabel = tut.deltaPct === null ? '—' : `${tut.deltaPct > 0 ? '+' : ''}${tut.deltaPct} %`;
 
   return (
     <View>
@@ -201,7 +192,7 @@ function PremiumContent() {
             </Text>
             <View style={styles.deltaRow}>
               <View style={styles.deltaChip}>
-                <Text style={styles.deltaText}>{`${tut.deltaPct > 0 ? '+' : ''}${tut.deltaPct} %`}</Text>
+                <Text style={styles.deltaText}>{deltaLabel}</Text>
               </View>
               <Text style={styles.deltaCaption}>vs mois dernier</Text>
             </View>
@@ -217,7 +208,7 @@ function PremiumContent() {
         <Animated.View entering={FadeIn.duration(260)}>
           <View style={[styles.card, styles.cardSpaced]}>
             <CardHeader title="Répartition des formats" subtitle="Toutes tes séances" />
-            <FormatBreakdown />
+            <FormatBreakdown data={stats.formatBreakdown} />
           </View>
 
           <View style={[styles.card, styles.cardSpaced]}>
@@ -228,8 +219,8 @@ function PremiumContent() {
               rightValue={`${monthlyAvg}/mois`}
             />
             <BarChart
-              data={MOCK_MONTHLY_COMPARISON}
-              labels={MOCK_MONTHLY_LABELS}
+              data={stats.monthlyCounts}
+              labels={stats.monthlyLabels}
               height={140}
               color={GOLD}
               dimOpacity={0.3}
@@ -252,11 +243,11 @@ function PremiumContent() {
   );
 }
 
-function FormatBreakdown() {
+function FormatBreakdown({ data }) {
   const [activeId, setActiveId] = useState(null);
-  const total = MOCK_FORMAT_BREAKDOWN.reduce((s, f) => s + f.count, 0);
+  const total = data.reduce((s, f) => s + f.count, 0);
   const pct = (count) => (total > 0 ? Math.round((count / total) * 100) : 0);
-  const active = MOCK_FORMAT_BREAKDOWN.find((f) => f.id === activeId);
+  const active = data.find((f) => f.id === activeId);
 
   const toggle = (id) => {
     haptic.selection();
@@ -265,14 +256,14 @@ function FormatBreakdown() {
 
   return (
     <View style={styles.donutRow}>
-      <DonutChart data={MOCK_FORMAT_BREAKDOWN} activeId={activeId}>
+      <DonutChart data={data} activeId={activeId}>
         <Text style={styles.donutValue}>{active ? active.count : total}</Text>
         <Text style={styles.donutCaption} numberOfLines={1}>
           {active ? `${active.label} · ${pct(active.count)} %` : 'SÉANCES'}
         </Text>
       </DonutChart>
       <View style={styles.legend}>
-        {MOCK_FORMAT_BREAKDOWN.map((f) => {
+        {data.map((f) => {
           const dimmed = activeId != null && activeId !== f.id;
           return (
             <PressTap key={f.id} onPress={() => toggle(f.id)} tapScale={0.97} accessibilityLabel={f.label}>
