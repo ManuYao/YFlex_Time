@@ -17,9 +17,14 @@ const AuthContext = createContext(null);
 // dans l'app, pas un nouveau mécanisme.
 const REDIRECT_URL = Linking.createURL('auth-callback');
 
+// « User already registered » n'est PAS traduit littéralement : confirmer
+// qu'un email a déjà un compte permettrait à quelqu'un de tester une liste
+// d'adresses pour savoir lesquelles sont inscrites (énumération de comptes).
+// Message volontairement ambigu, qui oriente sans confirmer.
 const AUTH_ERRORS = {
   'Invalid login credentials': 'Email ou mot de passe incorrect.',
-  'User already registered': 'Un compte existe déjà avec cet email.',
+  'User already registered':
+    "Impossible de créer ce compte avec cet email. Si tu en as déjà un, essaie plutôt de te connecter.",
   'Email not confirmed': "Confirme d'abord ton email avant de te connecter.",
 };
 
