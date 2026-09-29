@@ -32,6 +32,7 @@ import { loadCustomCategories } from '../lib/exercises';
 import { registerTimerNotification } from '../lib/timerNotification';
 import { TimersProvider } from '../contexts/TimersContext';
 import { SettingsProvider } from '../contexts/SettingsContext';
+import { AuthProvider } from '../contexts/AuthContext';
 
 // Hydrate le cache des catégories perso avant que le premier écran du
 // planning ne rende ses chips : getCategory() est synchrone et lit ce cache.
@@ -129,88 +130,91 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000000' }}>
       <SafeAreaProvider>
         <SettingsProvider>
-          <TimersProvider>
-            <View style={{ flex: 1 }}>
-              <StatusBar style="light" />
-              <Stack
-                screenOptions={{
-                  headerShown: false,
-                  animation: 'fade',
-                  animationDuration: 250,
-                  contentStyle: { backgroundColor: '#0A0A0A' },
-                }}
-              >
-                <Stack.Screen name="index" options={{ animation: 'fade' }} />
-                <Stack.Screen name="home" options={{ animation: 'fade' }} />
-                <Stack.Screen name="onboarding" options={{ animation: 'fade' }} />
-                <Stack.Screen
-                  name="countdown"
-                  options={{ animation: 'fade', animationDuration: 300 }}
-                />
-                <Stack.Screen
-                  name="running"
-                  options={{ animation: 'fade', animationDuration: 350 }}
-                />
-                <Stack.Screen
-                  name="end-session"
-                  options={{ animation: 'fade', animationDuration: 400 }}
-                />
-                <Stack.Screen name="profile" options={{ animation: 'fade' }} />
-                <Stack.Screen name="settings" options={{ animation: 'fade' }} />
-                <Stack.Screen name="terms" options={{ animation: 'fade' }} />
-                <Stack.Screen name="privacy" options={{ animation: 'fade' }} />
-                <Stack.Screen name="history" options={{ animation: 'fade' }} />
-                <Stack.Screen name="mix-builder" options={{ animation: 'fade' }} />
-                <Stack.Screen name="import-mix" options={{ animation: 'fade' }} />
-                <Stack.Screen
-                  name="session-detail"
-                  options={{ animation: 'fade' }}
-                />
-                <Stack.Screen name="day-archives" options={{ animation: 'fade' }} />
-                <Stack.Screen name="archive-detail" options={{ animation: 'fade' }} />
-              </Stack>
-              <UpdateGate />
-
-              {splashCleared && !apk.isBlockedByForcedUpdate && apk.isMaintenance && !bannerClosed && (
-                <MaintenanceBanner
-                  message={apk.maintenanceMessage}
-                  onPress={apk.openMaintenanceScreen}
-                  onDismiss={() => setBannerClosed(true)}
-                />
-              )}
-              {splashCleared && !apk.isBlockedByForcedUpdate && apk.showMaintenanceScreen && (
-                <MaintenanceScreen
-                  message={apk.maintenanceMessage}
-                  onClose={apk.dismissMaintenanceScreen}
-                />
-              )}
-
-              <GrainOverlay opacity={0.06} tint="#FFFFFF" />
-              {splash === 'pending' && (
-                <View style={[StyleSheet.absoluteFill, { zIndex: 1000, backgroundColor: '#000000' }]} />
-              )}
-              {splash === 'show' && (
-                <LaunchSplash
-                  onDone={() => {
-                    setSplash('hide');
-                    setSplashCleared(true);
-                    markSplashCleared();
+          <AuthProvider>
+            <TimersProvider>
+              <View style={{ flex: 1 }}>
+                <StatusBar style="light" />
+                <Stack
+                  screenOptions={{
+                    headerShown: false,
+                    animation: 'fade',
+                    animationDuration: 250,
+                    contentStyle: { backgroundColor: '#0A0A0A' },
                   }}
-                />
-              )}
+                >
+                  <Stack.Screen name="index" options={{ animation: 'fade' }} />
+                  <Stack.Screen name="home" options={{ animation: 'fade' }} />
+                  <Stack.Screen name="onboarding" options={{ animation: 'fade' }} />
+                  <Stack.Screen
+                    name="countdown"
+                    options={{ animation: 'fade', animationDuration: 300 }}
+                  />
+                  <Stack.Screen
+                    name="running"
+                    options={{ animation: 'fade', animationDuration: 350 }}
+                  />
+                  <Stack.Screen
+                    name="end-session"
+                    options={{ animation: 'fade', animationDuration: 400 }}
+                  />
+                  <Stack.Screen name="profile" options={{ animation: 'fade' }} />
+                  <Stack.Screen name="login" options={{ animation: 'fade' }} />
+                  <Stack.Screen name="settings" options={{ animation: 'fade' }} />
+                  <Stack.Screen name="terms" options={{ animation: 'fade' }} />
+                  <Stack.Screen name="privacy" options={{ animation: 'fade' }} />
+                  <Stack.Screen name="history" options={{ animation: 'fade' }} />
+                  <Stack.Screen name="mix-builder" options={{ animation: 'fade' }} />
+                  <Stack.Screen name="import-mix" options={{ animation: 'fade' }} />
+                  <Stack.Screen
+                    name="session-detail"
+                    options={{ animation: 'fade' }}
+                  />
+                  <Stack.Screen name="day-archives" options={{ animation: 'fade' }} />
+                  <Stack.Screen name="archive-detail" options={{ animation: 'fade' }} />
+                </Stack>
+                <UpdateGate />
 
-              {/* En dernier, et au zIndex le plus haut : rien ne doit passer
-                  au-dessus du blocage, pas même la cinématique de démarrage. */}
-              {apk.isBlockedByForcedUpdate && (
-                <APKBlockedScreen
-                  message={apk.forcedUpdateMessage}
-                  downloadUrl={apk.downloadUrl}
-                  currentVersion={apk.currentVersion}
-                  minVersion={apk.minVersion}
-                />
-              )}
-            </View>
-          </TimersProvider>
+                {splashCleared && !apk.isBlockedByForcedUpdate && apk.isMaintenance && !bannerClosed && (
+                  <MaintenanceBanner
+                    message={apk.maintenanceMessage}
+                    onPress={apk.openMaintenanceScreen}
+                    onDismiss={() => setBannerClosed(true)}
+                  />
+                )}
+                {splashCleared && !apk.isBlockedByForcedUpdate && apk.showMaintenanceScreen && (
+                  <MaintenanceScreen
+                    message={apk.maintenanceMessage}
+                    onClose={apk.dismissMaintenanceScreen}
+                  />
+                )}
+
+                <GrainOverlay opacity={0.06} tint="#FFFFFF" />
+                {splash === 'pending' && (
+                  <View style={[StyleSheet.absoluteFill, { zIndex: 1000, backgroundColor: '#000000' }]} />
+                )}
+                {splash === 'show' && (
+                  <LaunchSplash
+                    onDone={() => {
+                      setSplash('hide');
+                      setSplashCleared(true);
+                      markSplashCleared();
+                    }}
+                  />
+                )}
+
+                {/* En dernier, et au zIndex le plus haut : rien ne doit passer
+                    au-dessus du blocage, pas même la cinématique de démarrage. */}
+                {apk.isBlockedByForcedUpdate && (
+                  <APKBlockedScreen
+                    message={apk.forcedUpdateMessage}
+                    downloadUrl={apk.downloadUrl}
+                    currentVersion={apk.currentVersion}
+                    minVersion={apk.minVersion}
+                  />
+                )}
+              </View>
+            </TimersProvider>
+          </AuthProvider>
         </SettingsProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

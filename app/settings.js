@@ -36,6 +36,7 @@ import { loadLegalAccepted } from '../lib/legalConsent';
 import { loadCustomCategories } from '../lib/exercises';
 import { useSettings } from '../contexts/SettingsContext';
 import { useTimers } from '../contexts/TimersContext';
+import { useAuth } from '../contexts/AuthContext';
 import { usePremium } from '../hooks/usePremium';
 import { useOtaUpdate } from '../hooks/useOtaUpdate';
 import { markUpdatePopupSeen, resolveUpdateCandidate } from '../lib/updatePopup';
@@ -70,6 +71,7 @@ export default function Settings() {
   const { settings, update, reset } = useSettings();
   const { resetAll: resetAllTimers } = useTimers();
   const { isPremium } = usePremium();
+  const { signOut } = useAuth();
   const [premiumDenied, setPremiumDenied] = useState(false);
   const { height: screenH } = useWindowDimensions();
   const { pending, updateId, runningUpdateId, restart, checkNow, status, lastCheckAt, lastError, diagnostics } =
@@ -218,6 +220,10 @@ export default function Settings() {
     await loadCustomCategories();
     await resetAllTimers();
     reset();
+    // Le compte (connexion optionnelle) n'est pas stocké dans les clés
+    // ci-dessus : sans ça, un reset complet laisserait une session Supabase
+    // active alors que tout le reste est reparti de zéro.
+    await signOut();
     router.replace('/onboarding');
   };
 

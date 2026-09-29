@@ -4,6 +4,7 @@ import Svg, { Line } from 'react-native-svg';
 
 import AppIcon from '../common/AppIcon';
 import PressTap from '../common/PressTap';
+import PulseGlow from '../common/PulseGlow';
 import { fonts } from '../../lib/fonts';
 import { GOLD } from '../../lib/buttonTokens';
 import { haptic } from '../../hooks/useHaptic';
@@ -26,6 +27,12 @@ export default function ProfileHeader({
   trophyCount,
   trophyTotal,
   onEditDisciplines,
+  // Connexion optionnelle (contexts/AuthContext.js) : un petit point vert sur
+  // l'avatar suffit à dire "connecté", pas besoin d'une ligne entière dans le
+  // menu — voir CLAUDE.md, section CONNEXION UTILISATEUR + BACKEND, pour
+  // pourquoi ça a remplacé la ligne "Déconnexion" d'origine.
+  accountConnected = false,
+  onAccountPress,
 }) {
   const ringProgress = bestStreak > 0 ? Math.min(1, streak / bestStreak) : 0;
 
@@ -39,6 +46,21 @@ export default function ProfileHeader({
               {identity.initials}
             </Text>
           </View>
+          {accountConnected && (
+            <PressTap
+              onPress={() => {
+                haptic.light();
+                onAccountPress?.();
+              }}
+              containerStyle={styles.statusDotWrap}
+              style={styles.statusDotInner}
+              hitSlop={10}
+              accessibilityLabel="Compte connecté"
+            >
+              <PulseGlow color="#1FC777" size={18} active />
+              <View style={styles.statusDot} />
+            </PressTap>
+          )}
         </View>
 
         <View style={styles.identityText}>
@@ -171,6 +193,25 @@ const styles = StyleSheet.create({
     height: AVATAR,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  statusDotWrap: {
+    position: 'absolute',
+    right: -1,
+    bottom: -1,
+  },
+  statusDotInner: {
+    width: 18,
+    height: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statusDot: {
+    width: 11,
+    height: 11,
+    borderRadius: 5.5,
+    backgroundColor: '#1FC777',
+    borderWidth: 2,
+    borderColor: '#0A0A0A',
   },
   avatarCore: {
     width: AVATAR - 26,

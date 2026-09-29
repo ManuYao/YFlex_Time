@@ -2,7 +2,7 @@
   "expo": {
     "name": "Flex Timer",
     "slug": "flex-timer",
-    "version": "14.20.0",
+    "version": "15.1.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -43,7 +43,8 @@
       ],
       "expo-mail-composer",
       "./plugins/withTimerForegroundService",
-      "./plugins/withMinWindowSize"
+      "./plugins/withMinWindowSize",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": false
@@ -52,7 +53,9 @@
       "router": {},
       "eas": {
         "projectId": "85fc0368-09be-4ae2-86da-fb93de5bac8d"
-      }
+      },
+      "supabaseUrl": "https://rtfihbuhuraicbqoitpm.supabase.co",
+      "supabaseAnonKey": "sb_publishable_dLkx1YAEzolbSrsUwd_GwA_UFZAD7FU"
     },
     "owner": "yao225",
     "runtimeVersion": {

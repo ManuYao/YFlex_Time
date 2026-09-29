@@ -10,11 +10,14 @@ import ModeStatsSheet from '../components/common/ModeStatsSheet';
 import DisciplineSheet from '../components/common/DisciplineSheet';
 import MixPublicSheet from '../components/common/MixPublicSheet';
 import ShareSessionSheet from '../components/common/ShareSessionSheet';
+import ConfirmSheet from '../components/common/ConfirmSheet';
 import ProfileHeader from '../components/screens/ProfileHeader';
+import ProfileAccount from '../components/screens/ProfileAccount';
 import ProfileAnalytics from '../components/screens/ProfileAnalytics';
 import ProfileMixShare from '../components/screens/ProfileMixShare';
 import ProfileGamification from '../components/screens/ProfileGamification';
 import { useTimers } from '../contexts/TimersContext';
+import { useAuth } from '../contexts/AuthContext';
 import { usePremium } from '../hooks/usePremium';
 import { haptic } from '../hooks/useHaptic';
 import { fonts } from '../lib/fonts';
@@ -32,6 +35,7 @@ export default function Profile() {
   const { height: screenH } = useWindowDimensions();
   const { timers } = useTimers();
   const { isPremium } = usePremium();
+  const { user, signOut } = useAuth();
   const blurTargetRef = useRef(null);
 
   const [profile, setProfile] = useState(null);
@@ -40,6 +44,7 @@ export default function Profile() {
   const [publicMixSheet, setPublicMixSheet] = useState(false);
   const [statsTimerId, setStatsTimerId] = useState(null);
   const [shareSheet, setShareSheet] = useState(false);
+  const [logoutConfirm, setLogoutConfirm] = useState(false);
 
   // Charger le profil et l'historique au montage et au focus
   useFocusEffect(
@@ -128,7 +133,10 @@ export default function Profile() {
                 trophyCount={trophies.unlocked}
                 trophyTotal={trophies.total}
                 onEditDisciplines={() => setDisciplineSheet(true)}
+                accountConnected={!!user}
+                onAccountPress={() => setLogoutConfirm(true)}
               />
+              <ProfileAccount />
               <ProfileAnalytics stats={stats} isPremium={isPremium} onGoPremium={() => router.push('/premium')} />
               <ProfileMixShare onOpenPublic={() => setPublicMixSheet(true)} />
               <ProfileGamification
@@ -166,6 +174,18 @@ export default function Profile() {
           screenH={screenH}
           blurTargetRef={blurTargetRef}
           onClose={() => setStatsTimerId(null)}
+        />
+      )}
+      {logoutConfirm && (
+        <ConfirmSheet
+          screenH={screenH}
+          title="Se déconnecter ?"
+          body={user?.email}
+          confirmLabel="Déconnexion"
+          cancelLabel="Annuler"
+          destructive={false}
+          onConfirm={signOut}
+          onClose={() => setLogoutConfirm(false)}
         />
       )}
     </View>
