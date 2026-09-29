@@ -24,9 +24,9 @@ import {
   MOCK_WEEKLY_VOLUME,
 } from '../../lib/profileMock';
 
-// Bleu doux unique : l'échelle de chaleur multicolore a été jugée trop
+// Blanc unique : l'échelle de chaleur multicolore a été jugée trop
 // chargée par l'utilisateur (29/09/2026).
-const VOLUME_BLUE = '#6C9EFF';
+const VOLUME_COLOR = '#FFFFFF';
 
 const LOCKED_OPACITY = 0.3;
 
@@ -85,7 +85,7 @@ export default function ProfileAnalytics({ isPremium, onGoPremium }) {
             data={MOCK_WEEKLY_VOLUME}
             labels={MOCK_WEEKLY_LABELS}
             height={140}
-            color={VOLUME_BLUE}
+            color={VOLUME_COLOR}
             dimOpacity={0.5}
             interactive
           />
