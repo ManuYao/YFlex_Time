@@ -492,7 +492,12 @@ function BlockCard({
       <View style={styles.tagsWrap}>
         {block.tags.map((tag) => {
           const chip = categoryChip(tag.category, archived);
-          const suffix = archived && tag.weight ? ` · ${tag.weight}KG` : '';
+          const suffix =
+            archived && tag.weight != null
+              ? tag.weight === 0
+                ? ' · PDC'
+                : ` · ${tag.weight}KG`
+              : '';
           return (
             <PressTap
               key={tag.id}

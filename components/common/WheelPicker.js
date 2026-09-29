@@ -112,6 +112,10 @@ export default function WheelPicker({
   const visible = visibleItems % 2 === 0 ? visibleItems - 1 : visibleItems;
   const paddingItems = Math.floor(visible / 2);
   const scrollRef = useRef(null);
+  // Le handler de scroll peut garder un `commit` d'un ancien rendu : sans ref,
+  // il appellerait un onChange périmé (liaison séries ↔ tours de la fiche).
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
   const initialIdx = Math.max(0, values.indexOf(selectedValue));
   // true = le scroll en cours est notre recalage, pas le doigt de l'utilisateur
   const settlingRef = useRef(false);
@@ -157,7 +161,7 @@ export default function WheelPicker({
       withTiming(1.035, { duration: 90, easing: easeImpact }),
       withSpring(1, springBouncy)
     );
-    onChange?.(values[idx]);
+    onChangeRef.current?.(values[idx]);
   };
 
   const scrollHandler = useAnimatedScrollHandler({

@@ -9,6 +9,7 @@ import Button from './Button';
 import IconButton from './IconButton';
 import AppIcon from './AppIcon';
 import { fonts } from '../../lib/fonts';
+import { formatValue, formatSecondsCompact } from '../../lib/formatters';
 import { getCategory } from '../../lib/exercises';
 import { BLOCK_TYPES, getBlockType, getRangesForType } from '../../lib/mix-blocks';
 import { PLANNING_TIMER_TYPES } from '../../lib/planningMix';
@@ -36,11 +37,38 @@ const range = (from, to, step) => {
   return out;
 };
 
+const inRange = (list, v) => list.length > 0 && v >= list[0] && v <= list[list.length - 1];
+const nearest = (list, v) =>
+  list.reduce((best, x) => (Math.abs(x - v) < Math.abs(best - v) ? x : best), list[0]);
+
+// Texte d'une case : "PDC" à 0 kg, "1 min 30" plutôt que "90 s".
+const displayOf = (key, v) => {
+  if (key === 'weight') return formatValue(v, 'weight');
+  if (key === 'sets') return { main: String(v), unit: '' };
+  return formatSecondsCompact(v);
+};
+
 const FIELDS = [
   { key: 'weight', label: 'CHARGE', unit: 'kg', pickerType: 'weight', fallback: 20 },
   { key: 'sets', label: 'SÉRIES', unit: '', pickerType: 'sets', fallback: 4 },
   { key: 'rest', label: 'REPOS', unit: 's', pickerType: 'seconds', fallback: 90 },
 ];
+
+function CellValue({ display, color }) {
+  return (
+    <View style={styles.cellValueRow}>
+      <Text
+        style={styles.cellValue}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.7}
+      >
+        {display ? display.main : '—'}
+      </Text>
+      {!!display?.unit && <Text style={[styles.cellUnit, { color }]}>{display.unit}</Text>}
+    </View>
+  );
+}
 
 export default function ExerciseDetailSheet({
   screenH,
@@ -96,6 +124,32 @@ export default function ExerciseDetailSheet({
 
   const field = FIELDS.find((f) => f.key === editing);
 
+  const hasRest = (id) => id === 'tabata' || id === 'basic';
+  const hasRounds = (id) => !!id && id !== 'amrap';
+
+  // Séries ↔ tours et repos ↔ repos restent liés : modifier l'un met l'autre à
+  // jour (dans les deux sens). On ne recopie que si la valeur existe dans la
+  // roue de l'autre côté, sinon l'autre valeur reste telle quelle.
+  const updateDraft = (key, v) => {
+    setDraft((prev) => ({ ...prev, [key]: v }));
+    if (!timerType) return;
+    if (key === 'sets' && hasRounds(timerType)) {
+      setTimerParams((prev) => ({ ...prev, rounds: v }));
+    } else if (key === 'rest' && hasRest(timerType)) {
+      const list = getRangesForType(timerType, timerParams).rest;
+      if (inRange(list, v)) setTimerParams((prev) => ({ ...prev, rest: nearest(list, v) }));
+    }
+  };
+
+  const updateTimerParam = (key, v) => {
+    setTimerParams((prev) => ({ ...prev, [key]: v }));
+    if (key === 'rounds' && inRange(values.sets, v)) {
+      setDraft((prev) => ({ ...prev, sets: v }));
+    } else if (key === 'rest' && inRange(values.rest, v)) {
+      setDraft((prev) => ({ ...prev, rest: nearest(values.rest, v) }));
+    }
+  };
+
   const pickTimerType = (id) => {
     haptic.selection();
     if (timerType === id) {
@@ -104,18 +158,25 @@ export default function ExerciseDetailSheet({
       return;
     }
     const type = getBlockType(id);
+    // Réglages de départ calés sur ce qui est affiché au-dessus (séries →
+    // tours, repos → repos) ; le temps de travail reste celui du type.
+    let rest = type.defaults.rest ?? 0;
+    if (hasRest(id) && draft.rest != null) {
+      const list = getRangesForType(id, { duration: type.defaults.duration, rest }).rest;
+      if (inRange(list, draft.rest)) rest = nearest(list, draft.rest);
+    }
     setTimerType(id);
     setTimerParams({
       duration: type.defaults.duration ?? 0,
-      rest: type.defaults.rest ?? 0,
-      rounds: type.defaults.rounds ?? 1,
+      rest,
+      rounds: hasRounds(id) && draft.sets != null ? draft.sets : type.defaults.rounds ?? 1,
     });
   };
 
   const timerTypeInfo = timerType ? getBlockType(timerType) : null;
   const showTimerDuration = timerType && timerType !== 'basic';
-  const showTimerRest = timerType === 'tabata' || timerType === 'basic';
-  const showTimerRounds = !!timerType && timerType !== 'amrap';
+  const showTimerRest = hasRest(timerType);
+  const showTimerRounds = hasRounds(timerType);
   const timerRanges = timerType ? getRangesForType(timerType, timerParams) : null;
 
   return (
@@ -151,7 +212,7 @@ export default function ExerciseDetailSheet({
                 selectedValue={draft[field.key] ?? field.fallback}
                 type={field.pickerType}
                 accentColor={category.color}
-                onChange={(v) => setDraft((prev) => ({ ...prev, [field.key]: v }))}
+                onChange={(v) => updateDraft(field.key, v)}
                 visibleItems={wheelItems}
               />
 
@@ -187,7 +248,7 @@ export default function ExerciseDetailSheet({
                 selectedValue={timerParams[timerEditing]}
                 type={timerEditing === 'rounds' ? 'rounds' : 'seconds'}
                 accentColor={timerTypeInfo.color}
-                onChange={(v) => setTimerParams((prev) => ({ ...prev, [timerEditing]: v }))}
+                onChange={(v) => updateTimerParam(timerEditing, v)}
                 visibleItems={wheelItems}
               />
 
@@ -217,9 +278,7 @@ export default function ExerciseDetailSheet({
                       // La molette s'ouvre sur `fallback` quand rien n'est
                       // saisi : sans ça, valider sans faire tourner la molette
                       // laisserait la valeur à "—" alors qu'un nombre s'affiche.
-                      setDraft((prev) =>
-                        prev[f.key] == null ? { ...prev, [f.key]: f.fallback } : prev
-                      );
+                      if (draft[f.key] == null) updateDraft(f.key, f.fallback);
                       setEditing(f.key);
                     }}
                     tapScale={0.95}
@@ -237,16 +296,10 @@ export default function ExerciseDetailSheet({
                         />
                       </Svg>
                     </View>
-                    <View style={styles.cellValueRow}>
-                      <Text style={styles.cellValue}>
-                        {draft[f.key] == null ? '—' : String(draft[f.key])}
-                      </Text>
-                      {!!f.unit && draft[f.key] != null && (
-                        <Text style={[styles.cellUnit, { color: category.color }]}>
-                          {f.unit}
-                        </Text>
-                      )}
-                    </View>
+                    <CellValue
+                      display={draft[f.key] == null ? null : displayOf(f.key, draft[f.key])}
+                      color={category.color}
+                    />
                   </PressTap>
                   </View>
                 ))}
@@ -260,21 +313,26 @@ export default function ExerciseDetailSheet({
               <View style={styles.typeGrid}>
                 {TIMER_TYPE_OPTIONS.map((t) => {
                   const selected = timerType === t.id;
+                  // Wrapper flex:1 obligatoire : sur PressTap, `flex` dans `style`
+                  // s'applique à la vue interne dont le parent (Pressable) n'a
+                  // pas de hauteur, et la cellule s'écrase (icône et nom
+                  // sortent de la case).
                   return (
-                    <PressTap
-                      key={t.id}
-                      onPress={() => pickTimerType(t.id)}
-                      tapScale={0.95}
-                      style={[
-                        styles.typeCell,
-                        selected && { backgroundColor: `${t.color}22`, borderColor: t.color },
-                      ]}
-                    >
-                      <AppIcon name={t.icon} size={24} color={selected ? t.color : 'rgba(255,255,255,0.5)'} />
-                      <Text style={[styles.typeCellText, selected && { color: t.color }]}>
-                        {t.name}
-                      </Text>
-                    </PressTap>
+                    <View key={t.id} style={styles.cellWrap}>
+                      <PressTap
+                        onPress={() => pickTimerType(t.id)}
+                        tapScale={0.95}
+                        style={[
+                          styles.typeCell,
+                          selected && { backgroundColor: `${t.color}22`, borderColor: t.color },
+                        ]}
+                      >
+                        <AppIcon name={t.icon} size={28} color={selected ? t.color : 'rgba(255,255,255,0.5)'} />
+                        <Text style={[styles.typeCellText, selected && { color: t.color }]}>
+                          {t.name}
+                        </Text>
+                      </PressTap>
+                    </View>
                   );
                 })}
               </View>
@@ -292,10 +350,10 @@ export default function ExerciseDetailSheet({
                         style={styles.cell}
                       >
                         <Text style={styles.cellLabel}>{TIMER_FIELD_LABEL(timerType, 'duration')}</Text>
-                        <View style={styles.cellValueRow}>
-                          <Text style={styles.cellValue}>{timerParams.duration}</Text>
-                          <Text style={[styles.cellUnit, { color: timerTypeInfo.color }]}>s</Text>
-                        </View>
+                        <CellValue
+                          display={formatSecondsCompact(timerParams.duration)}
+                          color={timerTypeInfo.color}
+                        />
                       </PressTap>
                     </View>
                   )}
@@ -310,10 +368,10 @@ export default function ExerciseDetailSheet({
                         style={styles.cell}
                       >
                         <Text style={styles.cellLabel}>REPOS</Text>
-                        <View style={styles.cellValueRow}>
-                          <Text style={styles.cellValue}>{timerParams.rest}</Text>
-                          <Text style={[styles.cellUnit, { color: timerTypeInfo.color }]}>s</Text>
-                        </View>
+                        <CellValue
+                          display={formatSecondsCompact(timerParams.rest)}
+                          color={timerTypeInfo.color}
+                        />
                       </PressTap>
                     </View>
                   )}
@@ -328,9 +386,7 @@ export default function ExerciseDetailSheet({
                         style={styles.cell}
                       >
                         <Text style={styles.cellLabel}>TOURS</Text>
-                        <View style={styles.cellValueRow}>
-                          <Text style={styles.cellValue}>{timerParams.rounds}</Text>
-                        </View>
+                        <CellValue display={{ main: String(timerParams.rounds), unit: '' }} color={timerTypeInfo.color} />
                       </PressTap>
                     </View>
                   )}
@@ -445,10 +501,10 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   typeCell: {
-    flex: 1,
     alignItems: 'center',
-    gap: 6,
-    paddingVertical: 12,
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 16,
     borderRadius: 14,
     backgroundColor: 'rgba(255,255,255,0.05)',
     borderWidth: 1,

@@ -108,7 +108,7 @@ function BlockCard({ block }) {
 
 function ExerciseChip({ tag }) {
   const chip = categoryChip(tag.category, true);
-  const hasWeight = tag.weight != null && tag.weight > 0;
+  const hasWeight = tag.weight != null;
 
   return (
     <View
@@ -117,7 +117,7 @@ function ExerciseChip({ tag }) {
       <Text style={[styles.chipText, { color: chip.text }]}>
         {String(tag.label).toUpperCase()}
         {hasWeight && (
-          <Text style={styles.chipWeight}>{` · ${tag.weight}KG`}</Text>
+          <Text style={styles.chipWeight}>{tag.weight === 0 ? ' · PDC' : ` · ${tag.weight}KG`}</Text>
         )}
       </Text>
     </View>
