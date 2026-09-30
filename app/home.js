@@ -148,7 +148,7 @@ export default function Home() {
   const { timers, updateStat, hydrated } = useTimers();
   const { settings } = useSettings();
   const { heatMap, statsMap } = useTimerHeat();
-  const { getStatus: getCooldownStatusRaw, registerLaunch, registerBurn } = useCooldown();
+  const { getStatus: getCooldownStatusRaw, registerLaunch } = useCooldown();
   const { isPremium } = usePremium();
   // Premium débloque tout, sans jamais toucher au calcul de quota/lockout
   // lui-même (lib/cooldown.js reste ignorant de Premium) — le bypass se fait
@@ -159,13 +159,9 @@ export default function Home() {
         return {
           limited: false,
           isLocked: false,
-          canBurn: false,
           remaining: Infinity,
           uses: 0,
           quota: Infinity,
-          baseQuota: Infinity,
-          malus: 0,
-          lockoutLevel: 0,
           lockedUntil: null,
         };
       }
@@ -198,8 +194,6 @@ export default function Home() {
   useEffect(() => {
     showCoachNudgeRef.current = showCoachNudge;
   }, [showCoachNudge]);
-  // Confirmation "cramer une place" (lib/cooldown.js) : { timerId, sourceRect } | null.
-  const [burnPrompt, setBurnPrompt] = useState(null);
   // Page "chrono fiable" avant le 3-2-1 (lib/permissionPrimer.js, moment
   // 'firstSession'). Calculée d'avance pour ne pas retarder le tap Lancer.
   const [primerLaunch, setPrimerLaunch] = useState(null);
@@ -233,7 +227,7 @@ export default function Home() {
 
   const overlayBusyRef = useRef(false);
   overlayBusyRef.current =
-    isLaunching || statsOpen || !!picker || badgeQueue.length > 0 || !!burnPrompt || !!primerLaunch ||
+    isLaunching || statsOpen || !!picker || badgeQueue.length > 0 || !!primerLaunch ||
     showCoachNudge || modePickerOpen;
 
   useEffect(() => {
@@ -390,19 +384,16 @@ export default function Home() {
     index: i,
   }), [rootW]);
 
-  // Isolé de handleLaunch : appelé soit directement (mode déverrouillé), soit
-  // après confirmation de "cramer une place" (burnPrompt). registerLaunch
-  // n'est PAS appelé ici pour le cas cramé — burnLaunch (via registerBurn)
-  // a déjà consommé la place en trop, consommer une deuxième fois compterait
-  // le lancement en double.
-  const proceedLaunch = useCallback((sourceRect, { skipConsume = false } = {}) => {
+  // Isolé de handleLaunch : appelé directement (mode déverrouillé) ou après
+  // la page d'autorisations (primerLaunch).
+  const proceedLaunch = useCallback((sourceRect) => {
     haptic.medium();
     // Le lancement est autorisé : on consomme un usage du quota du jour
     // maintenant (pas à la fin de la séance) — c'est la tentative de lancer
     // qui compte comme "utilisation", pas la complétion. Si Premium, on ne
     // touche même pas au compteur : pas de rattrapage surprise si l'usager
     // désactive Premium plus tard (mode test).
-    if (!isPremium && !skipConsume) registerLaunch(active.id);
+    if (!isPremium) registerLaunch(active.id);
     // sourceRect : fourni quand le lancement vient d'un autre bouton que le
     // CTA du bas (ex. le panneau stats/badges) — évite que le morph parte
     // toujours du bouton de la BottomBar alors que l'utilisateur a tapé
@@ -434,12 +425,6 @@ export default function Home() {
     const status = getCooldownStatus(active.id);
     if (status.isLocked) {
       haptic.warning();
-      // Une place à cramer est disponible sur CE verrou (jamais utilisée
-      // encore) : propose le choix plutôt que d'envoyer direct vers Premium.
-      if (status.canBurn) {
-        setBurnPrompt({ timerId: active.id, sourceRect });
-        return;
-      }
       playSound('blockedTimer');
       router.push('/premium');
       return;
@@ -460,24 +445,6 @@ export default function Home() {
     setPrimerLaunch(null);
     if (result !== 'dismissed' && pending) proceedLaunch(pending.sourceRect ?? undefined);
   }, [primerLaunch, proceedLaunch]);
-
-  // Confirmation de "cramer une place" (lib/cooldown.js, burnLaunch) :
-  // consomme la place en trop AVANT de lancer, puis lance directement avec
-  // skipConsume (la place cramée fait déjà office de lancement, la compter
-  // une deuxième fois via registerLaunch la ferait consommer en double).
-  const handleBurnConfirm = useCallback(() => {
-    if (!burnPrompt) return;
-    haptic.medium();
-    registerBurn(burnPrompt.timerId);
-    proceedLaunch(burnPrompt.sourceRect, { skipConsume: true });
-    setBurnPrompt(null);
-  }, [burnPrompt, haptic, registerBurn, proceedLaunch]);
-
-  const handleBurnCancel = useCallback(() => {
-    haptic.selection();
-    setBurnPrompt(null);
-    router.push('/premium');
-  }, [haptic, router]);
 
   const handleMorphComplete = useCallback(() => {
     router.replace({ pathname: '/countdown', params: { timerId: active.id } });
@@ -702,23 +669,6 @@ export default function Home() {
           onDone={handlePrimerDone}
         />
       )}
-
-      {burnPrompt && (() => {
-        const st = getCooldownStatus(burnPrompt.timerId);
-        const timerName = timers.find((t) => t.id === burnPrompt.timerId)?.name ?? '';
-        return (
-          <ConfirmSheet
-            screenH={rootH}
-            title="Cramer une place ?"
-            body={`Tu es à 0 sur ${timerName}. Tu peux lancer une séance de plus maintenant, mais le prochain cycle aura une place en moins (${Math.max(1, st.baseQuota - 1)} au lieu de ${st.baseQuota}).`}
-            confirmLabel="Cramer et lancer"
-            cancelLabel="Voir Premium"
-            destructive={false}
-            onConfirm={handleBurnConfirm}
-            onClose={handleBurnCancel}
-          />
-        );
-      })()}
 
       {/* (T bis) Trophée débloqué — file d'attente : une feuille à la fois,
           la suivante remonte à la fermeture de la précédente. */}

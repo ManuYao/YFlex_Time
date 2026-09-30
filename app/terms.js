@@ -35,7 +35,7 @@ const SECTIONS = [
   {
     heading: '5. Fonctionnalités Pro',
     paragraphs: [
-      "Certains modes (TABATA, MIX) ont un nombre de lancements gratuits limité, suivi d'un délai d'attente. Un accès Pro illimité est prévu, avec un vrai paiement via le Google Play Store à la sortie officielle de l'application.",
+      "Certains modes (TABATA, MIX) ont un nombre de lancements gratuits limité par semaine (4 pour TABATA, 3 pour MIX), qui revient chaque lundi. Un accès Pro illimité est prévu, avec un vrai paiement via le Google Play Store à la sortie officielle de l'application.",
     ],
   },
   {
