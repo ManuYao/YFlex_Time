@@ -314,7 +314,7 @@ function ShareContent({ mix, close, scrollToEnd, onImported, goLogin, openFeed }
   const handleCopy = async () => {
     if (!hasBlocks) return;
     const link = Linking.createURL('import-mix', { queryParams: { m: serializeMix(mix) } });
-    if (!copyToClipboard(link)) {
+    if (!(await copyToClipboard(link))) {
       haptic.error();
       return;
     }
