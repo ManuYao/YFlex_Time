@@ -28,6 +28,8 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState(null);
+  // Champs à entourer en rouge : { email, password, name }.
+  const [bad, setBad] = useState({});
   const [info, setInfo] = useState(null);
   const [busy, setBusy] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
@@ -43,18 +45,32 @@ export default function Login() {
     if (next === mode) return;
     haptic.selection();
     setMode(next);
+    setBad({});
     setError(null);
     setInfo(null);
   };
 
+  // Renvoie le premier message d'erreur ; entoure en rouge TOUS les champs à corriger.
   const validate = () => {
-    if (!EMAIL_RE.test(email.trim())) return 'Adresse email invalide.';
-    if (password.length < 6) return '6 caractères minimum pour le mot de passe.';
+    const flags = {};
+    let message = null;
     if (mode === 'signup' && name.trim()) {
       const check = validatePseudo(name);
-      if (!check.ok) return check.reason;
+      if (!check.ok) {
+        flags.name = true;
+        message = check.reason;
+      }
     }
-    return null;
+    if (!EMAIL_RE.test(email.trim())) {
+      flags.email = true;
+      message = 'Adresse email invalide.';
+    }
+    if (password.length < 6) {
+      flags.password = true;
+      message = email.trim() && flags.email ? message : '6 caractères minimum pour le mot de passe.';
+    }
+    setBad(flags);
+    return message;
   };
 
   const handleSubmit = async () => {
@@ -66,6 +82,7 @@ export default function Login() {
       return;
     }
     setError(null);
+    setBad({});
     setInfo(null);
     setBusy(true);
     try {
@@ -89,6 +106,8 @@ export default function Login() {
     } catch (e) {
       haptic.warning();
       setError(e?.message || 'Une erreur est survenue.');
+      // Identifiants refusés : on ne sait pas lequel est faux, on entoure les deux.
+      if (mode === 'signin') setBad({ email: true, password: true });
     } finally {
       setBusy(false);
     }
@@ -151,38 +170,47 @@ export default function Login() {
                 {mode === 'signup' && (
                   <TextInput
                     value={name}
-                    onChangeText={setName}
+                    onChangeText={(v) => {
+                      setName(v);
+                      if (bad.name) setBad((b) => ({ ...b, name: false }));
+                    }}
                     onFocus={() => setTimeout(() => scrollToFocusedInput(scrollRef, contentRef), 60)}
                     placeholder="Ton nom ou pseudo (facultatif)"
                     placeholderTextColor="rgba(255,255,255,0.30)"
                     autoCapitalize="words"
                     autoCorrect={false}
                     maxLength={20}
-                    style={[styles.input, { marginBottom: 10 }]}
+                    style={[styles.input, bad.name && styles.inputBad, { marginBottom: 10 }]}
                     returnKeyType="next"
                   />
                 )}
                 <TextInput
                   value={email}
-                  onChangeText={setEmail}
+                  onChangeText={(v) => {
+                    setEmail(v);
+                    if (bad.email) setBad((b) => ({ ...b, email: false }));
+                  }}
                   onFocus={() => setTimeout(() => scrollToFocusedInput(scrollRef, contentRef), 60)}
                   placeholder="Adresse email"
                   placeholderTextColor="rgba(255,255,255,0.30)"
                   keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
-                  style={styles.input}
+                  style={[styles.input, bad.email && styles.inputBad]}
                   returnKeyType="next"
                 />
                 <TextInput
                   value={password}
-                  onChangeText={setPassword}
+                  onChangeText={(v) => {
+                    setPassword(v);
+                    if (bad.password) setBad((b) => ({ ...b, password: false }));
+                  }}
                   onFocus={() => setTimeout(() => scrollToFocusedInput(scrollRef, contentRef), 60)}
                   placeholder="Mot de passe"
                   placeholderTextColor="rgba(255,255,255,0.30)"
                   secureTextEntry
                   autoCapitalize="none"
-                  style={[styles.input, { marginTop: 10 }]}
+                  style={[styles.input, bad.password && styles.inputBad, { marginTop: 10 }]}
                   returnKeyType="done"
                   onSubmitEditing={handleSubmit}
                 />
@@ -325,6 +353,10 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansSemibold,
     fontSize: 15,
     color: '#FFFFFF',
+  },
+  inputBad: {
+    borderColor: DANGER,
+    borderWidth: 1.5,
   },
   errorText: {
     fontFamily: fonts.sansSemibold,

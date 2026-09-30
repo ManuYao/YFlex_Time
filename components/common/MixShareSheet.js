@@ -173,7 +173,7 @@ function PublishCard({ mix, goLogin }) {
     setFeedback({ ok: true, text: 'Retiré du fil public.' });
   };
 
-  const sub = 'Tout le monde voit ton mix. Il faut un compte pour le tester, l’enregistrer ou le noter.';
+  const sub = 'Tout le monde voit ton mix et peut le tester. Il faut un compte pour l’enregistrer ou le noter.';
 
   if (!isFeedConfigured) {
     return <OptionCard icon="globe" title="Publier dans le fil public" sub="Bientôt disponible." />;
