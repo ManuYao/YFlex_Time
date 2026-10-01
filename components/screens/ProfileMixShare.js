@@ -20,7 +20,7 @@ function NavRow({ icon, title, sub, onPress, children }) {
       <View style={styles.rowBody}>
         <Text style={styles.rowTitle} numberOfLines={1}>{title}</Text>
         <Text style={styles.rowSub} numberOfLines={2}>{sub}</Text>
-        <View style={styles.preview}>{children}</View>
+        {children ? <View style={styles.preview}>{children}</View> : null}
       </View>
       <AppIcon name="arrow" size={16} color="rgba(255,255,255,0.40)" />
     </PressTap>
@@ -32,7 +32,7 @@ function NavRow({ icon, title, sub, onPress, children }) {
  * facultatif : lire ne demande rien). `refreshKey` change quand la feuille du
  * fil se referme, pour que le compte et la bande de couleurs suivent.
  */
-export default function ProfileMixShare({ onOpenPublic, refreshKey = 0 }) {
+export default function ProfileMixShare({ onOpenPublic, onOpenHub, refreshKey = 0 }) {
   const [state, setState] = useState({ status: 'loading', items: [] });
 
   useEffect(() => {
@@ -65,6 +65,18 @@ export default function ProfileMixShare({ onOpenPublic, refreshKey = 0 }) {
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>MIX</Text>
       <View style={styles.card}>
+        {/* Fil conducteur (v16.2.0) : la page centrale du MIX, à un tap d'ici. */}
+        {onOpenHub && (
+          <>
+            <NavRow
+              icon="mix"
+              title="Mix et Partage"
+              sub="Crée, lance, reçois et envoie tes mix."
+              onPress={onOpenHub}
+            />
+            <View style={styles.divider} />
+          </>
+        )}
         <NavRow
           icon="share"
           title="Fil public"
@@ -98,6 +110,10 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.10)',
     borderRadius: 18,
     overflow: 'hidden',
+  },
+  divider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.08)',
   },
   row: {
     flexDirection: 'row',

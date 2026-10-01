@@ -3,12 +3,14 @@ import { View, Text, Pressable, TextInput, ScrollView, StyleSheet, Keyboard } fr
 import { Swipeable } from 'react-native-gesture-handler';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, { useAnimatedStyle } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 
 import PressTap from '../common/PressTap';
 import PageDots from '../common/PageDots';
 import Button from '../common/Button';
+import AppIcon from '../common/AppIcon';
+import MixPill from '../common/MixPill';
 import IconButton from '../common/IconButton';
 import BlockSheet from '../common/BlockSheet';
 import ExerciseLibrarySheet from '../common/ExerciseLibrarySheet';
@@ -20,6 +22,8 @@ import { categoryChip } from '../../lib/exercises';
 import { loadHistory } from '../../lib/history';
 import { buildMixFromBlock } from '../../lib/planningMix';
 import { useLongPress } from '../../hooks/useLongPress';
+import { useHoldProgress } from '../../hooks/useHoldProgress';
+import { springEnergetic } from '../../lib/animations';
 import { haptic } from '../../hooks/useHaptic';
 import { useKeyboardHeight, scrollToFocusedInput } from '../../hooks/useKeyboardHeight';
 import { useTimers } from '../../contexts/TimersContext';
@@ -47,7 +51,11 @@ import {
   updateTag,
 } from '../../lib/planning';
 
+// Maintien pour lancer le MIX d'un bloc : 2 s pile (demande utilisateur).
 const LAUNCH_HOLD_MS = 2000;
+// Dérive tolérée du doigt pendant le maintien : l'appui n'est annulé qu'au-delà
+// (défaut RN : 20 dp, trop juste pour deux secondes de doigt posé).
+const HOLD_RETENTION = { top: 36, left: 36, right: 36, bottom: 36 };
 // Couleur MIX (lib/timers-config.js) : la carte d'un bloc "activable" se
 // teinte de cette couleur sans jamais perdre sa base noire (jamais remplacer
 // une couleur, voir CLAUDE.md), même geste que le reste de l'app.
@@ -89,6 +97,14 @@ export default function PlanningPage({
   // rejoue à chaque retour) ne doit pas rouvrir la fiche dans le dos de
   // l'utilisateur qui vient de la fermer.
   const focusConsumed = useRef(false);
+  // Exercice qu'on vient de choisir dans la bibliothèque : sa fiche habituelle
+  // (charge, séries, repos) s'ouvre juste après la fermeture de la feuille. Elle
+  // n'impose RIEN : on règle ce qu'on veut, ou on ferme (retour utilisateur du
+  // 01/10/2026 : la version obligatoire allait trop loin). Une promesse plutôt
+  // qu'une valeur : l'ajout écrit dans AsyncStorage pendant que la feuille se
+  // ferme, la fermeture doit attendre son résultat pour savoir quelle étiquette
+  // ouvrir.
+  const pendingDetailRef = useRef(null);
 
   // Clavier et note du jour. L'app est bord à bord : Android ne réduit plus
   // la fenêtre, le clavier passe par-dessus la page (barre du bas comprise).
@@ -161,6 +177,21 @@ export default function PlanningPage({
     setSheet(null);
     onSheetChange?.(false);
   };
+  // Fermeture de la bibliothèque : si un exercice vient d'être choisi, on
+  // enchaîne sur sa fiche au lieu de revenir au planning. Les
+  // feuilles ne se superposent jamais : la fiche remplace la bibliothèque
+  // (onSheetChange reste à vrai, le pager de l'historique reste bloqué).
+  const closeLibrarySheet = async () => {
+    const pending = pendingDetailRef.current;
+    pendingDetailRef.current = null;
+    if (!pending) {
+      closeSheet();
+      return;
+    }
+    const detail = await pending;
+    if (detail) openSheet(detail);
+    else closeSheet();
+  };
 
   const day = getDay(dayKey);
   const dayState = planning[dayKey] ?? { blocks: [], archivedAt: null };
@@ -193,8 +224,10 @@ export default function PlanningPage({
 
   return (
     <View style={[styles.page, { width, height }]}>
+      {/* Fil conducteur : un bloc du planning devient un MIX, et le MIX reste à
+          un tap depuis cette page (components/common/MixPill.js). */}
       <View style={styles.statusBar}>
-        <Text style={styles.statusText}>PLANIFICATION</Text>
+        <MixPill />
       </View>
 
       <View style={styles.topBar}>
@@ -400,14 +433,22 @@ export default function PlanningPage({
         <ExerciseLibrarySheet
           screenH={screenH}
           blockName={findBlock(sheet.blockId)?.name}
-          onClose={closeSheet}
-          onPick={async (exercise) => {
-            setPlanning(await addTag(planning, dayKey, sheet.blockId, exercise));
+          onClose={closeLibrarySheet}
+          onPick={(exercise) => {
+            const blockId = sheet.blockId;
+            pendingDetailRef.current = (async () => {
+              const next = await addTag(planning, dayKey, blockId, exercise);
+              setPlanning(next);
+              const block = (next[dayKey]?.blocks || []).find((b) => b.id === blockId);
+              const created = block?.tags?.[block.tags.length - 1];
+              return created ? { type: 'detail', blockId, tagId: created.id } : null;
+            })();
           }}
         />
       )}
 
-      {sheet?.type === 'detail' && screenH > 0 && (
+      {sheet?.type === 'detail' && screenH > 0 &&
+        !!findBlock(sheet.blockId)?.tags.some((t) => t.id === sheet.tagId) && (
         <ExerciseDetailSheet
           screenH={screenH}
           tag={findBlock(sheet.blockId)?.tags.find((t) => t.id === sheet.tagId)}
@@ -444,10 +485,22 @@ function BlockCard({
   // voir isBlockLaunchable() dans lib/planning.js.
   const launchable = !archived && isBlockLaunchable(block);
   const [cardSize, setCardSize] = useState({ width: 0, height: 0 });
-  const { isPressing, progress, start, cancel } = useLongPress(
-    () => onLaunch?.(),
-    LAUNCH_HOLD_MS
-  );
+  // Appui long piloté sur le fil d'interface (hooks/useHoldProgress.js) : la
+  // barre se remplit sans refaire rendre la carte, l'action part à 2 s pile.
+  const hold = useHoldProgress(() => onLaunch?.(), LAUNCH_HOLD_MS);
+  const holdScale = useSharedValue(1);
+  const holdFillStyle = useAnimatedStyle(() => ({ width: `${hold.progress.value * 100}%` }));
+  const holdScaleStyle = useAnimatedStyle(() => ({ transform: [{ scale: holdScale.value }] }));
+  // Toute la carte écoute le maintien, étiquettes comprises : elles en
+  // couvrent presque toute la surface, c'est là que le doigt se pose.
+  const startHold = useCallback(() => {
+    holdScale.value = withTiming(0.985, { duration: 140 });
+    hold.start();
+  }, [hold.start]);
+  const endHold = useCallback(() => {
+    holdScale.value = withSpring(1, springEnergetic);
+    hold.cancel();
+  }, [hold.cancel]);
 
   const card = (
     <View
@@ -503,9 +556,15 @@ function BlockCard({
               key={tag.id}
               onPress={() => {
                 if (archived) return;
+                // Le maintien a abouti : le relâchement du doigt ne doit pas
+                // en plus ouvrir la fiche de l'étiquette.
+                if (hold.wasFired()) return;
                 haptic.light();
                 onOpenTag(tag.id);
               }}
+              onPressStart={launchable ? startHold : undefined}
+              onPressEnd={launchable ? endHold : undefined}
+              pressRetentionOffset={launchable ? HOLD_RETENTION : undefined}
               disabled={archived}
               tapScale={0.95}
               style={[styles.tag, { backgroundColor: chip.bg, borderColor: chip.border }]}
@@ -521,9 +580,13 @@ function BlockCard({
         {!archived && (
           <PressTap
             onPress={() => {
+              if (hold.wasFired()) return;
               haptic.light();
               onAddTag();
             }}
+            onPressStart={launchable ? startHold : undefined}
+            onPressEnd={launchable ? endHold : undefined}
+            pressRetentionOffset={launchable ? HOLD_RETENTION : undefined}
             tapScale={0.95}
             style={styles.tagAdd}
           >
@@ -531,6 +594,15 @@ function BlockCard({
           </PressTap>
         )}
       </View>
+
+      {launchable && (
+        <View style={styles.launchHintRow} pointerEvents="none">
+          <AppIcon name="mix" size={13} color={MIX_COLOR} />
+          <Text style={styles.launchHint}>
+            MAINTIENS {LAUNCH_HOLD_MS / 1000} S POUR LANCER EN MIX
+          </Text>
+        </View>
+      )}
     </View>
   );
 
@@ -543,18 +615,18 @@ function BlockCard({
   // suppression du bloc reste possible via ⋮ → BlockSheet → Supprimer.
   if (launchable) {
     return (
-      <Pressable
-        onPressIn={start}
-        onPressOut={cancel}
-        onLayout={(e) => setCardSize(e.nativeEvent.layout)}
-        style={styles.launchWrap}
-      >
-        {card}
-        <ShineSweep width={cardSize.width} height={cardSize.height} />
-        {isPressing && (
-          <View pointerEvents="none" style={[styles.launchFill, { width: `${progress * 100}%` }]} />
-        )}
-      </Pressable>
+      <Animated.View style={[styles.launchWrap, holdScaleStyle]}>
+        <Pressable
+          onPressIn={startHold}
+          onPressOut={endHold}
+          pressRetentionOffset={HOLD_RETENTION}
+          onLayout={(e) => setCardSize(e.nativeEvent.layout)}
+        >
+          {card}
+          <ShineSweep width={cardSize.width} height={cardSize.height} />
+          <Animated.View pointerEvents="none" style={[styles.launchFill, holdFillStyle]} />
+        </Pressable>
+      </Animated.View>
     );
   }
 
@@ -871,6 +943,18 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     backgroundColor: `${MIX_COLOR}59`,
+  },
+  launchHintRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 10,
+  },
+  launchHint: {
+    fontFamily: fonts.monoBold,
+    fontSize: 9.5,
+    letterSpacing: 1,
+    color: `${MIX_COLOR}CC`,
   },
   deleteAction: {
     width: 96,

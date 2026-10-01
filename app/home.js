@@ -46,7 +46,7 @@ import PermissionPrimer from '../components/common/PermissionPrimer';
 import { shouldShowPermissionPrimer } from '../lib/permissionPrimer';
 import { pendingBadges, markBadgeSeen } from '../lib/badgeCelebration';
 import { loadHistory, countSessionsByTimer } from '../lib/history';
-import { getTimerHero, getTimerDescription } from '../lib/timers-config';
+import { getTimerHero, getTimerDescription, getTimerPhases } from '../lib/timers-config';
 import { loadArchives, loadPlanning } from '../lib/planning';
 import {
   findProgressionSuggestion,
@@ -67,7 +67,7 @@ import { getTimeRange } from '../lib/timeRanges';
 import { getTokens } from '../lib/tokens';
 import { fonts } from '../lib/fonts';
 import { BOTTOM_GAP, BUTTON_HEIGHT, INK_TEXT, accentTextOn, buttonRecipe } from '../lib/buttonTokens';
-import { useUiScale, scaled, useLayoutLevel } from '../lib/responsive';
+import { useUiScale, scaled, useLayoutLevel, useWindowSize } from '../lib/responsive';
 import { useTimers } from '../contexts/TimersContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useHaptic } from '../hooks/useHaptic';
@@ -148,7 +148,7 @@ export default function Home() {
   const { timers, updateStat, hydrated } = useTimers();
   const { settings } = useSettings();
   const { heatMap, statsMap } = useTimerHeat();
-  const { getStatus: getCooldownStatusRaw, registerLaunch } = useCooldown();
+  const { getStatus: getCooldownStatusRaw } = useCooldown();
   const { isPremium } = usePremium();
   // Premium débloque tout, sans jamais toucher au calcul de quota/lockout
   // lui-même (lib/cooldown.js reste ignorant de Premium) — le bypass se fait
@@ -393,7 +393,8 @@ export default function Home() {
     // qui compte comme "utilisation", pas la complétion. Si Premium, on ne
     // touche même pas au compteur : pas de rattrapage surprise si l'usager
     // désactive Premium plus tard (mode test).
-    if (!isPremium) registerLaunch(active.id);
+    // Le quota n'est PAS consommé ici mais au GO (app/countdown.js) : un retour
+    // pendant le 3-2-1 ne doit rien coûter, et Home est démonté par le replace.
     // sourceRect : fourni quand le lancement vient d'un autre bouton que le
     // CTA du bas (ex. le panneau stats/badges) — évite que le morph parte
     // toujours du bouton de la BottomBar alors que l'utilisateur a tapé
@@ -410,7 +411,7 @@ export default function Home() {
       setCtaRect({ x, y, width, height });
       setIsLaunching(true);
     });
-  }, [active, haptic, registerLaunch, isPremium]);
+  }, [active, haptic]);
 
   const handleLaunch = useCallback((sourceRect) => {
     // Éditer un mix vide n'est pas un "lancement" — toujours autorisé même
@@ -560,7 +561,7 @@ export default function Home() {
             tokens={t}
             tone={active.textMode}
             onProfile={() => router.push('/profile')}
-            onHistory={() => router.push('/history')}
+            onHub={() => router.push('/hub')}
             onTapHaptic={haptic.light}
             isLaunching={hideChrome}
           />
@@ -877,7 +878,10 @@ function Ember({ id, xPct, yPct, size, drift, duration, delay, peakOpacity, colo
 /* ─────────────────────────────────────────────────────────────────
    (B+C) Top bar — status + tag central + boutons ronds
    ────────────────────────────────────────────────────────────────*/
-function TopBar({ tag, tokens, tone, onProfile, onHistory, onTapHaptic, isLaunching }) {
+function TopBar({ tag, tokens, tone, onProfile, onHub, onTapHaptic, isLaunching }) {
+  // (V) Fenêtre réduite : la ligne « FLEX TIMER » n'apporte rien, elle prend
+  // ~22 dp qui reviennent au bouton Lancer (voir lib/responsive.js).
+  const isReducedWindow = useLayoutLevel() !== 'full';
   const dotPulse = useSharedValue(0.4);
   useEffect(() => {
     dotPulse.value = withRepeat(
@@ -897,29 +901,32 @@ function TopBar({ tag, tokens, tone, onProfile, onHistory, onTapHaptic, isLaunch
   return (
     <>
       {/* (B) Status bar */}
-      <Animated.View
-        entering={slideInY(-20, D.slow, 0)}
-        style={styles.statusBar}
-      >
-        <View style={styles.statusRight}>
-          <Animated.View
-            style={[styles.statusDot, { backgroundColor: tokens.secondary }, dotStyle]}
-          />
-          <Text style={[styles.statusText, { color: tokens.tertiary }]}>FLEX TIMER</Text>
-        </View>
-      </Animated.View>
+      {!isReducedWindow && (
+        <Animated.View
+          entering={slideInY(-20, D.slow, 0)}
+          style={styles.statusBar}
+        >
+          <View style={styles.statusRight}>
+            <Animated.View
+              style={[styles.statusDot, { backgroundColor: tokens.secondary }, dotStyle]}
+            />
+            <Text style={[styles.statusText, { color: tokens.tertiary }]}>FLEX TIMER</Text>
+          </View>
+        </Animated.View>
+      )}
 
       {/* (C) Top bar avec tag central animé */}
       <Animated.View
         entering={slideInY(-30, D.slow, 100)}
         style={styles.topBar}
       >
+        {/* Menu global (v16.2.0) : historique, planning, Mix et Partage. */}
         <IconButton
-          icon="clock"
+          icon="hub"
           tone={tone}
-          onPress={onHistory}
+          onPress={onHub}
           haptic={onTapHaptic}
-          accessibilityLabel="Historique"
+          accessibilityLabel="Menu"
         />
 
         <Animated.Text
@@ -951,6 +958,7 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
   const t = getTokens(timer.textMode);
   const hero = getTimerHero(timer);
   const description = getTimerDescription(timer);
+  const phases = getTimerPhases(timer);
   // ui vaut 1 sur un telephone normal : les tailles ci-dessous restent celles
   // du design. Ne se reduit qu'en fenetre flottante (voir lib/responsive.js).
   const ui = useUiScale();
@@ -980,6 +988,9 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
   const statsCompact =
     isMini ||
     (timer.stats.length > 0 && statsUsableWidth / timer.stats.length < MIN_STAT_CHIP_W);
+  // AMRAP n'a plus qu'une case (la durée) : centrée, pas étirée sur toute la
+  // largeur comme une des trois cases des autres modes.
+  const isSingleStat = timer.stats.length === 1;
 
   const content = (
     <>
@@ -987,7 +998,7 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
           ligne : sans ça la hauteur qui manque la coupait en plein mot
           ("EN 1 MINUTE" tronqué à "MINU"), sans ellipse ni moyen de lire
           la suite. */}
-      {isActive ? (
+      {isMini ? null : isActive ? (
         <Animated.Text
           key={`full-${timer.id}`}
           entering={slideInY(10, D.big, 100)}
@@ -1164,13 +1175,24 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
 
       {/* (U) Cooldown — pips = usages du jour restants + aperçu du verrou,
           ou bandeau "Premium requis" une fois verrouillé */}
-      <CooldownPips cooldown={cooldown} t={t} tone={timer.textMode} onGoPremium={onGoPremium} />
+      <CooldownPips
+        cooldown={cooldown}
+        t={t}
+        tone={timer.textMode}
+        onGoPremium={onGoPremium}
+        hideLockedHint={isMini}
+      />
 
-      {/* (K) Stats chips avec stagger */}
+      {/* (K) Stats chips avec stagger. En mini (fenêtre minuscule) : retirées —
+          le nom et la valeur sont déjà dans la ligne du haut, et chaque ligne
+          gagnée ici garde le bouton Lancer visible. Elles reviennent dès que
+          la fenêtre grandit. */}
+      {!isMini && (
       <View
         style={[
           statsCompact ? styles.statsRowCompact : styles.statsRow,
           isReduced && styles.statsRowReduced,
+          isSingleStat && !statsCompact && styles.statsRowSingle,
         ]}
       >
         {timer.stats.map((stat, k) => {
@@ -1189,7 +1211,13 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
                 key={`stat-${timer.id}-${stat.key}`}
                 entering={popIn(0.9, D.big, 400 + k * 80)}
                 exiting={slideOutY(-12, D.base)}
-                style={statsCompact ? styles.statWrapCompact : { flex: 1 }}
+                style={
+                  statsCompact
+                    ? styles.statWrapCompact
+                    : isSingleStat
+                      ? styles.statWrapSingle
+                      : { flex: 1 }
+                }
               >
                 <PressTap
                   disabled={!onPress}
@@ -1209,7 +1237,11 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
               style={[
                 chipStyle,
                 { backgroundColor: t.chipBg, borderColor: t.chipBorder },
-                statsCompact ? styles.statWrapCompact : { flex: 1 },
+                statsCompact
+                  ? styles.statWrapCompact
+                  : isSingleStat
+                    ? styles.statWrapSingle
+                    : { flex: 1 },
               ]}
             >
               <StatChipContent stat={stat} t={t} editable={editable || isMix} compact={statsCompact} />
@@ -1217,6 +1249,7 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
           );
         })}
       </View>
+      )}
 
       {/* (L) Phases — purement informatif : premier bloc sacrifié en mise en
           page réduite, c'est lui qui poussait les réglages hors de l'écran. */}
@@ -1231,7 +1264,7 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
             Déroulé
           </Animated.Text>
           <View style={styles.phasesRow}>
-            {timer.phases.map((phase, k) => (
+            {phases.map((phase, k) => (
               <Animated.View
                 key={`phase-${timer.id}-${k}`}
                 entering={slideInX(-20, D.big, 650 + k * 60)}
@@ -1253,7 +1286,7 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
         <>
           <Text style={[styles.phasesLabel, { color: t.muted }]}>Déroulé</Text>
           <View style={styles.phasesRow}>
-            {timer.phases.map((phase, k) => (
+            {phases.map((phase, k) => (
               <View
                 key={k}
                 style={[
@@ -1279,7 +1312,12 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
     return (
       <ScrollView
         style={{ width: cardWidth }}
-        contentContainerStyle={[styles.card, styles.cardReduced, styles.cardScroll]}
+        contentContainerStyle={[
+          styles.card,
+          styles.cardReduced,
+          styles.cardScroll,
+          isMini && styles.cardMini,
+        ]}
       >
         {content}
       </ScrollView>
@@ -1295,10 +1333,14 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
    rangée de pastilles qui se remplissent, plus un cadenas simple une fois
    verrouillé (déjà affiché sur le cadran par lockOverlay).
    ────────────────────────────────────────────────────────────────*/
-function CooldownPips({ cooldown, t, tone, onGoPremium }) {
+function CooldownPips({ cooldown, t, tone, onGoPremium, hideLockedHint = false }) {
   if (!cooldown?.limited) return null;
 
   if (cooldown.isLocked) {
+    // En mini le cadenas de la ligne du haut et le bouton Lancer en verre
+    // disent déjà « verrouillé » : la pastille Premium serait de la hauteur
+    // prise au bouton Lancer.
+    if (hideLockedHint) return null;
     return (
       <Button
         variant="glass"
@@ -1497,6 +1539,10 @@ function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onOp
   const level = useLayoutLevel();
   const isMini = level === 'mini';
   const isReduced = isMini || level === 'compact';
+  // Fenêtre minuscule (< 380 dp de haut) : même les points de pagination
+  // partent, il ne reste que le bouton Lancer — il doit TOUJOURS être visible.
+  const { height: windowH } = useWindowSize();
+  const isTiny = windowH < 380;
   // Verrouillé (cooldown / Premium) : du verre au lieu de la couleur du mode,
   // avec la couronne — il reste appuyable (il ouvre Premium ou le cramage).
   const ctaVariant = isLocked ? 'glass' : 'accent';
@@ -1540,17 +1586,19 @@ function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onOp
           l'écran (IndicatorDot). Le saut direct par simple tap a été retiré
           (demande utilisateur, v14.15.0) : glisser le carrousel reste le
           moyen le plus rapide pour qui connaît déjà les formats. */}
-      <View style={[styles.indicatorRow, isReduced && styles.indicatorRowReduced]}>
-        {timers.map((timer, i) => (
-          <IndicatorDot
-            key={timer.id}
-            timer={timer}
-            isActive={i === activeIndex}
-            tokens={tokens}
-            onPress={onOpenModePicker}
-          />
-        ))}
-      </View>
+      {!isTiny && (
+        <View style={[styles.indicatorRow, isReduced && styles.indicatorRowReduced]}>
+          {timers.map((timer, i) => (
+            <IndicatorDot
+              key={timer.id}
+              timer={timer}
+              isActive={i === activeIndex}
+              tokens={tokens}
+              onPress={onOpenModePicker}
+            />
+          ))}
+        </View>
+      )}
 
       {/* (O) CTA Lancer — capsule de lib/buttonTokens.js (couleur du mode en
           dégradé, liseré, lueur à sa couleur, reflet qui le traverse).
@@ -2194,6 +2242,12 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 24,
   },
+  statsRowSingle: {
+    justifyContent: 'center',
+  },
+  statWrapSingle: {
+    width: 150,
+  },
   statChip: {
     paddingVertical: 10,
     paddingHorizontal: 8,
@@ -2236,11 +2290,15 @@ const styles = StyleSheet.create({
     maxWidth: 320,
     marginBottom: 14,
   },
+  // flexWrap : dans une fenêtre très étroite, nom + valeur + unité ne tiennent
+  // plus sur une ligne — ils passent à la ligne au lieu de sortir de l'écran.
   miniHeroRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
+    columnGap: 10,
+    rowGap: 2,
   },
   miniTimerName: {
     fontFamily: fonts.sansBold,
@@ -2280,6 +2338,11 @@ const styles = StyleSheet.create({
   },
   cardReduced: {
     paddingTop: 6,
+  },
+  // Mini : il ne reste que le nom, la valeur et (verrouillé) le cadenas —
+  // centrés dans la hauteur dispo plutôt que collés en haut.
+  cardMini: {
+    justifyContent: 'center',
   },
   // contentContainerStyle du ScrollView : flexGrow (pas flex) pour que le
   // contenu court reste en haut au lieu d'être étiré, et que le contenu

@@ -8,12 +8,13 @@ import TickRing from '../components/common/TickRing';
 import Button from '../components/common/Button';
 import IconButton from '../components/common/IconButton';
 import { loadHistory } from '../lib/history';
+import { sessionWorkSeconds } from '../lib/profileStats';
 import { formatDuration } from '../lib/formatters';
 import { fonts } from '../lib/fonts';
 import { BOTTOM_GAP, PAIR_GAP, ROUND_SIZE, SIDE_GAP } from '../lib/buttonTokens';
 import { useUiScale, scaled } from '../lib/responsive';
 import { haptic } from '../hooks/useHaptic';
-import { loadCooldownMap, saveCooldownMap, getCooldownStatus, consumeLaunch } from '../lib/cooldown';
+import { loadCooldownMap, getCooldownStatus } from '../lib/cooldown';
 import { loadIsPremium } from '../lib/premium';
 
 export default function SessionDetail() {
@@ -38,7 +39,6 @@ export default function SessionDetail() {
         router.replace('/premium');
         return;
       }
-      await saveCooldownMap(consumeLaunch(map, session.timerId));
     }
     haptic.medium();
     router.replace({ pathname: '/countdown', params: { timerId: session.timerId } });
@@ -67,7 +67,8 @@ export default function SessionDetail() {
 
   const dateLabel = formatDateLabel(new Date(session.date));
   const restValue = session.restTotal > 0 ? formatDuration(session.restTotal) : '—';
-  const workValue = formatDuration(session.workTotal || 0);
+  // Même règle que le temps sous tension du Profil (lib/profileStats.js).
+  const workValue = formatDuration(sessionWorkSeconds(session));
   const roundsLabel =
     session.totalRounds && session.completedRounds != null
       ? `${session.completedRounds}/${session.totalRounds}`

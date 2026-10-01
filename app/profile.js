@@ -6,6 +6,7 @@ import { BlurTargetView } from 'expo-blur';
 
 import GradientBackground from '../components/common/GradientBackground';
 import IconButton from '../components/common/IconButton';
+import MixPill from '../components/common/MixPill';
 import ModeStatsSheet from '../components/common/ModeStatsSheet';
 import DisciplineSheet from '../components/common/DisciplineSheet';
 import MixPublicSheet from '../components/common/MixPublicSheet';
@@ -140,8 +141,9 @@ export default function Profile() {
       <BlurTargetView ref={blurTargetRef} style={StyleSheet.absoluteFill}>
         <GradientBackground colors={['#1A1A1A', '#0A0A0A', '#000000']} ambient>
           <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+            {/* Fil conducteur : le MIX reste à un tap (MixPill). */}
             <View style={styles.statusBar}>
-              <Text style={styles.statusText}>PROFIL</Text>
+              <MixPill />
             </View>
 
             <View style={styles.topBar}>
@@ -177,10 +179,14 @@ export default function Profile() {
                 onEditPseudo={() => setPseudoSheet('edit')}
                 accountConnected={!!user}
                 onAccountPress={() => setLogoutConfirm(true)}
+                accountSlot={<ProfileAccount />}
               />
-              <ProfileAccount />
               <ProfileAnalytics stats={stats} isPremium={isPremium} onGoPremium={() => router.push('/premium')} />
-              <ProfileMixShare onOpenPublic={() => setPublicMixSheet(true)} refreshKey={feedRefresh} />
+              <ProfileMixShare
+                onOpenPublic={() => setPublicMixSheet(true)}
+                onOpenHub={() => router.push('/mix-hub')}
+                refreshKey={feedRefresh}
+              />
               <ProfileGamification
                 badgeCounts={stats.badgeCounts}
                 hasSession={!!stats.lastSession}

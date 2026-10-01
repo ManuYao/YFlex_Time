@@ -18,6 +18,12 @@ import { springEnergetic } from '../../lib/animations';
  * - onHapticIn : callback haptic optionnel déclenché au pressIn
  * - containerStyle : style de la zone d'appui elle-même (flex, alignSelf,
  *   marges) — `style` ne touche que la vue animée à l'intérieur
+ * - onPressStart / onPressEnd : callbacks au toucher / au relâchement (ou à
+ *   la perte du geste), pour qu'un parent suive l'appui sans le recréer — par
+ *   ex. la carte du Planning qui se remplit pendant qu'on maintient le doigt
+ *   sur une de ses étiquettes
+ * - pressRetentionOffset : marge (dp) dont le doigt peut dériver hors de la
+ *   zone sans que l'appui soit annulé (défaut RN : 20)
  * - pressValue : SharedValue optionnelle, menée de 0 à 1 pendant l'appui — permet
  *   au parent d'animer d'autres couches (voile, lueur) sur le même geste, sans
  *   seconde mécanique d'appui (voir components/common/Button.js)
@@ -35,6 +41,9 @@ export default function PressTap({
   accessibilityLabel,
   pressValue,
   containerStyle,
+  onPressStart,
+  onPressEnd,
+  pressRetentionOffset,
 }) {
   const scale = useSharedValue(1);
 
@@ -48,15 +57,18 @@ export default function PressTap({
         scale.value = withSpring(tapScale, springEnergetic);
         if (pressValue) pressValue.value = withTiming(1, { duration: 90 });
         onHapticIn?.();
+        onPressStart?.();
       }}
       onPressOut={() => {
         scale.value = withSpring(1, springEnergetic);
         if (pressValue) pressValue.value = withTiming(0, { duration: 260 });
+        onPressEnd?.();
       }}
       onPress={onPress}
       onLongPress={onLongPress}
       disabled={disabled}
       hitSlop={hitSlop}
+      pressRetentionOffset={pressRetentionOffset}
       accessibilityLabel={accessibilityLabel}
       style={containerStyle}
     >

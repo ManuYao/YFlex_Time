@@ -36,7 +36,7 @@ import { fonts } from '../lib/fonts';
 import { formatDuration } from '../lib/formatters';
 import { restGradient } from '../lib/phase-colors';
 import { useTimer } from '../hooks/useTimer';
-import { useUiScale, scaled, useLayoutLevel } from '../lib/responsive';
+import { useUiScale, scaled, useLayoutLevel, useWindowSize } from '../lib/responsive';
 import { useHaptic } from '../hooks/useHaptic';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { useSound } from '../hooks/useSound';
@@ -249,7 +249,13 @@ export default function Running() {
     );
     router.replace({
       pathname: '/end-session',
-      params: { timerId: timer.id, elapsed: done },
+      params: {
+        timerId: timer.id,
+        elapsed: done,
+        // EMOM : « FINI » = le dernier tour est fait. end-session compte alors
+        // le tour entier et tout le temps jusqu'à l'appui (temps sous tension).
+        ...(timer.id === 'emom' ? { ctx: JSON.stringify({ finished: true }) } : {}),
+      },
     });
   };
 
@@ -818,6 +824,9 @@ function PhaseChip({ index, isCurrent, bg, border, color, label, tokens }) {
   );
 }
 
+// Largeur naturelle de la rangée des commandes : 64 + 28 + 92 + 28 + 64.
+const CONTROLS_NATURAL_W = 276;
+
 function BottomControls({
   tokens,
   tone,
@@ -838,18 +847,29 @@ function BottomControls({
   // effort, parfois en sueur) : seule la marge autour se resserre.
   const level = useLayoutLevel();
   const isReduced = level === 'mini' || level === 'compact';
+  // (V) Fenêtre ÉTROITE : la rangée fait 276 dp (64 + 28 + 92 + 28 + 64) et
+  // reste centrée, donc dans une fenêtre plus étroite Reset et Skip sortaient
+  // de chaque côté — le chrono devenait inutilisable (retour d'un bêta-testeur
+  // Samsung, fenêtre flottante réduite de côté). Tout se réduit
+  // proportionnellement pour que la rangée tienne ; k vaut 1 dès que la place
+  // suffit, donc rien ne change sur un téléphone normal.
+  const { width: windowW } = useWindowSize();
+  const k = Math.min(1, Math.max(0.55, (windowW - 24) / CONTROLS_NATURAL_W));
+  const sideSize = Math.round(64 * k);
+  const centerSize = Math.round(92 * k);
+  const rowGap = Math.round(28 * k);
   return (
     <View style={[styles.bottom, isReduced && styles.bottomReduced]}>
-      <View style={styles.bottomRow}>
+      <View style={[styles.bottomRow, { gap: rowGap }]}>
         <LongPressButton
           label="Reset"
-          size={64}
+          size={sideSize}
           tone={tone}
           ringColor={tokens.primary}
           labelColor={tokens.muted}
           onComplete={onReset}
         >
-          <AppIcon name="reset" size={24} color={tokens.primary} />
+          <AppIcon name="reset" size={Math.round(24 * k)} color={tokens.primary} />
         </LongPressButton>
 
         {/* (V) Bouton central — porcelaine (recette 'solid' de
@@ -858,31 +878,47 @@ function BottomControls({
             diffuse qui respire à la couleur du mode tant que la séance
             tourne, et s'éteint en pause : la lueur qui s'arrête EST
             l'information. */}
-        <View style={styles.centralWrap}>
-          <PulseGlow color={timerColor || tokens.ctaBg} size={92} active={!isPaused} />
+        <View style={[styles.centralWrap, { width: centerSize, height: centerSize }]}>
+          <PulseGlow color={timerColor || tokens.ctaBg} size={centerSize} active={!isPaused} />
           {showEndWork ? (
             <IconButton
-              size={92}
+              size={centerSize}
               variant="solid"
               tone={tone}
               flat
               onPress={onEndWork}
               accessibilityLabel={endWorkLabel}
               icon={
-                <Text style={[styles.centralLabel, { color: tokens.ctaText }]} numberOfLines={1}>
+                <Text
+                  style={[
+                    styles.centralLabel,
+                    {
+                      color: tokens.ctaText,
+                      fontSize: Math.round(24 * k),
+                      lineHeight: Math.round(29 * k),
+                    },
+                  ]}
+                  numberOfLines={1}
+                >
                   {endWorkLabel}
                 </Text>
               }
             />
           ) : (
             <IconButton
-              size={92}
+              size={centerSize}
               variant="solid"
               tone={tone}
               flat
               onPress={onPauseToggle}
               accessibilityLabel={isPaused ? 'Reprendre' : 'Pause'}
-              icon={<AppIcon name={isPaused ? 'play' : 'pause'} size={30} color={tokens.ctaText} />}
+              icon={
+                <AppIcon
+                  name={isPaused ? 'play' : 'pause'}
+                  size={Math.round(30 * k)}
+                  color={tokens.ctaText}
+                />
+              }
             />
           )}
         </View>
@@ -893,28 +929,28 @@ function BottomControls({
           // autres boutons destructeurs — terminer par erreur coûte la séance.
           <LongPressButton
             label="Fin"
-            size={64}
+            size={sideSize}
             duration={1000}
             tone={tone}
             ringColor={tokens.primary}
             labelColor={tokens.muted}
             onComplete={onFinish}
           >
-            <AppIcon name="finish" size={18} color={tokens.primary} />
+            <AppIcon name="finish" size={Math.round(18 * k)} color={tokens.primary} />
           </LongPressButton>
         ) : hideSkip ? (
-          <View style={{ width: 64, height: 64 }} />
+          <View style={{ width: sideSize, height: sideSize }} />
         ) : (
           <LongPressButton
             label={skipLabel}
-            size={64}
+            size={sideSize}
             duration={1000}
             tone={tone}
             ringColor={tokens.primary}
             labelColor={tokens.muted}
             onComplete={onSkip}
           >
-            <AppIcon name="skip" size={24} color={tokens.primary} />
+            <AppIcon name="skip" size={Math.round(24 * k)} color={tokens.primary} />
           </LongPressButton>
         )}
       </View>

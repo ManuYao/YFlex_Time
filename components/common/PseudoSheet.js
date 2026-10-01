@@ -48,7 +48,9 @@ export default function PseudoSheet({ screenH, initialValue = '', welcome = fals
             selectionColor="#FFFFFF"
             autoCapitalize="words"
             autoCorrect={false}
-            maxLength={PSEUDO_MAX}
+            // Marge pour les emojis (2 unités UTF-16 chacun) : la limite de
+            // 20 CARACTÈRES est vérifiée par validatePseudo.
+            maxLength={PSEUDO_MAX * 2}
             style={styles.input}
             returnKeyType="done"
             onSubmitEditing={() => submit(close)}

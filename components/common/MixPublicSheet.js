@@ -8,6 +8,7 @@ import IconButton from './IconButton';
 import MiniToast from './MiniToast';
 import PressTap from './PressTap';
 import AppIcon from './AppIcon';
+import MixCommentsView from './MixCommentsView';
 import StarRating, { STAR_ON } from './StarRating';
 import { haptic } from '../../hooks/useHaptic';
 import { useAuth } from '../../contexts/AuthContext';
@@ -16,8 +17,17 @@ import { fonts } from '../../lib/fonts';
 import { ROUND_SIZE } from '../../lib/buttonTokens';
 import { TIMERS } from '../../lib/timers-config';
 import { DISCIPLINES, getDiscipline } from '../../lib/disciplines';
-import { makeDefaultMix } from '../../lib/mixes';
-import { fetchFeed, fetchMyRatings, fetchMyReports, rateMix, reportMix } from '../../lib/publicMixes';
+import { isDefaultMix } from '../../lib/mixes';
+import { fetchCommentCounts } from '../../lib/mixComments';
+import {
+  fetchFeed,
+  fetchMyPublishedMixes,
+  fetchMyRatings,
+  fetchMyReports,
+  rateMix,
+  reportMix,
+  unpublishMix,
+} from '../../lib/publicMixes';
 import {
   FEED_SORTS,
   REPORT_REASONS,
@@ -63,10 +73,6 @@ function initialsOf(author) {
   return (word[0] + (cap ? cap[0] : word[1] ?? '')).toUpperCase();
 }
 
-// Le MIX « Mon WOD » fourni à l'installation : le remplacer ne perd rien.
-const isDefaultMix = (mix) =>
-  JSON.stringify(mix?.blocks) === JSON.stringify(makeDefaultMix().blocks);
-
 function FeedCard({
   item,
   user,
@@ -74,9 +80,16 @@ function FeedCard({
   saved,
   reported,
   reporting,
+  removing,
+  commentCount,
+  onOpenComments,
   onRate,
   onSave,
   onTest,
+  onEdit,
+  onAskRemove,
+  onCancelRemove,
+  onRemove,
   onOpenReport,
   onCancelReport,
   onReport,
@@ -114,11 +127,79 @@ function FeedCard({
         <Text style={styles.metaText}>{formatRating(item.ratingAvg, item.ratingCount)}</Text>
       </View>
 
+      {/* Commentaires : lisibles par tous, ouverts à l'écriture avec un compte
+          (MixCommentsView). Pastille « n commentaires » quand on les connaît. */}
+      <PressTap
+        tapScale={0.97}
+        hitSlop={8}
+        onHapticIn={haptic.light}
+        onPress={onOpenComments}
+        containerStyle={styles.commentsRow}
+        accessibilityLabel="Voir les commentaires"
+      >
+        <AppIcon name="chat" size={13} color="rgba(255,255,255,0.65)" />
+        <Text style={styles.commentsText}>
+          {commentCount > 0
+            ? `${commentCount} commentaire${commentCount > 1 ? 's' : ''}`
+            : 'Commenter'}
+        </Text>
+        <Text style={styles.commentsChevron}>›</Text>
+      </PressTap>
+
       {isOwn ? (
-        <View style={styles.ownPill}>
-          <AppIcon name="user" size={12} color="rgba(255,255,255,0.70)" />
-          <Text style={styles.ownText}>TON MIX</Text>
-        </View>
+        <>
+          <View style={styles.ownPill}>
+            <AppIcon name="user" size={12} color="rgba(255,255,255,0.70)" />
+            <Text style={styles.ownText}>TON MIX</Text>
+          </View>
+          {/* L'auteur n'est plus bloqué (v16.3.0) : il peut corriger son mix
+              (nom, orthographe, blocs), le tester et le retirer du fil sans
+              toucher à son compte. Noter ou signaler son propre mix n'a pas de
+              sens : ces lignes restent réservées aux autres. */}
+          <View style={styles.cardActions}>
+            <Button
+              variant="glass"
+              size="sm"
+              icon="sliders"
+              label="Modifier"
+              onPress={onEdit}
+              style={styles.actionBtn}
+            />
+            <Button
+              variant="accent"
+              color={MIX_COLOR}
+              size="sm"
+              icon="play"
+              label="Tester"
+              onPress={onTest}
+              style={styles.actionBtn}
+            />
+          </View>
+          {removing ? (
+            <View style={styles.reportBox}>
+              <Text style={styles.reportTitle}>Retirer « {item.name} » du fil ?</Text>
+              <Text style={styles.removeNote}>
+                Il disparaît du fil public, avec ses notes. Il reste enregistré sur ton téléphone si tu l'y as gardé.
+              </Text>
+              <View style={styles.cardActions}>
+                <Button variant="glass" size="sm" label="Annuler" onPress={onCancelRemove} style={styles.actionBtn} />
+                <Button variant="danger" size="sm" label="Retirer" onPress={onRemove} style={styles.actionBtn} />
+              </View>
+            </View>
+          ) : (
+            <PressTap
+              tapScale={0.96}
+              hitSlop={8}
+              onHapticIn={haptic.light}
+              onPress={onAskRemove}
+              containerStyle={styles.reportRow}
+              accessibilityLabel="Retirer ce mix du fil public"
+            >
+              <AppIcon name="close" size={12} color="rgba(255,255,255,0.45)" />
+              <Text style={styles.reportLink}>Retirer du fil</Text>
+            </PressTap>
+          )}
+        </>
       ) : (
         <>
           {/* Tester est ouvert à tous ; Enregistrer, noter et signaler demandent un
@@ -192,7 +273,7 @@ function FeedCard({
   );
 }
 
-function PublicContent({ screenH, close, afterClose, onTest }) {
+function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine }) {
   const router = useRouter();
   const { user } = useAuth();
   const { library, currentMix, saveAsLibraryEntry, saveCurrentMix } = useTimers();
@@ -205,6 +286,11 @@ function PublicContent({ screenH, close, afterClose, onTest }) {
   const [reloadKey, setReloadKey] = useState(0);
   const [reportedIds, setReportedIds] = useState(() => new Set());
   const [reportingId, setReportingId] = useState(null);
+  const [removingId, setRemovingId] = useState(null);
+  // Mix dont on lit les commentaires : la vue remplace la liste (jamais une
+  // deuxième feuille par-dessus celle-ci).
+  const [commentsItem, setCommentsItem] = useState(null);
+  const [commentCounts, setCommentCounts] = useState({});
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
 
@@ -223,6 +309,24 @@ function PublicContent({ screenH, close, afterClose, onTest }) {
     let cancelled = false;
     setStatus('loading');
     (async () => {
+      // « Mes publications » : seulement mes mix, aucune note ni signalement à
+      // aller chercher (on ne note ni ne signale les siens).
+      if (mine) {
+        if (!userId) {
+          setItems([]);
+          setStatus('login');
+          return;
+        }
+        const own = await fetchMyPublishedMixes(userId);
+        if (cancelled) return;
+        if (!own.ok) {
+          setStatus(own.reason === 'unavailable' ? 'unavailable' : 'error');
+          return;
+        }
+        setItems(own.items);
+        setStatus('ok');
+        return;
+      }
       const res = await fetchFeed({ category, sort });
       if (cancelled) return;
       if (!res.ok) {
@@ -242,7 +346,20 @@ function PublicContent({ screenH, close, afterClose, onTest }) {
     return () => {
       cancelled = true;
     };
-  }, [category, sort, reloadKey, userId]);
+  }, [category, sort, reloadKey, userId, mine]);
+
+  // Compteurs de commentaires : jamais bloquants (un échec = pas de compteur).
+  // Relus à chaque changement de liste et au retour d'un fil de commentaires.
+  useEffect(() => {
+    if (!items.length) return undefined;
+    let cancelled = false;
+    fetchCommentCounts(items.map((i) => i.id)).then((res) => {
+      if (!cancelled && res.ok) setCommentCounts(res.counts);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [items, commentsItem]);
 
   const goLogin = () => {
     haptic.light();
@@ -317,6 +434,54 @@ function PublicContent({ screenH, close, afterClose, onTest }) {
     showToast({ text: 'Merci, signalement envoyé.', icon: 'check' });
   };
 
+  // L'ancien MIX, s'il a été modifié et n'est pas déjà enregistré, est rangé
+  // dans « Mes mix » avant d'être remplacé : rien ne se perd.
+  const stashCurrentMix = async () => {
+    if (currentMix?.blocks?.length && !isDefaultMix(currentMix) && !library.some((m) => m.id === currentMix.id)) {
+      await saveAsLibraryEntry(currentMix);
+    }
+  };
+
+  // « Modifier » mon mix publié : il devient le MIX courant et s'ouvre dans le
+  // constructeur, lié à sa publication (le bandeau « Mettre à jour » y renvoie
+  // les corrections vers le fil). Depuis le constructeur lui-même, `onEdit`
+  // charge le brouillon sur place au lieu de naviguer.
+  const handleEdit = async (item) => {
+    const mix = feedItemToMix(item);
+    if (!mix) {
+      haptic.error();
+      return;
+    }
+    haptic.medium();
+    if (onEdit) {
+      await onEdit(mix, item);
+      close();
+      return;
+    }
+    await stashCurrentMix();
+    await saveCurrentMix(mix);
+    afterClose(() => {
+      router.push({
+        pathname: '/mix-builder',
+        params: { publishedId: item.id, publishedCategory: item.category },
+      });
+    });
+    close();
+  };
+
+  const handleRemove = async (item) => {
+    setRemovingId(null);
+    const res = await unpublishMix(item.id);
+    if (!res.ok) {
+      haptic.error();
+      showToast({ text: 'Impossible de le retirer, réessaie.', icon: 'close' });
+      return;
+    }
+    haptic.warning();
+    setItems((list) => list.filter((i) => i.id !== item.id));
+    showToast({ text: 'Retiré du fil public.', icon: 'check' });
+  };
+
   const handleTest = async (item) => {
     const mix = feedItemToMix(item);
     if (!mix) {
@@ -331,9 +496,7 @@ function PublicContent({ screenH, close, afterClose, onTest }) {
     }
     // « Tester » remplace le MIX de l'accueil : on range d'abord l'ancien dans
     // « Mes mix » s'il n'y est pas (et qu'il a été modifié), pour ne rien perdre.
-    if (currentMix?.blocks?.length && !isDefaultMix(currentMix) && !library.some((m) => m.id === currentMix.id)) {
-      await saveAsLibraryEntry(currentMix);
-    }
+    await stashCurrentMix();
     await saveCurrentMix(mix);
     afterClose(() => {
       if (router.canDismiss()) router.dismissAll();
@@ -342,12 +505,25 @@ function PublicContent({ screenH, close, afterClose, onTest }) {
     close();
   };
 
+  if (commentsItem) {
+    return (
+      <MixCommentsView
+        item={commentsItem}
+        screenH={screenH}
+        onBack={() => setCommentsItem(null)}
+        goLogin={goLogin}
+      />
+    );
+  }
+
   return (
     <View>
       <View style={styles.headerRow}>
         <View style={styles.headerText}>
-          <Text style={styles.kicker}>FIL PUBLIC</Text>
-          <Text style={styles.title} numberOfLines={1}>Les mixes des autres</Text>
+          <Text style={styles.kicker}>{mine ? 'MES PUBLICATIONS' : 'FIL PUBLIC'}</Text>
+          <Text style={styles.title} numberOfLines={1}>
+            {mine ? 'Tes mix publiés' : 'Les mixes des autres'}
+          </Text>
         </View>
         <IconButton
           icon="close"
@@ -358,7 +534,7 @@ function PublicContent({ screenH, close, afterClose, onTest }) {
         />
       </View>
 
-      {!user && status !== 'unavailable' && (
+      {!mine && !user && status !== 'unavailable' && (
         <View style={styles.notice}>
           <AppIcon name="lock" size={14} color="rgba(255,255,255,0.60)" />
           <Text style={styles.noticeText}>
@@ -368,50 +544,56 @@ function PublicContent({ screenH, close, afterClose, onTest }) {
         </View>
       )}
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.chipsScroll}
-        contentContainerStyle={styles.chips}
-      >
-        {[null, ...DISCIPLINES.map((d) => d.id)].map((id) => {
-          const active = id === category;
-          return (
-            <PressTap
-              key={id ?? 'all'}
-              tapScale={0.94}
-              onHapticIn={haptic.selection}
-              onPress={() => setCategory(id)}
-              style={[styles.chip, active && styles.chipActive]}
-            >
-              <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                {id === null ? 'TOUS' : getDiscipline(id).short}
-              </Text>
-            </PressTap>
-          );
-        })}
-      </ScrollView>
+      {/* Catégories et tri : seulement dans le fil. « Mes publications » est une
+          courte liste à soi, rien à filtrer. */}
+      {!mine && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.chipsScroll}
+          contentContainerStyle={styles.chips}
+        >
+          {[null, ...DISCIPLINES.map((d) => d.id)].map((id) => {
+            const active = id === category;
+            return (
+              <PressTap
+                key={id ?? 'all'}
+                tapScale={0.94}
+                onHapticIn={haptic.selection}
+                onPress={() => setCategory(id)}
+                style={[styles.chip, active && styles.chipActive]}
+              >
+                <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                  {id === null ? 'TOUS' : getDiscipline(id).short}
+                </Text>
+              </PressTap>
+            );
+          })}
+        </ScrollView>
+      )}
 
       <View style={styles.sortRow}>
         <Text style={styles.countText}>
           {status === 'ok' ? `${items.length} MIX` : ' '}
         </Text>
-        <View style={styles.sorts}>
-          {FEED_SORTS.map((s) => {
-            const active = s.id === sort;
-            return (
-              <PressTap
-                key={s.id}
-                tapScale={0.94}
-                onHapticIn={haptic.selection}
-                onPress={() => setSort(s.id)}
-                hitSlop={8}
-              >
-                <Text style={[styles.sortText, active && styles.sortTextActive]}>{s.label}</Text>
-              </PressTap>
-            );
-          })}
-        </View>
+        {!mine && (
+          <View style={styles.sorts}>
+            {FEED_SORTS.map((s) => {
+              const active = s.id === sort;
+              return (
+                <PressTap
+                  key={s.id}
+                  tapScale={0.94}
+                  onHapticIn={haptic.selection}
+                  onPress={() => setSort(s.id)}
+                  hitSlop={8}
+                >
+                  <Text style={[styles.sortText, active && styles.sortTextActive]}>{s.label}</Text>
+                </PressTap>
+              );
+            })}
+          </View>
+        )}
       </View>
 
       {/* BottomSheet grandit vers le haut sans limite : la liste est bornée. */}
@@ -446,12 +628,24 @@ function PublicContent({ screenH, close, afterClose, onTest }) {
             />
           </View>
         )}
+        {status === 'login' && (
+          <View style={styles.stateBox}>
+            <AppIcon name="lock" size={22} color="rgba(255,255,255,0.45)" />
+            <Text style={styles.stateTitle}>Connecte-toi pour voir tes publications</Text>
+            <Text style={styles.stateText}>Tes mix publiés sont liés à ton compte.</Text>
+            <Button variant="glass" size="sm" label="Connexion" onPress={goLogin} style={{ marginTop: 12 }} />
+          </View>
+        )}
         {status === 'ok' && items.length === 0 && (
           <View style={styles.stateBox}>
             <AppIcon name="mix" size={22} color="rgba(255,255,255,0.45)" />
-            <Text style={styles.stateTitle}>Rien ici pour l'instant</Text>
+            <Text style={styles.stateTitle}>{mine ? "Tu n'as rien publié" : "Rien ici pour l'instant"}</Text>
             <Text style={styles.stateText}>
-              {category ? 'Aucun mix dans cette catégorie.' : 'Sois le premier à publier un mix !'}
+              {mine
+                ? "Dans le constructeur, ouvre Partager puis Publier : ton mix apparaîtra ici, modifiable à tout moment."
+                : category
+                  ? 'Aucun mix dans cette catégorie.'
+                  : 'Sois le premier à publier un mix !'}
             </Text>
           </View>
         )}
@@ -465,9 +659,19 @@ function PublicContent({ screenH, close, afterClose, onTest }) {
               saved={library.some((m) => m.id === `mix_pub_${item.id}`)}
               reported={reportedIds.has(item.id)}
               reporting={reportingId === item.id}
+              removing={removingId === item.id}
+              commentCount={commentCounts[item.id] ?? 0}
+              onOpenComments={() => {
+                haptic.light();
+                setCommentsItem(item);
+              }}
               onRate={(n) => handleRate(item, n)}
               onSave={() => handleSave(item)}
               onTest={() => handleTest(item)}
+              onEdit={() => handleEdit(item)}
+              onAskRemove={() => setRemovingId(item.id)}
+              onCancelRemove={() => setRemovingId(null)}
+              onRemove={() => handleRemove(item)}
               onOpenReport={() => handleOpenReport(item)}
               onCancelReport={() => setReportingId(null)}
               onReport={(reason) => handleReport(item, reason)}
@@ -493,8 +697,13 @@ function PublicContent({ screenH, close, afterClose, onTest }) {
  * « Tester » (ranger l'ancien MIX, mettre celui-ci à l'accueil et y aller) :
  * le Constructeur MIX s'en sert pour charger le mix dans son brouillon au lieu
  * de quitter l'écran.
+ *
+ * `mine` : « Mes publications » — la liste de MES mix publiés, avec Modifier /
+ * Tester / Retirer (v16.3.0). Les mêmes actions existent sur mes mix dans le
+ * fil. `onEdit(mix, item)` (facultatif) remplace « ouvrir le constructeur » :
+ * le constructeur s'en sert pour charger la publication dans son brouillon.
  */
-export default function MixPublicSheet({ screenH, onClose, onTest }) {
+export default function MixPublicSheet({ screenH, onClose, onTest, onEdit, mine = false }) {
   const afterCloseRef = useRef(null);
 
   // Une navigation demandée depuis la feuille (connexion, accueil) attend la
@@ -509,7 +718,7 @@ export default function MixPublicSheet({ screenH, onClose, onTest }) {
   };
 
   return (
-    <BottomSheet screenH={screenH} onClose={handleClose}>
+    <BottomSheet screenH={screenH} onClose={handleClose} keyboardAware>
       {({ close }) => (
         <PublicContent
           screenH={screenH}
@@ -518,6 +727,8 @@ export default function MixPublicSheet({ screenH, onClose, onTest }) {
             afterCloseRef.current = fn;
           }}
           onTest={onTest}
+          onEdit={onEdit}
+          mine={mine}
         />
       )}
     </BottomSheet>
@@ -807,6 +1018,33 @@ const styles = StyleSheet.create({
   reportCancel: {
     alignSelf: 'flex-end',
     marginTop: 10,
+  },
+  commentsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    marginTop: 10,
+    paddingVertical: 2,
+  },
+  commentsText: {
+    fontFamily: fonts.sansBold,
+    fontSize: 11,
+    letterSpacing: 0.4,
+    color: 'rgba(255,255,255,0.70)',
+  },
+  commentsChevron: {
+    fontFamily: fonts.sansBold,
+    fontSize: 15,
+    lineHeight: 16,
+    color: 'rgba(255,255,255,0.45)',
+  },
+  removeNote: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 11.5,
+    lineHeight: 16,
+    color: 'rgba(255,255,255,0.55)',
+    marginTop: -4,
   },
   ownPill: {
     flexDirection: 'row',

@@ -20,6 +20,7 @@ import Animated, {
 import PageDots from '../common/PageDots';
 import Button from '../common/Button';
 import IconButton from '../common/IconButton';
+import MixPill from '../common/MixPill';
 import { TIMERS } from '../../lib/timers-config';
 import {
   loadHistory,
@@ -360,8 +361,10 @@ export default function HistoryPage({
 
   return (
     <View style={[styles.page, { width, height }]} onTouchStart={handleUserTouch}>
+      {/* Fil conducteur : le MIX reste à un tap depuis toutes les grandes
+          pages (components/common/MixPill.js). */}
       <View style={styles.statusBar}>
-        <Text style={styles.statusText}>HISTORIQUE</Text>
+        <MixPill />
       </View>
 
       <View style={styles.topBar}>

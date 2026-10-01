@@ -16,6 +16,8 @@ import { useTimers } from '../contexts/TimersContext';
 import { fonts } from '../lib/fonts';
 import { useUiScale, scaled, useLayoutLevel } from '../lib/responsive';
 import { useHaptic } from '../hooks/useHaptic';
+import { loadCooldownMap, saveCooldownMap, consumeLaunch } from '../lib/cooldown';
+import { loadIsPremium } from '../lib/premium';
 import { useSound } from '../hooks/useSound';
 
 const COUNTDOWN_FROM = 3;
@@ -56,6 +58,15 @@ export default function Countdown() {
     if (!isGo) return undefined;
     haptic.success();
     sound.playGo();
+    // Consommation du quota gratuit (TABATA / MIX) : ICI, au GO, et non au tap
+    // sur Lancer. Avant, la place était prise dès le tap : un retour rapide
+    // pendant le 3-2-1 la perdait quand même, et la relecture asynchrone du
+    // compteur à l'accueil pouvait afficher un état périmé. Lecture-écriture
+    // directe du stockage, sans état React qui se démonte.
+    (async () => {
+      if (await loadIsPremium()) return;
+      saveCooldownMap(consumeLaunch(await loadCooldownMap(), timer.id));
+    })();
     // 850ms : laisse l'overshoot du GO se terminer (400+400ms) puis Stack fade prend le relais
     const id = setTimeout(() => {
       router.replace({ pathname: '/running', params: { timerId: timer.id } });

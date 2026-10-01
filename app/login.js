@@ -179,7 +179,7 @@ export default function Login() {
                     placeholderTextColor="rgba(255,255,255,0.30)"
                     autoCapitalize="words"
                     autoCorrect={false}
-                    maxLength={20}
+                    maxLength={40}
                     style={[styles.input, bad.name && styles.inputBad, { marginBottom: 10 }]}
                     returnKeyType="next"
                   />

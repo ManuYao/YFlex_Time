@@ -123,6 +123,7 @@ export const ICON_NAMES = [
   'back', 'plus', 'gear', 'more', 'arrow', 'list', 'share', 'note',
   'user', 'bar', 'swim', 'run',
   'star', 'star-fill', 'globe', 'flag',
+  'hub', 'expand', 'history', 'calendar', 'chat',
 ];
 
 export default function AppIcon({ name, size = 20, color = '#FFFFFF', opacity = 1, strokeWidth, style }) {
@@ -367,6 +368,62 @@ export default function AppIcon({ name, size = 20, color = '#FFFFFF', opacity = 
     // Drapeau : signaler un mix du fil public.
     case 'flag':
       body = <Path {...line} d="M6 21V4M6 4h11l-2.4 4.2L17 12.4H6" />;
+      break;
+    // Menu global (v16.2.0) : quatre cases, la plus grande pleine = le MIX,
+    // point névralgique de l'app. Remplace l'horloge de l'historique en haut
+    // de l'accueil — l'historique n'est plus qu'une des portes du hub.
+    case 'hub':
+      body = (
+        <>
+          <Rect {...rounded} x={3.5} y={3.5} width={7.5} height={7.5} rx={2} />
+          <Rect {...line} x={13} y={3.5} width={7.5} height={7.5} rx={2} />
+          <Rect {...line} x={3.5} y={13} width={7.5} height={7.5} rx={2} />
+          <Rect {...line} x={13} y={13} width={7.5} height={7.5} rx={2} />
+        </>
+      );
+      break;
+    // Quatre coins qui s'écartent : « agrandis la fenêtre ».
+    case 'expand':
+      body = (
+        <>
+          <Path {...line} d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" />
+          <Path {...line} d="M4 4l5.5 5.5M20 4l-5.5 5.5M20 20l-5.5-5.5M4 20l5.5-5.5" />
+        </>
+      );
+      break;
+    // Bulle de discussion : les commentaires d'un mix (v16.4.0).
+    case 'chat':
+      body = (
+        <>
+          <Path {...line} d="M5 4.5h14a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2h-6.5L8 20.5V17H5a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2z" />
+          <Line {...line} x1={7.5} y1={9.2} x2={16.5} y2={9.2} />
+          <Line {...line} x1={7.5} y1={12.6} x2={13} y2={12.6} />
+        </>
+      );
+      break;
+    // Horloge à flèche de retour : l'historique des séances.
+    case 'history':
+      body = (
+        <>
+          <Path {...line} d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1" />
+          <Path {...line} d="M3.2 4.2v4.2h4.2" />
+          <Path {...line} d="M12 7.5V12l3 2" />
+        </>
+      );
+      break;
+    // Feuillet de planning : un jour entouré dans une grille de semaine.
+    case 'calendar':
+      body = (
+        <>
+          <Rect {...line} x={3.5} y={5} width={17} height={15.5} rx={2.5} />
+          <Line {...line} x1={3.5} y1={10} x2={20.5} y2={10} />
+          <Line {...line} x1={8} y1={3} x2={8} y2={7} />
+          <Line {...line} x1={16} y1={3} x2={16} y2={7} />
+          <Circle {...solid} cx={8.5} cy={14.5} r={1.1} />
+          <Circle {...solid} cx={12} cy={14.5} r={1.1} />
+          <Circle {...solid} cx={15.5} cy={14.5} r={1.1} />
+        </>
+      );
       break;
     case 'blocks':
       body = (

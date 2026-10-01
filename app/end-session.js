@@ -37,7 +37,7 @@ import { fonts } from '../lib/fonts';
 import { BOTTOM_GAP, PAIR_GAP, SIDE_GAP } from '../lib/buttonTokens';
 import { useUiScale, scaled, useLayoutLevel } from '../lib/responsive';
 import { haptic } from '../hooks/useHaptic';
-import { loadCooldownMap, saveCooldownMap, getCooldownStatus, consumeLaunch } from '../lib/cooldown';
+import { loadCooldownMap, getCooldownStatus } from '../lib/cooldown';
 import { loadIsPremium } from '../lib/premium';
 import BadgeUnlockSheet from '../components/common/BadgeUnlockSheet';
 import { pendingBadges, markBadgeSeen } from '../lib/badgeCelebration';
@@ -196,7 +196,6 @@ export default function EndSession() {
         router.replace('/premium');
         return;
       }
-      await saveCooldownMap(consumeLaunch(map, timer.id));
     }
     // Même vibration que le bouton Lancer de l'accueil : c'est un lancement.
     haptic.medium();

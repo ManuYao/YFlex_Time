@@ -34,6 +34,10 @@ export default function ProfileHeader({
   // pourquoi ça a remplacé la ligne "Déconnexion" d'origine.
   accountConnected = false,
   onAccountPress,
+  // Carte « Se connecter » (ProfileAccount), posée entre l'identité et les
+  // disciplines quand personne n'est connecté (v16.3.0) : le seul endroit où
+  // on la voit sans chercher. Null/absente une fois connecté.
+  accountSlot = null,
 }) {
   const ringProgress = bestStreak > 0 ? Math.min(1, streak / bestStreak) : 0;
 
@@ -100,6 +104,8 @@ export default function ProfileHeader({
           <Text style={styles.since}>Membre depuis {identity.memberSince}</Text>
         </View>
       </View>
+
+      {accountSlot}
 
       <DisciplineTags ids={disciplineIds} onPress={onEditDisciplines} />
     </View>

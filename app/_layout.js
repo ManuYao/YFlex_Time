@@ -26,6 +26,8 @@ import HistorySyncGate from '../components/common/HistorySyncGate';
 import APKBlockedScreen from '../components/common/APKBlockedScreen';
 import MaintenanceBanner from '../components/common/MaintenanceBanner';
 import MaintenanceScreen from '../components/common/MaintenanceScreen';
+import SmallWindowNotice from '../components/common/SmallWindowNotice';
+import { WindowSizeProvider } from '../lib/responsive';
 import { useAPKCheck } from '../hooks/useAPKCheck';
 import { useOtaUpdate } from '../hooks/useOtaUpdate';
 import { shouldShowSplash, markSplashShown, markSplashCleared, onSplashRequest } from '../lib/splash';
@@ -133,7 +135,9 @@ export default function RootLayout() {
         <SettingsProvider>
           <AuthProvider>
             <TimersProvider>
-              <View style={{ flex: 1 }}>
+              {/* WindowSizeProvider : mesure la taille réelle de la fenêtre
+                  (fenêtre flottante Samsung), voir lib/responsive.js. */}
+              <WindowSizeProvider style={{ flex: 1 }}>
                 <StatusBar style="light" />
                 <Stack
                   screenOptions={{
@@ -163,7 +167,9 @@ export default function RootLayout() {
                   <Stack.Screen name="settings" options={{ animation: 'fade' }} />
                   <Stack.Screen name="terms" options={{ animation: 'fade' }} />
                   <Stack.Screen name="privacy" options={{ animation: 'fade' }} />
+                  <Stack.Screen name="hub" options={{ animation: 'fade' }} />
                   <Stack.Screen name="history" options={{ animation: 'fade' }} />
+                  <Stack.Screen name="mix-hub" options={{ animation: 'fade' }} />
                   <Stack.Screen name="mix-builder" options={{ animation: 'fade' }} />
                   <Stack.Screen name="import-mix" options={{ animation: 'fade' }} />
                   <Stack.Screen
@@ -175,6 +181,9 @@ export default function RootLayout() {
                 </Stack>
                 <UpdateGate />
                 <HistorySyncGate />
+                {/* « Agrandis la fenêtre » : recouvre un écran devenu inutilisable
+                    dans une fenêtre minuscule (lib/responsive.js). */}
+                <SmallWindowNotice />
 
                 {splashCleared && !apk.isBlockedByForcedUpdate && apk.isMaintenance && !bannerClosed && (
                   <MaintenanceBanner
@@ -214,7 +223,7 @@ export default function RootLayout() {
                     minVersion={apk.minVersion}
                   />
                 )}
-              </View>
+              </WindowSizeProvider>
             </TimersProvider>
           </AuthProvider>
         </SettingsProvider>

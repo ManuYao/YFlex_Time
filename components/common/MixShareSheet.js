@@ -31,7 +31,14 @@ import {
 import { copyToClipboard } from '../../lib/clipboard';
 import { isShareOnboarded, markShareOnboarded } from '../../lib/shareOnboarding';
 import { loadProfile } from '../../lib/profile';
-import { fetchMyPublished, isFeedConfigured, publishMix, unpublishMix } from '../../lib/publicMixes';
+import {
+  fetchMyPublished,
+  fetchPublishedById,
+  isFeedConfigured,
+  publishMix,
+  unpublishMix,
+  updatePublishedMix,
+} from '../../lib/publicMixes';
 import { checkPublishable, formatFeedDuration, formatRating } from '../../lib/publicMixShape';
 
 const ACCENT = '#9575FF'; // violet du MIX
@@ -43,10 +50,13 @@ const TABS = [
   { id: 'receive', label: 'RECEVOIR', icon: 'link' },
 ];
 
-const publishErrorText = (res) => {
+export const publishErrorText = (res) => {
   if (res.reason === 'invalid') return res.message || 'Ce mix ne peut pas être publié.';
   if (res.reason === 'limit') {
     return `Tu as déjà ${res.max} mixes publiés. Retire-en un pour en publier un autre.`;
+  }
+  if (res.reason === 'duplicate') {
+    return 'Tu as déjà un autre mix publié sous ce nom. Change le nom ou retire l\'autre.';
   }
   if (res.reason === 'unavailable') return "Le fil public n'est pas encore ouvert.";
   return 'Impossible de publier, vérifie ta connexion.';
@@ -96,8 +106,16 @@ function OptionCard({ icon, title, sub, children }) {
   );
 }
 
-/** Carte « Publier dans le fil public » : compte obligatoire, catégorie au choix. */
-function PublishCard({ mix, goLogin }) {
+/**
+ * Carte « Publier dans le fil public » : compte obligatoire, catégorie au choix.
+ *
+ * `publishedLink` ({ id, category }) : ce mix vient d'une publication qu'on est
+ * en train de modifier (constructeur ouvert depuis « Modifier »). On la retrouve
+ * par son id et non par son nom : renommer le mix ne doit pas créer un
+ * doublon en laissant l'ancien bloqué en ligne (le piège d'origine, qui
+ * empêchait l'auteur de retirer ou corriger son mix).
+ */
+function PublishCard({ mix, goLogin, publishedLink }) {
   const { user } = useAuth();
   const userId = user?.id ?? null;
   const [pseudo, setPseudo] = useState('');
@@ -112,7 +130,12 @@ function PublishCard({ mix, goLogin }) {
     setPhase('checking');
     (async () => {
       const profile = await loadProfile();
-      const res = await fetchMyPublished(mix?.name, userId);
+      let res = publishedLink?.id
+        ? await fetchPublishedById(publishedLink.id, userId)
+        : { ok: true, item: null };
+      // Lien absent ou publication introuvable (retirée entre-temps) : retour à
+      // la recherche par nom, comme avant.
+      if (res.ok && !res.item) res = await fetchMyPublished(mix?.name, userId);
       if (cancelled) return;
       setPseudo(profile.pseudo);
       if (!res.ok && res.reason === 'unavailable') {
@@ -123,13 +146,13 @@ function PublishCard({ mix, goLogin }) {
       const item = res.ok ? res.item : null;
       setPublished(item);
       // Catégorie du mix déjà publié, sinon la discipline principale du profil.
-      setCategory(item?.category ?? profile.disciplineIds?.[0] ?? null);
+      setCategory(item?.category ?? publishedLink?.category ?? profile.disciplineIds?.[0] ?? null);
       setPhase('ready');
     })();
     return () => {
       cancelled = true;
     };
-  }, [userId, mix?.name]);
+  }, [userId, mix?.name, publishedLink?.id]);
 
   const handlePublish = async () => {
     if (phase === 'busy') return;
@@ -142,7 +165,12 @@ function PublishCard({ mix, goLogin }) {
     const wasPublished = !!published;
     setPhase('busy');
     setFeedback(null);
-    const res = await publishMix(mix, { userId, authorName: pseudo, category });
+    // Déjà publié (retrouvé par lien ou par nom) : modification SUR PLACE, qui
+    // garde les étoiles si la base le permet (supabase-mix-update.sql), sinon
+    // remplacement. Sinon, première publication.
+    const res = published
+      ? await updatePublishedMix(published.id, mix, { userId, authorName: pseudo, category })
+      : await publishMix(mix, { userId, authorName: pseudo, category });
     setPhase('ready');
     if (!res.ok) {
       haptic.error();
@@ -153,7 +181,11 @@ function PublishCard({ mix, goLogin }) {
     setPublished(res.item);
     setFeedback({
       ok: true,
-      text: wasPublished ? 'Mis à jour dans le fil public.' : 'Publié ! Il est visible dans le fil public.',
+      text: !wasPublished
+        ? 'Publié ! Il est visible dans le fil public.'
+        : res.reset
+          ? 'Mis à jour dans le fil public. Les étoiles ont repris à zéro.'
+          : 'Mis à jour dans le fil public.',
     });
   };
 
@@ -266,7 +298,9 @@ function PublishCard({ mix, goLogin }) {
         />
       )}
       {!!published && (
-        <Text style={styles.hint}>Mettre à jour remplace le mix publié : les étoiles repartent de zéro.</Text>
+        <Text style={styles.hint}>
+          Mettre à jour change le mix publié (nom et blocs). Tu peux aussi le retirer du fil à tout moment.
+        </Text>
       )}
       {!!feedback && (
         <Text style={[styles.feedback, { color: feedback.ok ? OK_GREEN : ERROR_RED }]}>{feedback.text}</Text>
@@ -277,9 +311,9 @@ function PublishCard({ mix, goLogin }) {
 
 // Composant à part : l'effet qui fait défiler a besoin de scrollToEnd, que
 // BottomSheet ne fournit qu'à ses enfants.
-function ShareContent({ mix, close, scrollToEnd, onImported, goLogin, openFeed }) {
+function ShareContent({ mix, close, scrollToEnd, onImported, goLogin, openFeed, initialTab, publishedLink }) {
   const { saveAsLibraryEntry, saveCurrentMix } = useTimers();
-  const [tab, setTab] = useState('send');
+  const [tab, setTab] = useState(initialTab);
   const [showBlocks, setShowBlocks] = useState(false);
   const [pasted, setPasted] = useState('');
   const [preview, setPreview] = useState(null);
@@ -436,7 +470,7 @@ function ShareContent({ mix, close, scrollToEnd, onImported, goLogin, openFeed }
                 )}
               </OptionCard>
 
-              <PublishCard mix={mix} goLogin={goLogin} />
+              <PublishCard mix={mix} goLogin={goLogin} publishedLink={publishedLink} />
             </>
           )}
 
@@ -516,10 +550,20 @@ function ShareContent({ mix, close, scrollToEnd, onImported, goLogin, openFeed }
  *  - RECEVOIR : coller un lien reçu et l'aperçu avant de l'ajouter — utile aussi
  *    parce que certaines apps de messagerie (Instagram en tête) ne rendent pas
  *    un lien flextimer:// cliquable.
+ * `initialTab` : 'send' (défaut) ou 'receive' — le hub Mix et Partage ouvre
+ * directement l'onglet « Recevoir » depuis son bloc dédié.
  * `onOpenFeed` ouvre le fil public une fois cette feuille refermée (jamais deux
  * feuilles empilées).
  */
-export default function MixShareSheet({ screenH, mix, onClose, onImported, onOpenFeed }) {
+export default function MixShareSheet({
+  screenH,
+  mix,
+  onClose,
+  onImported,
+  onOpenFeed,
+  initialTab = 'send',
+  publishedLink = null,
+}) {
   const router = useRouter();
   const afterCloseRef = useRef(null);
 
@@ -537,6 +581,8 @@ export default function MixShareSheet({ screenH, mix, onClose, onImported, onOpe
     <BottomSheet screenH={screenH} onClose={handleClose} keyboardAware>
       {({ close, scrollToEnd }) => (
         <ShareContent
+          initialTab={initialTab}
+          publishedLink={publishedLink}
           mix={mix}
           close={close}
           scrollToEnd={scrollToEnd}

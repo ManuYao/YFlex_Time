@@ -11,7 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Swipeable } from 'react-native-gesture-handler';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import DraggableFlatList, {
   ScaleDecorator,
@@ -33,8 +33,9 @@ import Button from '../components/common/Button';
 import IconButton from '../components/common/IconButton';
 import BlockRoleIcon from '../components/common/BlockRoleIcon';
 import AppIcon from '../components/common/AppIcon';
-import MixShareSheet from '../components/common/MixShareSheet';
+import MixShareSheet, { publishErrorText } from '../components/common/MixShareSheet';
 import MixPublicSheet from '../components/common/MixPublicSheet';
+import MixLibrarySheet from '../components/common/MixLibrarySheet';
 import {
   BLOCK_TYPES,
   getBlockType,
@@ -46,7 +47,9 @@ import {
   MAX_BLOCK_NOTE_LENGTH,
   getRangesForType,
 } from '../lib/mix-blocks';
-import { makeDefaultMix } from '../lib/mixes';
+import { makeDefaultMix, isDefaultMix } from '../lib/mixes';
+import { loadProfile } from '../lib/profile';
+import { updatePublishedMix } from '../lib/publicMixes';
 import { DAYS, loadPlanning, formatBlockAsText } from '../lib/planning';
 import { BLOCK_ROLES, getBlockRole, resolveBlockRole } from '../lib/blockRoles';
 import { fonts } from '../lib/fonts';
@@ -62,6 +65,8 @@ import {
 import { useLayoutLevel } from '../lib/responsive';
 import { useTimers } from '../contexts/TimersContext';
 import { useHaptic } from '../hooks/useHaptic';
+import { useMixLauncher } from '../hooks/useMixLauncher';
+import { useAuth } from '../contexts/AuthContext';
 
 const ACCENT = '#9575FF';
 const SAVE_HOLD_MS = 3000;
@@ -86,6 +91,33 @@ export default function MixBuilder() {
   const [shareOpen, setShareOpen] = useState(false);
   const [shareMix, setShareMix] = useState(null);
   const [feedOpen, setFeedOpen] = useState(false);
+  const launchMix = useMixLauncher();
+  const { user } = useAuth();
+  const params = useLocalSearchParams();
+  // Publication en cours de modification (v16.3.0) : ouverte depuis « Modifier »
+  // sur un de MES mix publiés (Mes publications, ou ma carte dans le fil). Tant
+  // qu'elle est liée, un bandeau propose d'envoyer les corrections au fil, et
+  // la feuille de partage retrouve la publication par son id — renommer le mix
+  // ne crée donc pas un doublon qu'on ne pourrait plus retirer.
+  const [publishedLink, setPublishedLink] = useState(() =>
+    params.publishedId
+      ? {
+          id: String(params.publishedId),
+          category: params.publishedCategory ? String(params.publishedCategory) : null,
+        }
+      : null
+  );
+  const [pubState, setPubState] = useState({ phase: 'idle', text: null }); // idle | busy | ok | err
+  // Verrou anti double-tap : le lancement est asynchrone (écriture du MIX
+  // courant avant de partir), un second appui ne doit pas consommer deux
+  // places du quota.
+  const launchingRef = useRef(false);
+
+  // Une modification du brouillon après une mise à jour réussie (ou ratée) :
+  // le bandeau redevient « à envoyer ».
+  useEffect(() => {
+    setPubState((p) => (p.phase === 'ok' || p.phase === 'err' ? { phase: 'idle', text: null } : p));
+  }, [draft]);
 
   useEffect(() => {
     if (draft) return;
@@ -150,6 +182,50 @@ export default function MixBuilder() {
     router.back();
   };
 
+  // Lancer = enregistrer ce brouillon comme MIX courant ET partir tout de
+  // suite sur le 3-2-1, sans repasser par l'accueil. Même quota que le bouton
+  // Lancer de l'accueil (hooks/useMixLauncher.js).
+  const handleLaunch = async () => {
+    if (draft.blocks.length === 0 || launchingRef.current) return;
+    launchingRef.current = true;
+    try {
+      await launchMix(draft);
+    } finally {
+      launchingRef.current = false;
+    }
+  };
+
+  // Envoie les corrections (nom, orthographe, blocs) vers le fil public.
+  const handlePublishUpdate = async () => {
+    if (!publishedLink || pubState.phase === 'busy') return;
+    if (!user) {
+      haptic.warning();
+      setPubState({ phase: 'err', text: 'Connecte-toi pour mettre à jour ton mix publié.' });
+      return;
+    }
+    setPubState({ phase: 'busy', text: null });
+    const profile = await loadProfile();
+    const res = await updatePublishedMix(publishedLink.id, draft, {
+      userId: user.id,
+      authorName: profile.pseudo,
+      category: publishedLink.category,
+    });
+    if (!res.ok) {
+      haptic.error();
+      setPubState({ phase: 'err', text: publishErrorText(res) });
+      return;
+    }
+    haptic.success();
+    // La publication peut avoir changé d'id (remplacement) : on suit la nouvelle.
+    setPublishedLink({ id: res.item.id, category: res.item.category });
+    setPubState({
+      phase: 'ok',
+      text: res.reset
+        ? 'Mis à jour. Les étoiles ont repris à zéro.'
+        : 'À jour dans le fil public.',
+    });
+  };
+
   const handleSaveAsNew = async () => {
     if (draft.blocks.length === 0) return;
     haptic.success();
@@ -193,6 +269,24 @@ export default function MixBuilder() {
   // « Tester » dans le fil public, depuis le Constructeur : le mix devient le
   // MIX courant ET le brouillon affiché (même geste que charger un mix de la
   // bibliothèque) au lieu de quitter l'écran avec un brouillon non enregistré.
+  // « Modifier » sur ma carte du fil, depuis le constructeur : la publication
+  // devient le brouillon, liée à son id. L'ancien brouillon est rangé dans
+  // « Mes mix » s'il serait perdu.
+  const handleEditFromFeed = async (mix, item) => {
+    if (draft?.blocks?.length && !isDefaultMix(draft) && !library.some((m) => m.id === draft.id)) {
+      await saveAsLibraryEntry({
+        ...draft,
+        id: `mix_${Date.now()}`,
+        name: (draft.name || 'Sans nom').slice(0, 28),
+        blocks: draft.blocks.map((b) => ({ ...b })),
+      });
+    }
+    await saveCurrentMix(mix);
+    setDraft({ ...mix, blocks: mix.blocks.map((b) => ({ ...b })) });
+    setPublishedLink({ id: item.id, category: item.category });
+    setPubState({ phase: 'idle', text: null });
+  };
+
   const handleTestFromFeed = async (mix) => {
     await saveCurrentMix(mix);
     setDraft({ ...mix, blocks: mix.blocks.map((b) => ({ ...b })) });
@@ -204,6 +298,39 @@ export default function MixBuilder() {
 
   const ListHeader = (
     <View>
+      {!!publishedLink && (
+        <View style={styles.pubBanner}>
+          <View style={styles.pubBannerHead}>
+            <AppIcon name="globe" size={13} color={ACCENT} />
+            <Text style={styles.pubBannerKicker}>MIX PUBLIÉ</Text>
+          </View>
+          <Text style={styles.pubBannerText}>
+            Tu modifies ton mix du fil public. Tes changements n'y apparaissent qu'après la mise à jour.
+          </Text>
+          <Button
+            variant="accent"
+            color={ACCENT}
+            size="sm"
+            icon={pubState.phase === 'ok' ? 'check' : 'globe'}
+            label={
+              pubState.phase === 'busy'
+                ? 'Envoi…'
+                : pubState.phase === 'ok'
+                  ? 'À jour'
+                  : 'Mettre à jour le fil'
+            }
+            disabled={pubState.phase === 'busy' || pubState.phase === 'ok' || draft.blocks.length === 0}
+            onPress={handlePublishUpdate}
+            style={styles.pubBannerBtn}
+          />
+          {!!pubState.text && (
+            <Text style={[styles.pubBannerFeedback, { color: pubState.phase === 'ok' ? '#1FC777' : '#FF5454' }]}>
+              {pubState.text}
+            </Text>
+          )}
+        </View>
+      )}
+
       <View style={styles.hero}>
         <View style={styles.heroLeft}>
           <Text style={styles.heroKicker}>Ton MIX</Text>
@@ -327,12 +454,25 @@ export default function MixBuilder() {
               setAddOpen(true);
             }}
           />
+          {/* Lancer en premier plan (accent, plus large) : c'est l'action
+              principale du constructeur. Enregistrer reste à côté, en verre.
+              « Annuler » n'est plus ici : la croix en haut à gauche fait déjà
+              ce travail, et trois boutons ne tiennent pas sur une rangée. */}
           <View style={styles.bottomActions}>
-            <Button variant="glass" label="Annuler" onPress={handleCancel} />
             <SaveButton
               disabled={draft.blocks.length === 0}
               onTap={handleSave}
               onLongComplete={handleSaveAsNew}
+            />
+            <Button
+              variant="accent"
+              color={ACCENT}
+              icon="play"
+              label="Lancer"
+              disabled={draft.blocks.length === 0}
+              onPress={handleLaunch}
+              accessibilityLabel="Lancer ce mix"
+              style={styles.launchSlot}
             />
           </View>
         </View>
@@ -360,7 +500,7 @@ export default function MixBuilder() {
       )}
 
       {libraryOpen && (
-        <LibrarySheet
+        <MixLibrarySheet
           screenH={screenH}
           library={library}
           onClose={() => setLibraryOpen(false)}
@@ -377,6 +517,7 @@ export default function MixBuilder() {
         <MixShareSheet
           screenH={screenH}
           mix={shareMix}
+          publishedLink={publishedLink}
           onClose={() => setShareOpen(false)}
           onImported={handleImported}
           onOpenFeed={() => setFeedOpen(true)}
@@ -388,6 +529,7 @@ export default function MixBuilder() {
           screenH={screenH}
           onClose={() => setFeedOpen(false)}
           onTest={handleTestFromFeed}
+          onEdit={handleEditFromFeed}
         />
       )}
     </GradientBackground>
@@ -596,7 +738,8 @@ function SaveButton({ disabled, onTap, onLongComplete }) {
   const progress = useSharedValue(0);
   const scale = useSharedValue(1);
   const longFiredRef = useRef(false);
-  const r = buttonRecipe({ variant: 'accent', color: ACCENT });
+  // Verre, pas l'accent : le bouton Lancer à côté est l'action principale.
+  const r = buttonRecipe({ variant: 'glass' });
 
   const fillStyle = useAnimatedStyle(() => ({
     width: `${progress.value * 100}%`,
@@ -641,15 +784,22 @@ function SaveButton({ disabled, onTap, onLongComplete }) {
         <View
           style={[
             styles.saveInner,
-            { borderColor: r.borderColor, borderWidth: r.borderWidth, boxShadow: r.inner },
+            {
+              backgroundColor: r.backgroundColor,
+              borderColor: r.borderColor,
+              borderWidth: r.borderWidth,
+              boxShadow: r.inner,
+            },
           ]}
         >
-          <LinearGradient
-            colors={r.fill}
-            start={{ x: 0.5, y: 0 }}
-            end={{ x: 0.5, y: 1 }}
-            style={StyleSheet.absoluteFill}
-          />
+          {r.fill ? (
+            <LinearGradient
+              colors={r.fill}
+              start={{ x: 0.5, y: 0 }}
+              end={{ x: 0.5, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
+          ) : null}
           <LinearGradient
             colors={r.sheen}
             start={{ x: 0.5, y: 0 }}
@@ -658,9 +808,12 @@ function SaveButton({ disabled, onTap, onLongComplete }) {
             pointerEvents="none"
           />
           <Animated.View pointerEvents="none" style={[styles.btnPrimaryFill, fillStyle]} />
-          <AppIcon name="check" size={16} color={r.textColor} />
-          <Text style={[styles.saveText, { color: r.textColor }]}>Enregistrer</Text>
-          <Text style={styles.btnPrimaryHint}>Maintiens 3s = nouveau</Text>
+          <Text style={[styles.saveText, { color: r.textColor }]} numberOfLines={1}>
+            Enregistrer
+          </Text>
+          <Text style={styles.btnPrimaryHint} numberOfLines={1}>
+            Maintiens 3s = nouveau
+          </Text>
         </View>
       </Animated.View>
     </Pressable>
@@ -1042,106 +1195,6 @@ function PlanningImportPicker({ accentColor, onPick }) {
 
 const dayHasImportable = (day) => (day?.blocks || []).some((b) => (b.tags?.length || 0) > 0);
 
-function LibrarySheet({ screenH, library, onClose, onLoad, onDelete, onShare }) {
-  const haptic = useHaptic();
-  // Partager depuis la liste : cette feuille se referme d'abord, la feuille
-  // de partage monte ensuite (jamais deux feuilles l'une sur l'autre).
-  const shareAfterCloseRef = useRef(null);
-  const handleClosed = () => {
-    const m = shareAfterCloseRef.current;
-    onClose();
-    if (m) onShare(m);
-  };
-  return (
-    <BottomSheet screenH={screenH} onClose={handleClosed}>
-      {({ close }) => (
-        <View>
-          <View style={sheetStyles.headerRow}>
-            <View>
-              <Text style={sheetStyles.kicker}>MES MIX</Text>
-              <Text style={sheetStyles.title}>
-                {library.length} enregistré{library.length > 1 ? 's' : ''}
-              </Text>
-            </View>
-            <IconButton
-              icon="close"
-              size={ROUND_SIZE.sheet}
-              haptic={haptic.light}
-              onPress={close}
-              accessibilityLabel="Fermer"
-            />
-          </View>
-
-          <View style={sheetStyles.libList}>
-            {library.length === 0 && (
-              <Text style={sheetStyles.libEmpty}>
-                Aucun mix sauvegardé.{'\n'}Maintiens "Enregistrer" 3s pour en archiver un.
-              </Text>
-            )}
-            {library.map((m) => {
-              const total = getMixTotalDuration(m.blocks || []);
-              const min = Math.floor(total / 60);
-              const sec = total % 60;
-              return (
-                <View key={m.id} style={sheetStyles.libRow}>
-                  <Pressable
-                    onPress={() => {
-                      onLoad(m.id);
-                      close();
-                    }}
-                    style={({ pressed }) => [
-                      sheetStyles.libRowMain,
-                      pressed && { opacity: 0.7 },
-                    ]}
-                  >
-                    <View style={[sheetStyles.libDot, { backgroundColor: 'rgba(255,255,255,0.40)' }]} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={sheetStyles.libName} numberOfLines={1}>{m.name}</Text>
-                      <Text style={sheetStyles.libMeta}>
-                        {(m.blocks?.length || 0)} blocs · {hasEstimatedDuration(m.blocks) ? '~' : ''}{String(min).padStart(2, '0')}:{String(sec).padStart(2, '0')}
-                      </Text>
-                    </View>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => {
-                      haptic.light();
-                      shareAfterCloseRef.current = m;
-                      close();
-                    }}
-                    style={({ pressed }) => [
-                      sheetStyles.libShare,
-                      pressed && { opacity: 0.7 },
-                    ]}
-                    hitSlop={10}
-                  >
-                    <AppIcon name="share" size={14} color="rgba(255,255,255,0.55)" />
-                  </Pressable>
-                  <Pressable
-                    onPress={() => onDelete(m.id)}
-                    style={({ pressed }) => [
-                      sheetStyles.libDelete,
-                      pressed && { opacity: 0.7 },
-                    ]}
-                    hitSlop={10}
-                  >
-                    <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
-                      <Path d="M3 3l8 8M11 3l-8 8" stroke="#FF5454" strokeWidth={2} strokeLinecap="round" />
-                    </Svg>
-                  </Pressable>
-                </View>
-              );
-            })}
-          </View>
-
-          <Text style={sheetStyles.libHint}>
-            Tap = charger · 3s sur Enregistrer = nouveau mix
-          </Text>
-        </View>
-      )}
-    </BottomSheet>
-  );
-}
-
 const formatTotalShort = (s) => {
   if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);
@@ -1194,6 +1247,45 @@ const styles = StyleSheet.create({
   listContent: {
     paddingHorizontal: 20,
     paddingBottom: 24,
+  },
+
+  // Bandeau « MIX PUBLIÉ » : liseré violet du mode MIX, aucune couleur nouvelle.
+  pubBanner: {
+    marginTop: 4,
+    marginBottom: 6,
+    padding: 14,
+    borderRadius: 16,
+    backgroundColor: 'rgba(149,117,255,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(149,117,255,0.40)',
+  },
+  pubBannerHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
+  pubBannerKicker: {
+    fontFamily: fonts.sansBold,
+    fontSize: 10,
+    letterSpacing: 2.6,
+    color: ACCENT,
+  },
+  pubBannerText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
+    lineHeight: 17,
+    color: 'rgba(255,255,255,0.72)',
+  },
+  pubBannerBtn: {
+    alignSelf: 'flex-start',
+    marginTop: 12,
+  },
+  pubBannerFeedback: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 10,
   },
 
   hero: {
@@ -1440,6 +1532,10 @@ const styles = StyleSheet.create({
   },
   saveSlot: {
     flex: 1,
+  },
+  // Lancer : plus large que Enregistrer (flex 1.35 contre 1).
+  launchSlot: {
+    flex: 1.35,
   },
   saveOuter: {
     height: BUTTON_HEIGHT.lg,
@@ -1712,74 +1808,4 @@ const sheetStyles = StyleSheet.create({
     color: 'rgba(255,255,255,0.50)',
   },
 
-  libList: {
-    gap: 8,
-    marginBottom: 16,
-  },
-  libEmpty: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.45)',
-    textAlign: 'center',
-    paddingVertical: 24,
-  },
-  libRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderColor: 'rgba(255,255,255,0.10)',
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingRight: 8,
-  },
-  libRowMain: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  libDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  libName: {
-    fontFamily: fonts.sansBold,
-    fontSize: 13,
-    color: '#FFFFFF',
-    letterSpacing: -0.2,
-  },
-  libMeta: {
-    fontFamily: fonts.monoRegular,
-    fontSize: 10,
-    color: 'rgba(255,255,255,0.55)',
-    marginTop: 2,
-  },
-  libShare: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 6,
-  },
-  libDelete: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255,84,84,0.10)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  libHint: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 10,
-    letterSpacing: 1.5,
-    color: 'rgba(255,255,255,0.40)',
-    textAlign: 'center',
-    textTransform: 'uppercase',
-  },
 });
