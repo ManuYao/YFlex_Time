@@ -116,11 +116,17 @@ export default function Login() {
   const handleGoogle = async () => {
     if (!isConfigured) return;
     setError(null);
+    setInfo(null);
     setGoogleBusy(true);
     try {
-      await signInWithGoogle();
-      haptic.success();
-      router.back();
+      const outcome = await signInWithGoogle();
+      if (outcome === 'signed-in') {
+        haptic.success();
+        router.back();
+      } else {
+        // Navigateur refermé avant la fin : rien de cassé, on reste ici.
+        setInfo('Connexion Google annulée.');
+      }
     } catch (e) {
       haptic.warning();
       setError(e?.message || 'Une erreur est survenue.');

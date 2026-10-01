@@ -123,6 +123,16 @@ export function AuthProvider({ children }) {
       if (result.type === 'success' && result.url) {
         await applySessionFromUrl(result.url);
       }
+      // On ne dit « connecté » que si une session existe VRAIMENT. Avant, un
+      // navigateur refermé (ou une page d'erreur) passait pour un succès : le
+      // bouton jouait la vibration de réussite et quittait l'écran Connexion
+      // sans personne de connecté.
+      const { data: current } = await supabase.auth.getSession();
+      if (current?.session) return 'signed-in';
+      if (result.type === 'success') {
+        throw new Error("La connexion Google n'a pas abouti. Réessaie dans un instant.");
+      }
+      return 'cancelled';
     } finally {
       endGoogleFlow();
     }
