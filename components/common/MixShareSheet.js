@@ -129,18 +129,9 @@ function OptionCard({ icon, title, sub, children }) {
  *     écrasé : on demande de changer le nom, ou de remplacer l'autre en toute
  *     connaissance de cause.
  */
-function PublishCard({ mix: mixProp, goLogin, publishedLink: linkProp, onPublishedChange }) {
+function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
   const { user } = useAuth();
-  const { markPublished, library } = useTimers();
-  // Le mix à publier : celui d'où l'on vient, ou un autre choisi dans Mes mix.
-  const [picked, setPicked] = useState(null);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const mix = picked ?? mixProp;
-  const publishedLink = mix?.id === mixProp?.id ? linkProp : null;
-  const options = [
-    ...(mixProp && !library.some((m) => m.id === mixProp.id) ? [mixProp] : []),
-    ...library,
-  ];
+  const { markPublished } = useTimers();
   const userId = user?.id ?? null;
   const [pseudo, setPseudo] = useState('');
   const [category, setCategory] = useState(null);
@@ -315,7 +306,7 @@ function PublishCard({ mix: mixProp, goLogin, publishedLink: linkProp, onPublish
     <OptionCard icon="globe" title="Publier dans le fil public" sub={sub}>
       {/* Ce qui va partir en ligne, et la possibilité d'en choisir un autre. */}
       <View style={styles.target}>
-        <Text style={styles.fieldLabel}>MIX À PUBLIER</Text>
+        <Text style={styles.fieldLabel}>CE MIX SERA PUBLIÉ</Text>
         <View style={styles.targetRow}>
           <View style={{ flex: 1 }}>
             <Text style={styles.targetName} numberOfLines={1}>{mix?.name || 'Sans nom'}</Text>
@@ -345,33 +336,6 @@ function PublishCard({ mix: mixProp, goLogin, publishedLink: linkProp, onPublish
             </Text>
           </View>
         </View>
-        {options.length > 1 && (
-          <PressTap
-            tapScale={0.97}
-            onHapticIn={haptic.light}
-            onPress={() => setPickerOpen((v) => !v)}
-            style={styles.changeBtn}
-          >
-            <Text style={styles.changeText}>{pickerOpen ? 'Fermer la liste' : 'Choisir un autre mix'}</Text>
-          </PressTap>
-        )}
-        {pickerOpen &&
-          options.map((m) => (
-            <PressTap
-              key={m.id}
-              tapScale={0.98}
-              onHapticIn={haptic.selection}
-              onPress={() => {
-                setPicked(m);
-                setPickerOpen(false);
-                setFeedback(null);
-              }}
-              style={[styles.optionRow, m.id === mix?.id && styles.optionRowActive]}
-            >
-              <Text style={styles.optionName} numberOfLines={1}>{m.name || 'Sans nom'}</Text>
-              <Text style={styles.optionMeta}>{m.blocks?.length || 0} blocs</Text>
-            </PressTap>
-          ))}
       </View>
 
       {!!published && (
@@ -468,8 +432,25 @@ function PublishCard({ mix: mixProp, goLogin, publishedLink: linkProp, onPublish
 
 // Composant à part : l'effet qui fait défiler a besoin de scrollToEnd, que
 // BottomSheet ne fournit qu'à ses enfants.
-function ShareContent({ mix, close, scrollToEnd, onImported, goLogin, openFeed, initialTab, publishedLink, onPublishedChange }) {
-  const { saveAsLibraryEntry, saveCurrentMix } = useTimers();
+function ShareContent({ mix: mixProp, close, scrollToEnd, onImported, goLogin, openFeed, initialTab, publishedLink: linkProp, onPublishedChange }) {
+  const { saveAsLibraryEntry, saveCurrentMix, library } = useTimers();
+  // UN SEUL mix pour toute la feuille : le titre, l'aperçu, « Copier le lien » et
+  // « Publier » suivent le même. Changer ici change tout, d'un coup.
+  const [picked, setPicked] = useState(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const mix = picked ?? mixProp;
+  const publishedLink = mix?.id === mixProp?.id ? linkProp : null;
+  const options = [
+    ...(mixProp && !library.some((m) => m.id === mixProp.id) ? [mixProp] : []),
+    ...library,
+  ];
+  const pickMix = (m) => {
+    setPicked(m);
+    setPickerOpen(false);
+    setShowBlocks(false);
+    setCopied(false);
+    setShowTip(false);
+  };
   const [tab, setTab] = useState(initialTab);
   const [showBlocks, setShowBlocks] = useState(false);
   const [pasted, setPasted] = useState('');
@@ -575,6 +556,37 @@ function ShareContent({ mix, close, scrollToEnd, onImported, goLogin, openFeed, 
 
       {tab === 'send' && (
         <>
+          {options.length > 1 && (
+            <View style={styles.picker}>
+              <PressTap
+                tapScale={0.98}
+                onHapticIn={haptic.light}
+                onPress={() => setPickerOpen((v) => !v)}
+                accessibilityLabel="Choisir le mix à partager"
+                style={styles.pickerHead}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.fieldLabel}>MIX CHOISI</Text>
+                  <Text style={styles.pickerName} numberOfLines={1}>{mix?.name || 'Sans nom'}</Text>
+                </View>
+                <Text style={styles.pickerAction}>{pickerOpen ? 'Fermer' : 'Changer'}</Text>
+              </PressTap>
+              {pickerOpen &&
+                options.map((m) => (
+                  <PressTap
+                    key={m.id}
+                    tapScale={0.98}
+                    onHapticIn={haptic.selection}
+                    onPress={() => pickMix(m)}
+                    style={[styles.optionRow, m.id === mix?.id && styles.optionRowActive]}
+                  >
+                    <Text style={styles.optionName} numberOfLines={1}>{m.name || 'Sans nom'}</Text>
+                    <Text style={styles.optionMeta}>{m.blocks?.length || 0} blocs</Text>
+                  </PressTap>
+                ))}
+            </View>
+          )}
+
           {hasBlocks ? (
             <View style={styles.summary}>
               <BlockStrip blocks={mix.blocks.map((b) => b.type)} height={6} />
@@ -627,7 +639,7 @@ function ShareContent({ mix, close, scrollToEnd, onImported, goLogin, openFeed, 
                 )}
               </OptionCard>
 
-              <PublishCard mix={mix} goLogin={goLogin} publishedLink={publishedLink} onPublishedChange={onPublishedChange} />
+              <PublishCard key={mix?.id} mix={mix} goLogin={goLogin} publishedLink={publishedLink} onPublishedChange={onPublishedChange} />
             </>
           )}
 
@@ -964,6 +976,30 @@ const styles = StyleSheet.create({
     fontSize: 9,
     letterSpacing: 1,
     color: '#FFFFFF',
+  },
+  picker: {
+    marginBottom: 12,
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: 'rgba(149,117,255,0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(149,117,255,0.35)',
+  },
+  pickerHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  pickerName: {
+    fontFamily: fonts.sansExtraBold,
+    fontSize: 15,
+    color: '#FFFFFF',
+    marginTop: 2,
+  },
+  pickerAction: {
+    fontFamily: fonts.sansExtraBold,
+    fontSize: 13,
+    color: ACCENT,
   },
   changeBtn: {
     alignSelf: 'flex-start',
