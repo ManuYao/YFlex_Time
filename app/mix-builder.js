@@ -272,6 +272,16 @@ export default function MixBuilder() {
 
   // ---- Enregistrer ----
 
+  // Deux mix de Mes mix ne peuvent pas porter le même nom (hors le mix lui-même).
+  const nameTaken = () => {
+    const name = (draft.name || '').trim().toLowerCase();
+    return !!name && library.some((m) => m.id !== draft.id && (m.name || '').trim().toLowerCase() === name);
+  };
+  const refuseTakenName = () => {
+    haptic.error();
+    showToast({ text: 'Ce nom existe déjà : change-le pour enregistrer.', icon: 'close' });
+  };
+
   // Le brouillon devient le MIX courant ; s'il est déjà dans « Mes mix », son
   // entrée est mise à jour au passage (sinon la version enregistrée là-bas
   // restait l'ancienne).
@@ -288,32 +298,33 @@ export default function MixBuilder() {
   // « Enregistré », petit message.
   const handleSave = async () => {
     if (draft.blocks.length === 0) return;
+    if (inLibrary && nameTaken()) return refuseTakenName();
     haptic.success();
     await persistDraft();
     flashSaved('saved', inLibrary ? 'Enregistré · Mes mix mis à jour' : 'Enregistré comme ton MIX');
   };
 
-  // Maintien 2 s : archiver dans « Mes mix ». Un mix qui n'y était pas encore y
-  // entre et le brouillon devient cette entrée ; un mix déjà archivé y laisse
-  // une COPIE (l'original, et sa publication éventuelle, ne bougent pas).
+  // Maintien 2 s : archiver dans « Mes mix », sous un nom qui n'y existe pas
+  // encore. Un mix qui n'y était pas y entre et le brouillon devient cette
+  // entrée ; un mix déjà archivé, renommé, y laisse une COPIE.
   const handleSaveAsNew = async () => {
     if (draft.blocks.length === 0) return;
+    const baseName = (draft.name || '').trim() || 'Sans nom';
+    // Archiver sous un nom déjà utilisé (y compris celui du mix d'origine) est
+    // refusé : le nom doit être différent.
+    if (library.some((m) => (m.name || '').trim().toLowerCase() === baseName.toLowerCase())) {
+      return refuseTakenName();
+    }
     haptic.success();
     const base = withLatestPublishedId(cloneMix(draft));
-    const baseName = (base.name || '').trim() || 'Sans nom';
-    const taken = library.some((m) => m.name === baseName);
-    const entry = {
-      ...base,
-      id: `mix_${Date.now()}`,
-      name: (inLibrary && taken ? `${baseName.slice(0, 19)} (copie)` : baseName).slice(0, 28),
-    };
+    const entry = { ...base, id: `mix_${Date.now()}`, name: baseName.slice(0, 28) };
     if (inLibrary) {
       // La copie est à moi, et n'est pas publiée.
       delete entry.publishedId;
       delete entry.fromFeed;
       delete entry.own;
       await saveAsLibraryEntry(entry);
-      flashSaved('added', 'Copie ajoutée à Mes mix');
+      flashSaved('added', 'Ajouté à Mes mix');
       return;
     }
     await saveAsLibraryEntry(entry);
@@ -366,6 +377,7 @@ export default function MixBuilder() {
     }
     // Changer de mix : le brouillon modifié est enregistré dans Mes mix (mis à
     // jour s'il y est déjà), puis on continue.
+    if (nameTaken()) return refuseTakenName();
     const mix = withLatestPublishedId(cloneMix(draft));
     const name = mix.name?.trim() ? mix.name : 'Sans nom';
     await saveAsLibraryEntry(inLibrary ? { ...mix, name } : { ...mix, id: `mix_${Date.now()}`, name });
@@ -523,10 +535,7 @@ export default function MixBuilder() {
             <AppIcon name="globe" size={13} color={ACCENT} />
             <Text style={styles.pubBannerKicker}>MIX PUBLIÉ</Text>
           </View>
-          <Text style={styles.pubBannerText}>
-            Tu modifies ton mix du fil public. Tes changements n'y apparaissent qu'après « Mettre à
-            jour le fil » (bouton en bas) : il remplace « Lancer » tant que tu modifies ce mix.
-          </Text>
+          <Text style={styles.pubBannerText}>Tu modifies un mix du fil public.</Text>
           {!!pubState.text && (
             <Text style={[styles.pubBannerFeedback, { color: pubState.phase === 'ok' ? '#1FC777' : '#FF5454' }]}>
               {pubState.text}
