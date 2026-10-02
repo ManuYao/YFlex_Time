@@ -37,6 +37,7 @@ import {
 } from '../lib/profile';
 import { computeProfileStats } from '../lib/profileStats';
 import { loadHistory } from '../lib/history';
+import { claimPseudo, PSEUDO_TAKEN_TEXT } from '../lib/pseudos';
 
 /**
  * Hub Profil — remplace l'accès direct aux Paramètres depuis l'accueil.
@@ -62,7 +63,7 @@ export default function Profile() {
   const [statsTimerId, setStatsTimerId] = useState(null);
   const [shareSheet, setShareSheet] = useState(false);
   const [logoutConfirm, setLogoutConfirm] = useState(false);
-  const [pseudoSheet, setPseudoSheet] = useState(null); // null | 'edit' | 'welcome'
+  const [pseudoSheet, setPseudoSheet] = useState(null); // null | 'edit' | 'welcome' | 'taken'
   const nameSyncedForRef = useRef(null);
 
   // Chargement en deux temps : un SQUELETTE d'abord (blocs gris qui respirent),
@@ -144,9 +145,21 @@ export default function Profile() {
     const meta = validatePseudo(user.user_metadata?.display_name);
     const localIsDefault = profile.pseudo === DEFAULT_PSEUDO;
     (async () => {
+      // Un pseudo est UNIQUE entre comptes (anti-usurpation) : on le réserve à la
+      // connexion ; s'il est déjà pris par un autre, on redemande un autre nom.
       if (meta.ok && localIsDefault) {
+        const claim = await claimPseudo(user.id, meta.value);
+        if (claim.reason === 'taken') {
+          setPseudoSheet('taken');
+          return;
+        }
         setProfile(await saveProfile({ ...profile, pseudo: meta.value }));
       } else if (!meta.ok && !localIsDefault) {
+        const claim = await claimPseudo(user.id, profile.pseudo);
+        if (claim.reason === 'taken') {
+          setPseudoSheet('taken');
+          return;
+        }
         updateDisplayName(profile.pseudo).catch(() => {});
       } else if (!meta.ok && localIsDefault) {
         const asked = await AsyncStorage.getItem('flexTimer_namePrompted');
@@ -159,9 +172,16 @@ export default function Profile() {
   }, [user, profile, updateDisplayName]);
 
   const handlePseudoSubmit = async (name) => {
-    if (!profile) return;
+    if (!profile) return { ok: true };
+    // Connecté : le nom doit être libre (unique entre comptes). Sans compte, ou
+    // si la base n'est pas joignable, il reste local comme avant.
+    if (user) {
+      const claim = await claimPseudo(user.id, name);
+      if (claim.reason === 'taken') return { ok: false, reason: PSEUDO_TAKEN_TEXT };
+    }
     setProfile(await saveProfile({ ...profile, pseudo: name }));
     if (user) updateDisplayName(name).catch(() => {});
+    return { ok: true };
   };
 
   // Calculer les vraies stats — seulement une fois l'écran prêt : ce calcul
@@ -285,7 +305,8 @@ export default function Profile() {
         <PseudoSheet
           screenH={screenH}
           initialValue={profile?.pseudo ?? ''}
-          welcome={pseudoSheet === 'welcome'}
+          welcome={pseudoSheet === 'welcome' || pseudoSheet === 'taken'}
+          initialError={pseudoSheet === 'taken' ? PSEUDO_TAKEN_TEXT : null}
           onSubmit={handlePseudoSubmit}
           onClose={() => setPseudoSheet(null)}
         />

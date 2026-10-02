@@ -6,6 +6,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { isPseudoTaken, PSEUDO_TAKEN_TEXT } from '../lib/pseudos';
 import { exchangeCodeOnce, beginGoogleFlow, endGoogleFlow } from '../lib/authCode';
 
 // Nécessaire pour que le retour du navigateur système (Google) referme
@@ -86,6 +87,11 @@ export function AuthProvider({ children }) {
 
   const signUpWithEmail = useCallback(async (email, password, displayName) => {
     if (!isSupabaseConfigured) throw new Error('La connexion arrive bientôt.');
+    // Pseudo unique entre comptes : on prévient avant de créer le compte.
+    if (displayName) {
+      const check = await isPseudoTaken(displayName);
+      if (check.ok && check.taken) throw new Error(PSEUDO_TAKEN_TEXT);
+    }
     const { data, error } = await supabase.auth.signUp({
       email: email.trim(),
       password,

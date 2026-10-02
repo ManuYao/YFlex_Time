@@ -12,19 +12,37 @@ import { validatePseudo, PSEUDO_MAX, DEFAULT_PSEUDO } from '../../lib/profile';
  * Feuille « Ton nom » du Profil : le nom affiché en haut du Profil. Sert aussi
  * à la première demande après une connexion sans nom (Google, par exemple).
  */
-export default function PseudoSheet({ screenH, initialValue = '', welcome = false, onClose, onSubmit }) {
+export default function PseudoSheet({
+  screenH,
+  initialValue = '',
+  welcome = false,
+  initialError = null,
+  onClose,
+  onSubmit,
+}) {
   const [value, setValue] = useState(initialValue === DEFAULT_PSEUDO ? '' : initialValue);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState(initialError);
+  const [busy, setBusy] = useState(false);
 
-  const submit = (close) => {
+  // `onSubmit` peut être asynchrone et rendre { ok: false, reason } (nom déjà
+  // pris par un autre compte) : la feuille reste alors ouverte avec le message.
+  const submit = async (close) => {
+    if (busy) return;
     const check = validatePseudo(value);
     if (!check.ok) {
       haptic.warning();
       setError(check.reason);
       return;
     }
+    setBusy(true);
+    const res = await onSubmit(check.value);
+    setBusy(false);
+    if (res && res.ok === false) {
+      haptic.error();
+      setError(res.reason);
+      return;
+    }
     haptic.medium();
-    onSubmit(check.value);
     close();
   };
 
