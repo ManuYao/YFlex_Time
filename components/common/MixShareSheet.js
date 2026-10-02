@@ -129,9 +129,18 @@ function OptionCard({ icon, title, sub, children }) {
  *     écrasé : on demande de changer le nom, ou de remplacer l'autre en toute
  *     connaissance de cause.
  */
-function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
+function PublishCard({ mix: mixProp, goLogin, publishedLink: linkProp, onPublishedChange }) {
   const { user } = useAuth();
-  const { markPublished } = useTimers();
+  const { markPublished, library } = useTimers();
+  // Le mix à publier : celui d'où l'on vient, ou un autre choisi dans Mes mix.
+  const [picked, setPicked] = useState(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const mix = picked ?? mixProp;
+  const publishedLink = mix?.id === mixProp?.id ? linkProp : null;
+  const options = [
+    ...(mixProp && !library.some((m) => m.id === mixProp.id) ? [mixProp] : []),
+    ...library,
+  ];
   const userId = user?.id ?? null;
   const [pseudo, setPseudo] = useState('');
   const [category, setCategory] = useState(null);
@@ -304,6 +313,67 @@ function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
 
   return (
     <OptionCard icon="globe" title="Publier dans le fil public" sub={sub}>
+      {/* Ce qui va partir en ligne, et la possibilité d'en choisir un autre. */}
+      <View style={styles.target}>
+        <Text style={styles.fieldLabel}>MIX À PUBLIER</Text>
+        <View style={styles.targetRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.targetName} numberOfLines={1}>{mix?.name || 'Sans nom'}</Text>
+            <Text style={styles.targetMeta}>
+              {mix?.blocks?.length || 0} bloc{(mix?.blocks?.length || 0) > 1 ? 's' : ''} ·{' '}
+              {formatFeedDuration(getMixTotalDuration(mix?.blocks || []), hasEstimatedDuration(mix?.blocks || []))}
+            </Text>
+          </View>
+          <View
+            style={[
+              styles.statusChip,
+              clash || (published && !samePublishedContent(mix, published))
+                ? styles.statusWarn
+                : published
+                  ? styles.statusOk
+                  : null,
+            ]}
+          >
+            <Text style={styles.statusChipText}>
+              {clash
+                ? 'NOM DÉJÀ PRIS'
+                : published
+                  ? samePublishedContent(mix, published)
+                    ? 'EN LIGNE'
+                    : 'MODIFIÉ'
+                  : 'NOUVEAU'}
+            </Text>
+          </View>
+        </View>
+        {options.length > 1 && (
+          <PressTap
+            tapScale={0.97}
+            onHapticIn={haptic.light}
+            onPress={() => setPickerOpen((v) => !v)}
+            style={styles.changeBtn}
+          >
+            <Text style={styles.changeText}>{pickerOpen ? 'Fermer la liste' : 'Choisir un autre mix'}</Text>
+          </PressTap>
+        )}
+        {pickerOpen &&
+          options.map((m) => (
+            <PressTap
+              key={m.id}
+              tapScale={0.98}
+              onHapticIn={haptic.selection}
+              onPress={() => {
+                setPicked(m);
+                setPickerOpen(false);
+                setFeedback(null);
+              }}
+              style={[styles.optionRow, m.id === mix?.id && styles.optionRowActive]}
+            >
+              <Text style={styles.optionName} numberOfLines={1}>{m.name || 'Sans nom'}</Text>
+              <Text style={styles.optionMeta}>{m.blocks?.length || 0} blocs</Text>
+            </PressTap>
+          ))}
+      </View>
+
       {!!published && (
         <View style={styles.publishedRow}>
           <View style={styles.publishedDot} />
@@ -848,6 +918,89 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
 
+  target: {
+    marginTop: 4,
+    marginBottom: 6,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: 'rgba(149,117,255,0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(149,117,255,0.35)',
+  },
+  targetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  targetName: {
+    fontFamily: fonts.sansExtraBold,
+    fontSize: 15,
+    color: '#FFFFFF',
+  },
+  targetMeta: {
+    fontFamily: fonts.monoRegular,
+    fontSize: 10.5,
+    color: 'rgba(255,255,255,0.60)',
+    marginTop: 2,
+  },
+  statusChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.20)',
+  },
+  statusOk: {
+    backgroundColor: 'rgba(31,199,119,0.14)',
+    borderColor: 'rgba(31,199,119,0.45)',
+  },
+  statusWarn: {
+    backgroundColor: 'rgba(255,84,84,0.12)',
+    borderColor: 'rgba(255,84,84,0.45)',
+  },
+  statusChipText: {
+    fontFamily: fonts.monoBold,
+    fontSize: 9,
+    letterSpacing: 1,
+    color: '#FFFFFF',
+  },
+  changeBtn: {
+    alignSelf: 'flex-start',
+    marginTop: 10,
+  },
+  changeText: {
+    fontFamily: fonts.sansExtraBold,
+    fontSize: 12,
+    color: ACCENT,
+  },
+  optionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+  optionRowActive: {
+    borderColor: ACCENT,
+  },
+  optionName: {
+    flex: 1,
+    fontFamily: fonts.sansBold,
+    fontSize: 13,
+    color: '#FFFFFF',
+  },
+  optionMeta: {
+    fontFamily: fonts.monoRegular,
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.55)',
+    marginLeft: 8,
+  },
   clashBox: {
     marginTop: 12,
     padding: 12,
