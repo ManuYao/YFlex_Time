@@ -13,6 +13,7 @@ import { BlockStrip } from './MixPublicSheet';
 import { haptic } from '../../hooks/useHaptic';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTimers } from '../../contexts/TimersContext';
+import { usePremium } from '../../hooks/usePremium';
 import { fonts } from '../../lib/fonts';
 import { ROUND_SIZE } from '../../lib/buttonTokens';
 import { DISCIPLINES } from '../../lib/disciplines';
@@ -40,6 +41,7 @@ import {
 } from '../../lib/publicMixes';
 import {
   MAX_PUBLISHED_MIXES,
+  FREE_PUBLISHED_MIXES,
   checkPublishable,
   formatFeedDuration,
   formatRating,
@@ -132,6 +134,8 @@ function OptionCard({ icon, title, sub, children }) {
 function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
   const { user } = useAuth();
   const { markPublished } = useTimers();
+  const router = useRouter();
+  const { isPremium } = usePremium();
   const userId = user?.id ?? null;
   const [pseudo, setPseudo] = useState('');
   const [category, setCategory] = useState(null);
@@ -142,6 +146,9 @@ function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
   const [feedback, setFeedback] = useState(null); // { ok: boolean, text }
 
   const linkId = publishedLink?.id || mix?.publishedId || null;
+  const limit = isPremium ? MAX_PUBLISHED_MIXES : FREE_PUBLISHED_MIXES;
+  // Une NOUVELLE publication est bloquée à la limite ; mettre à jour ne l'est jamais.
+  const atLimit = !published && count != null && count >= limit;
 
   useEffect(() => {
     if (!userId || !isFeedConfigured) return undefined;
@@ -189,6 +196,10 @@ function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
       return;
     }
     const wasPublished = !!published;
+    if (!wasPublished && count != null && count >= limit) {
+      haptic.warning();
+      return;
+    }
     setPhase('busy');
     setFeedback(null);
     // Déjà publié (retrouvé par lien ou par contenu) : modification SUR PLACE,
@@ -383,9 +394,9 @@ function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
         color={ACCENT}
         fullWidth
         icon="globe"
-        label={published ? 'Mettre à jour' : clash ? 'Change le nom pour publier' : 'Publier'}
+        label={published ? 'Mettre à jour' : clash ? 'Change le nom pour publier' : atLimit ? 'Limite atteinte' : 'Publier'}
         onPress={handlePublish}
-        disabled={busy || !category || !!clash}
+        disabled={busy || !category || !!clash || atLimit}
         haptic={haptic.medium}
         style={styles.cardAction}
       />
@@ -420,8 +431,23 @@ function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
       )}
       {count != null && (
         <Text style={styles.hint}>
-          Tu as {count} mix publié{count > 1 ? 's' : ''} sur {MAX_PUBLISHED_MIXES} possibles — un par nom.
+          Tu as {count} mix publié{count > 1 ? 's' : ''} sur {limit} possibles — un par nom.
         </Text>
+      )}
+      {atLimit && !isPremium && (
+        <Button
+          variant="premium"
+          size="md"
+          fullWidth
+          icon="crown"
+          label={`Passe en Premium : jusqu'à ${MAX_PUBLISHED_MIXES} mix`}
+          onPress={() => router.push('/premium')}
+          haptic={haptic.medium}
+          style={styles.cardAction}
+        />
+      )}
+      {atLimit && isPremium && (
+        <Text style={styles.hint}>Retire un mix du fil pour en publier un autre.</Text>
       )}
       {!!feedback && (
         <Text style={[styles.feedback, { color: feedback.ok ? OK_GREEN : ERROR_RED }]}>{feedback.text}</Text>
