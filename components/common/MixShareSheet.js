@@ -34,6 +34,7 @@ import { isShareOnboarded, markShareOnboarded } from '../../lib/shareOnboarding'
 import { loadProfile } from '../../lib/profile';
 import {
   fetchMyPublishedMixes,
+  fetchNameTakenByOther,
   isFeedConfigured,
   publishMix,
   unpublishMix,
@@ -63,7 +64,7 @@ export const publishErrorText = (res) => {
     return `Tu as déjà ${res.max} mixes publiés. Retire-en un pour en publier un autre.`;
   }
   if (res.reason === 'duplicate') {
-    return 'Un autre de tes mix est déjà publié sous ce nom. Change le nom pour garder les deux.';
+    return 'Ce nom est déjà utilisé dans le fil public. Change le nom du mix.';
   }
   if (res.reason === 'unavailable') return "Le fil public n'est pas encore ouvert.";
   return 'Impossible de publier, vérifie ta connexion.';
@@ -141,6 +142,7 @@ function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
   const [category, setCategory] = useState(null);
   const [published, setPublished] = useState(null);
   const [clash, setClash] = useState(null); // un AUTRE de mes mix publié sous ce nom
+  const [taken, setTaken] = useState(false); // un autre sportif a déjà ce nom
   const [count, setCount] = useState(null); // combien j'en ai publié
   const [phase, setPhase] = useState('checking'); // 'checking' | 'ready' | 'busy' | 'unavailable'
   const [feedback, setFeedback] = useState(null); // { ok: boolean, text }
@@ -177,6 +179,10 @@ function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
           else other = byName;
         }
       }
+      // Le nom est unique dans TOUT le fil : un autre sportif qui l'a déjà bloque la publication.
+      const byOther = name ? await fetchNameTakenByOther(name, userId) : { ok: true, item: null };
+      if (cancelled) return;
+      setTaken(byOther.ok && !!byOther.item);
       setPublished(item);
       setClash(item ? null : other);
       // Catégorie du mix déjà publié, sinon la discipline principale du profil.
@@ -330,7 +336,7 @@ function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
           <View
             style={[
               styles.statusChip,
-              clash || (published && !samePublishedContent(mix, published))
+              clash || taken || (published && !samePublishedContent(mix, published))
                 ? styles.statusWarn
                 : published
                   ? styles.statusOk
@@ -338,7 +344,7 @@ function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
             ]}
           >
             <Text style={styles.statusChipText}>
-              {clash
+              {clash || taken
                 ? 'NOM DÉJÀ PRIS'
                 : published
                   ? samePublishedContent(mix, published)
@@ -380,7 +386,15 @@ function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
         })}
       </View>
 
-      {!!clash && (
+      {taken && (
+        <View style={styles.clashBox}>
+          <Text style={styles.clashTitle}>Ce nom est déjà pris</Text>
+          <Text style={styles.clashText}>
+            Un autre sportif a déjà publié un mix sous le nom « {mix?.name} ». Change le nom de ton mix pour le publier.
+          </Text>
+        </View>
+      )}
+      {!taken && !!clash && (
         <View style={styles.clashBox}>
           <Text style={styles.clashTitle}>Ce nom est déjà pris</Text>
           <Text style={styles.clashText}>
@@ -395,9 +409,17 @@ function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
         color={ACCENT}
         fullWidth
         icon="globe"
-        label={published ? 'Mettre à jour' : clash ? 'Change le nom pour publier' : atLimit ? 'Limite atteinte' : 'Publier'}
+        label={
+          taken || (!published && clash)
+            ? 'Change le nom pour publier'
+            : published
+              ? 'Mettre à jour'
+              : atLimit
+                ? 'Limite atteinte'
+                : 'Publier'
+        }
         onPress={handlePublish}
-        disabled={busy || !category || !!clash || atLimit}
+        disabled={busy || !category || !!clash || taken || atLimit}
         haptic={haptic.medium}
         style={styles.cardAction}
       />
