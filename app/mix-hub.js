@@ -329,6 +329,7 @@ export default function MixHub() {
 
       {sheet === 'feed' && (
         <MixPublicSheet
+          launchOnTest
           screenH={screenH}
           onClose={() => setSheet(null)}
           onTest={handleTestFromFeed}
@@ -338,6 +339,7 @@ export default function MixHub() {
       {sheet === 'mine' && (
         <MixPublicSheet
           mine
+          launchOnTest
           screenH={screenH}
           onClose={() => setSheet(null)}
           onTest={handleTestFromFeed}

@@ -11,6 +11,7 @@ import AppIcon from './AppIcon';
 import MixCommentsView from './MixCommentsView';
 import StarRating, { STAR_ON } from './StarRating';
 import { haptic } from '../../hooks/useHaptic';
+import { useMixLauncher } from '../../hooks/useMixLauncher';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTimers } from '../../contexts/TimersContext';
 import { fonts } from '../../lib/fonts';
@@ -273,8 +274,9 @@ function FeedCard({
   );
 }
 
-function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine }) {
+function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine, launchOnTest }) {
   const router = useRouter();
+  const launchMix = useMixLauncher();
   const { user } = useAuth();
   const { library, currentMix, saveAsLibraryEntry, saveCurrentMix, clearPublication } = useTimers();
 
@@ -504,17 +506,18 @@ function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine }) {
     if (onTest) {
       const r = await onTest(mix);
       if (r === false) return;
+      // Hors constructeur (page Mix et Partage) : « Tester » LANCE le mix.
+      if (launchOnTest) afterClose(() => launchMix(mix));
       close();
       return;
     }
-    // « Tester » remplace le MIX de l'accueil : on range d'abord l'ancien dans
-    // « Mes mix » s'il n'y est pas (et qu'il a été modifié), pour ne rien perdre.
+    // « Tester » = lancer le mix tout de suite (3-2-1) : avant, il se contentait
+    // de le poser comme MIX de l'accueil et rien ne démarrait. L'ancien MIX est
+    // rangé dans « Mes mix » s'il n'y est pas, pour ne rien perdre ; le quota
+    // gratuit s'applique comme pour n'importe quel lancement (useMixLauncher).
     await stashCurrentMix();
     await saveCurrentMix(mix);
-    afterClose(() => {
-      if (router.canDismiss()) router.dismissAll();
-      router.replace({ pathname: '/home', params: { lastTimerId: 'mix' } });
-    });
+    afterClose(() => launchMix(mix));
     close();
   };
 
@@ -716,7 +719,7 @@ function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine }) {
  * fil. `onEdit(mix, item)` (facultatif) remplace « ouvrir le constructeur » :
  * le constructeur s'en sert pour charger la publication dans son brouillon.
  */
-export default function MixPublicSheet({ screenH, onClose, onTest, onEdit, mine = false }) {
+export default function MixPublicSheet({ screenH, onClose, onTest, onEdit, mine = false, launchOnTest = false }) {
   const afterCloseRef = useRef(null);
 
   // Une navigation demandée depuis la feuille (connexion, accueil) attend la
@@ -742,6 +745,7 @@ export default function MixPublicSheet({ screenH, onClose, onTest, onEdit, mine 
           onTest={onTest}
           onEdit={onEdit}
           mine={mine}
+          launchOnTest={launchOnTest}
         />
       )}
     </BottomSheet>
