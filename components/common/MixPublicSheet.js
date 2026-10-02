@@ -11,7 +11,6 @@ import AppIcon from './AppIcon';
 import MixCommentsView from './MixCommentsView';
 import StarRating, { STAR_ON } from './StarRating';
 import { haptic } from '../../hooks/useHaptic';
-import { useMixLauncher } from '../../hooks/useMixLauncher';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTimers } from '../../contexts/TimersContext';
 import { fonts } from '../../lib/fonts';
@@ -276,7 +275,7 @@ function FeedCard({
 
 function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine, launchOnTest }) {
   const router = useRouter();
-  const launchMix = useMixLauncher();
+  const openPreview = () => router.push({ pathname: '/mix-builder', params: { preview: '1' } });
   const { user } = useAuth();
   const { library, currentMix, saveAsLibraryEntry, saveCurrentMix, clearPublication } = useTimers();
 
@@ -506,18 +505,18 @@ function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine, launc
     if (onTest) {
       const r = await onTest(mix);
       if (r === false) return;
-      // Hors constructeur (page Mix et Partage) : « Tester » LANCE le mix.
-      if (launchOnTest) afterClose(() => launchMix(mix));
+      // Hors constructeur (page Mix et Partage) : « Tester » ouvre l'aperçu.
+      if (launchOnTest) afterClose(() => openPreview());
       close();
       return;
     }
-    // « Tester » = lancer le mix tout de suite (3-2-1) : avant, il se contentait
-    // de le poser comme MIX de l'accueil et rien ne démarrait. L'ancien MIX est
-    // rangé dans « Mes mix » s'il n'y est pas, pour ne rien perdre ; le quota
-    // gratuit s'applique comme pour n'importe quel lancement (useMixLauncher).
+    // « Tester » = ouvrir l'APERÇU du mix dans le constructeur (lecture seule) :
+    // on voit ce qu'on va lancer, on peut le lancer, ou l'enregistrer (maintien)
+    // pour le modifier ensuite. L'ancien MIX est rangé dans « Mes mix » s'il n'y
+    // est pas, pour ne rien perdre.
     await stashCurrentMix();
     await saveCurrentMix(mix);
-    afterClose(() => launchMix(mix));
+    afterClose(() => openPreview());
     close();
   };
 

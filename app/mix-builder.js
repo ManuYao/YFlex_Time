@@ -130,6 +130,10 @@ export default function MixBuilder() {
       : null
   );
   const [pubState, setPubState] = useState({ phase: 'idle', text: null }); // idle | busy | ok | err
+  // Aperçu (« Tester » sur un mix publié) : on voit ce qu'on va lancer, sans
+  // rien pouvoir modifier ni réordonner. Maintenir Enregistrer l'ajoute à Mes
+  // mix, et il devient alors modifiable comme les autres.
+  const [preview, setPreview] = useState(() => params.preview === '1');
   // Verrou anti double-tap : le lancement est asynchrone (écriture du MIX
   // courant avant de partir), un second appui ne doit pas consommer deux
   // places du quota.
@@ -305,6 +309,11 @@ export default function MixBuilder() {
   // « Enregistré », petit message.
   const handleSave = async () => {
     if (draft.blocks.length === 0) return;
+    if (preview) {
+      haptic.warning();
+      showToast({ text: 'Maintiens Enregistrer 2 s pour l\'ajouter à Mes mix.', icon: 'lock' });
+      return;
+    }
     if (inLibrary && nameTaken()) return refuseTakenName();
     haptic.success();
     await persistDraft();
@@ -314,8 +323,29 @@ export default function MixBuilder() {
   // Maintien 2 s : archiver dans « Mes mix », sous un nom qui n'y existe pas
   // encore. Un mix qui n'y était pas y entre et le brouillon devient cette
   // entrée ; un mix déjà archivé, renommé, y laisse une COPIE.
+  // Aperçu → Mes mix : une copie à moi, jamais liée à la publication d'origine.
+  // Le nom n'est pas modifiable en aperçu : s'il existe déjà, on ajoute « 2 », « 3 »…
+  const handleSavePreview = async () => {
+    haptic.success();
+    const base = withLatestPublishedId(cloneMix(draft));
+    const name = (base.name || '').trim() || 'Sans nom';
+    const key = (x) => (x || '').trim().toLowerCase();
+    const used = new Set(library.map((m) => key(m.name)));
+    let finalName = name;
+    for (let i = 2; used.has(key(finalName)); i++) finalName = `${name.slice(0, 24)} ${i}`;
+    const entry = { ...base, id: `mix_${Date.now()}`, name: finalName.slice(0, 28) };
+    delete entry.publishedId;
+    delete entry.own;
+    await saveAsLibraryEntry(entry);
+    await saveCurrentMix(entry);
+    setDraft(cloneMix(entry));
+    setPreview(false);
+    flashSaved('added', 'Ajouté à Mes mix : tu peux le modifier');
+  };
+
   const handleSaveAsNew = async () => {
     if (draft.blocks.length === 0) return;
+    if (preview) return handleSavePreview();
     const baseName = (draft.name || '').trim() || 'Sans nom';
     // Archiver sous un nom déjà utilisé (y compris celui du mix d'origine) est
     // refusé : le nom doit être différent.
@@ -476,6 +506,7 @@ export default function MixBuilder() {
       const loaded = await loadFromLibrary(mixId);
       if (loaded) {
         dismissUndo();
+        setPreview(false);
         setDraft(cloneMix(loaded));
         // Un autre mix n'est pas la publication qu'on modifiait.
         setPublishedLink(null);
@@ -502,6 +533,7 @@ export default function MixBuilder() {
 
   const handleImported = (mix) => {
     dismissUndo();
+    setPreview(false);
     setDraft(cloneMix(mix));
     setPublishedLink(null);
   };
@@ -513,6 +545,7 @@ export default function MixBuilder() {
     guardedReplace(async () => {
       await saveCurrentMix(mix);
       dismissUndo();
+      setPreview(false);
       setDraft(cloneMix(mix));
       setPublishedLink({ id: item.id, category: item.category });
       setPubState({ phase: 'idle', text: null });
@@ -525,6 +558,7 @@ export default function MixBuilder() {
     guardedReplace(async () => {
       await saveCurrentMix(mix);
       dismissUndo();
+      setPreview(true);
       setDraft(cloneMix(mix));
       setPublishedLink(null);
       setPubState({ phase: 'idle', text: null });
@@ -536,7 +570,18 @@ export default function MixBuilder() {
 
   const ListHeader = (
     <View>
-      {!!publishedLink && (
+      {preview && (
+        <View style={styles.pubBanner}>
+          <View style={styles.pubBannerHead}>
+            <AppIcon name="expand" size={13} color={ACCENT} />
+            <Text style={styles.pubBannerKicker}>APERÇU</Text>
+          </View>
+          <Text style={styles.pubBannerText}>
+            Tu vois ce que tu vas lancer. Maintiens Enregistrer pour l'ajouter à Mes mix et le modifier.
+          </Text>
+        </View>
+      )}
+      {!!publishedLink && !preview && (
         <View style={styles.pubBanner}>
           <View style={styles.pubBannerHead}>
             <AppIcon name="globe" size={13} color={ACCENT} />
@@ -557,6 +602,7 @@ export default function MixBuilder() {
           <TextInput
             value={draft.name}
             onChangeText={updateName}
+            editable={!preview}
             style={styles.heroName}
             maxLength={28}
             placeholder="Nom du mix"
@@ -602,9 +648,11 @@ export default function MixBuilder() {
       <View style={styles.sectionHead}>
         <View style={styles.sectionHeadText}>
           <Text style={styles.sectionTitle}>Blocs de la séance</Text>
-          <Text style={styles.sectionHint}>Tap édite · Glisse ← supprime · Maintiens drag</Text>
+          <Text style={styles.sectionHint}>
+            {preview ? 'Aperçu en lecture seule' : 'Tap édite · Glisse ← supprime · Maintiens drag'}
+          </Text>
         </View>
-        {draft.blocks.length > 0 && (
+        {draft.blocks.length > 0 && !preview && (
           <Button
             variant="glass"
             size="sm"
@@ -629,12 +677,14 @@ export default function MixBuilder() {
           <IconButton icon="close" onPress={handleCancel} accessibilityLabel="Annuler" />
           <Text style={styles.topTitle}>Constructeur</Text>
           <View style={styles.topBarRight}>
-            <IconButton
-              icon="share"
-              size={ROUND_SIZE.nav}
-              onPress={() => openShare(draft, { isDraft: true })}
-              accessibilityLabel="Partager ce mix"
-            />
+            {!preview && (
+              <IconButton
+                icon="share"
+                size={ROUND_SIZE.nav}
+                onPress={() => openShare(draft, { isDraft: true })}
+                accessibilityLabel="Partager ce mix"
+              />
+            )}
             <Button
               variant="glass"
               size="nav"
@@ -665,6 +715,7 @@ export default function MixBuilder() {
                 index={getIndex() ?? 0}
                 drag={drag}
                 isActive={isActive}
+                readOnly={preview}
                 onEdit={() => setEditingBlockId(item.id)}
                 onDelete={() => removeBlock(item.id)}
               />
@@ -676,16 +727,18 @@ export default function MixBuilder() {
             beaucoup de blocs, "Ajouter un bloc" finissait tout en bas de la
             liste et fallait tout dérouler pour l'atteindre). */}
         <View style={styles.bottomBar} onLayout={(e) => setBarH(e.nativeEvent.layout.height)}>
-          <Button
-            variant="glass"
-            fullWidth
-            icon="plus"
-            label="Ajouter un bloc"
-            onPress={() => {
-              haptic.light();
-              setAddOpen(true);
-            }}
-          />
+          {!preview && (
+            <Button
+              variant="glass"
+              fullWidth
+              icon="plus"
+              label="Ajouter un bloc"
+              onPress={() => {
+                haptic.light();
+                setAddOpen(true);
+              }}
+            />
+          )}
           {/* Lancer en premier plan (accent, plus large) : c'est l'action
               principale du constructeur. Enregistrer reste à côté, en verre.
               « Annuler » n'est plus ici : la croix en haut à gauche fait déjà
@@ -818,7 +871,7 @@ export default function MixBuilder() {
   );
 }
 
-function BlockRow({ block, index, drag, isActive, onEdit, onDelete }) {
+function BlockRow({ block, index, drag, isActive, onEdit, onDelete, readOnly = false }) {
   const type = getBlockType(block.type);
   const swipeRef = useRef(null);
   if (!type) return null;
@@ -855,13 +908,13 @@ function BlockRow({ block, index, drag, isActive, onEdit, onDelete }) {
         overshootRight={false}
         friction={2}
         rightThreshold={40}
-        enabled={!isActive}
+        enabled={!isActive && !readOnly}
         containerStyle={styles.swipeWrap}
       >
         <Pressable
-          onLongPress={drag}
+          onLongPress={readOnly ? undefined : drag}
           delayLongPress={250}
-          onPress={onEdit}
+          onPress={readOnly ? undefined : onEdit}
           style={({ pressed }) => [
             styles.row,
             isActive && {
