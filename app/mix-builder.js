@@ -277,9 +277,16 @@ export default function MixBuilder() {
     const name = (draft.name || '').trim().toLowerCase();
     return !!name && library.some((m) => m.id !== draft.id && (m.name || '').trim().toLowerCase() === name);
   };
+  // Refus : le bouton lui-même passe au rouge (« Nom déjà pris ») pendant 2,5 s.
+  // Un simple petit message en bas passait inaperçu : le bouton se remplissait,
+  // vibrait, et on croyait que ça avait enregistré.
   const refuseTakenName = () => {
     haptic.error();
-    showToast({ text: 'Ce nom existe déjà : change-le pour enregistrer.', icon: 'close' });
+    setSaveStatus('refused');
+    setSaveTick((t) => t + 1);
+    showToast({ text: 'Ce nom existe déjà : change le nom du mix pour l\'enregistrer.', icon: 'close' }, 4200);
+    clearTimeout(saveStatusTimer.current);
+    saveStatusTimer.current = setTimeout(() => setSaveStatus(null), 2500);
   };
 
   // Le brouillon devient le MIX courant ; s'il est déjà dans « Mes mix », son
@@ -1025,6 +1032,7 @@ function SaveButton({ disabled, onTap, onLongComplete, status = null, flashTick 
   }));
 
   const confirmed = status === 'saved' || status === 'added';
+  const refused = status === 'refused';
 
   return (
     // Contour vert qui se dessine à chaque enregistrement réussi : la
@@ -1033,6 +1041,10 @@ function SaveButton({ disabled, onTap, onLongComplete, status = null, flashTick 
     <Pressable
       disabled={disabled}
       delayLongPress={SAVE_HOLD_MS}
+      // Un maintien de 2 s fait presque toujours dériver le doigt : au-delà de
+      // la tolérance par défaut (quelques mm) Android annule l'appui, la barre
+      // se vidait et rien ne s'enregistrait, une fois sur deux. Large tolérance.
+      pressRetentionOffset={{ top: 80, bottom: 80, left: 80, right: 80 }}
       onPressIn={() => {
         if (disabled) return;
         longFiredRef.current = false;
@@ -1046,7 +1058,8 @@ function SaveButton({ disabled, onTap, onLongComplete, status = null, flashTick 
       onLongPress={() => {
         if (disabled) return;
         longFiredRef.current = true;
-        haptic.medium();
+        // Pas de vibration ici : c'est le gestionnaire qui vibre, une fois sûr
+        // que l'enregistrement a lieu (sinon un refus vibrait comme un succès).
         onLongComplete?.();
       }}
       onPress={() => {
@@ -1090,12 +1103,15 @@ function SaveButton({ disabled, onTap, onLongComplete, status = null, flashTick 
           />
           <Animated.View pointerEvents="none" style={[styles.btnPrimaryFill, fillStyle]} />
           {confirmed && <AppIcon name="check" size={16} color="#1FC777" />}
-          <Text style={[styles.saveText, { color: confirmed ? '#1FC777' : r.textColor }]} numberOfLines={1}>
-            {status === 'added' ? 'Ajouté' : status === 'saved' ? 'Enregistré' : 'Enregistrer'}
+          <Text
+            style={[styles.saveText, { color: confirmed ? '#1FC777' : refused ? '#FF5454' : r.textColor }]}
+            numberOfLines={1}
+          >
+            {status === 'added' ? 'Ajouté' : status === 'saved' ? 'Enregistré' : refused ? 'Nom déjà pris' : 'Enregistrer'}
           </Text>
           {!confirmed && (
-            <Text style={styles.btnPrimaryHint} numberOfLines={1}>
-              Maintiens 2s = nouveau
+            <Text style={[styles.btnPrimaryHint, refused && { color: '#FF5454' }]} numberOfLines={1}>
+              {refused ? 'Change le nom du mix' : 'Maintiens 2s = nouveau'}
             </Text>
           )}
         </View>
