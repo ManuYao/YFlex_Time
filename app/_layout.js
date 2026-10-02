@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Stack } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import { useFonts } from 'expo-font';
 import { Anton_400Regular } from '@expo-google-fonts/anton';
 import {
@@ -131,7 +131,11 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000000' }}>
-      <SafeAreaProvider>
+      {/* initialMetrics : les marges de sécurité (barre d'état, barre de
+          navigation) sont connues dès le premier rendu. Sans elles, les écrans
+          démarraient collés en haut puis descendaient d'un coup quand la mesure
+          arrivait, de façon aléatoire d'un lancement à l'autre. */}
+      <SafeAreaProvider initialMetrics={initialWindowMetrics}>
         <SettingsProvider>
           <AuthProvider>
             <TimersProvider>
