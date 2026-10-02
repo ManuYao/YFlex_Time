@@ -144,6 +144,7 @@ function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
   const [count, setCount] = useState(null); // combien j'en ai publié
   const [phase, setPhase] = useState('checking'); // 'checking' | 'ready' | 'busy' | 'unavailable'
   const [feedback, setFeedback] = useState(null); // { ok: boolean, text }
+  const [infoOpen, setInfoOpen] = useState(false);
 
   const linkId = publishedLink?.id || mix?.publishedId || null;
   const limit = isPremium ? MAX_PUBLISHED_MIXES : FREE_PUBLISHED_MIXES;
@@ -224,10 +225,10 @@ function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
     setFeedback({
       ok: true,
       text: !wasPublished
-        ? 'Publié ! Il est visible dans le fil public. Tu peux en publier d’autres.'
+        ? 'Publié ! Visible dans le fil public.'
         : res.reset
-          ? 'Mis à jour dans le fil public. Les étoiles ont repris à zéro.'
-          : 'Mis à jour dans le fil public.',
+          ? 'Mis à jour. Les étoiles repartent à zéro.'
+          : 'Mis à jour.',
     });
   };
 
@@ -254,7 +255,7 @@ function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
     setClash(null);
     await markPublished(mix.id, res.item.id);
     onPublishedChange?.(mix.id, res.item.id);
-    setFeedback({ ok: true, text: 'Remplacé dans le fil public.' });
+    setFeedback({ ok: true, text: 'Remplacé.' });
   };
 
   const handleUnpublish = async () => {
@@ -424,15 +425,26 @@ function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
           haptic={haptic.light}
         />
       )}
-      {!!published && (
-        <Text style={styles.hint}>
-          Mettre à jour change le mix publié (nom et blocs). Tu peux aussi le retirer du fil à tout moment.
-        </Text>
-      )}
-      {count != null && (
-        <Text style={styles.hint}>
-          Tu as {count} mix publié{count > 1 ? 's' : ''} sur {limit} possibles — un par nom.
-        </Text>
+      {/* Infos repliées : un compteur et un petit « Infos » qui déplie le détail. */}
+      <View style={styles.infoRow}>
+        {count != null ? (
+          <Text style={styles.infoCount}>
+            {count}/{limit} publiés
+          </Text>
+        ) : (
+          <View />
+        )}
+        <PressTap tapScale={0.95} hitSlop={8} onHapticIn={haptic.selection} onPress={() => setInfoOpen((v) => !v)}>
+          <Text style={styles.infoToggle}>{infoOpen ? 'MASQUER' : 'INFOS'}</Text>
+        </PressTap>
+      </View>
+      {infoOpen && (
+        <>
+          <Text style={styles.hint}>
+            Tu peux publier jusqu'à {limit} mix, un par nom.
+            {published ? ' Mettre à jour change le mix publié (nom et blocs) ; tu peux aussi le retirer du fil à tout moment.' : ''}
+          </Text>
+        </>
       )}
       {atLimit && !isPremium && (
         <Button
@@ -1062,6 +1074,24 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: 'rgba(255,255,255,0.55)',
     marginLeft: 8,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 10,
+  },
+  infoCount: {
+    fontFamily: fonts.monoBold,
+    fontSize: 10.5,
+    letterSpacing: 0.6,
+    color: 'rgba(255,255,255,0.55)',
+  },
+  infoToggle: {
+    fontFamily: fonts.monoBold,
+    fontSize: 10.5,
+    letterSpacing: 1.2,
+    color: ACCENT,
   },
   clashBox: {
     marginTop: 12,
