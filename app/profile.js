@@ -46,8 +46,8 @@ export default function Profile() {
   const router = useRouter();
   const { height: screenH } = useWindowDimensions();
   const { timers } = useTimers();
-  const { isPremium } = usePremium();
-  const { user, signOut, updateDisplayName } = useAuth();
+  const { isPremium, loaded: premiumLoaded } = usePremium();
+  const { user, signOut, updateDisplayName, hydrated: authHydrated } = useAuth();
   const blurTargetRef = useRef(null);
 
   const [profile, setProfile] = useState(null);
@@ -69,16 +69,26 @@ export default function Profile() {
   // sont lues ET que la transition d'écran est terminée, avec un fondu depuis
   // le squelette. Aux retours sur l'écran (depuis les Paramètres…), on
   // rafraîchit les données sans remontrer le squelette.
-  const [ready, setReady] = useState(false);
+  //
+  // « Prêt » = tout ce qui peut changer la HAUTEUR de la page est connu : le
+  // profil et l'historique lus, la transition d'écran finie, l'état de la
+  // connexion (la carte « Se connecter » n'existe que sans compte, ~110 px) et
+  // le réglage Premium (l'analyse avancée n'a pas la même forme verrouillée ou
+  // non). Sans ça, la page changeait de taille après coup : trop haute quelques
+  // secondes, puis elle « redescendait ». Une minuterie de sécurité (1,5 s)
+  // évite qu'un état lent bloque l'écran sur le squelette.
+  const [dataLoaded, setDataLoaded] = useState(false);
+  const [settled, setSettled] = useState(false);
+  const [timedOut, setTimedOut] = useState(false);
   const [skeletonGone, setSkeletonGone] = useState(false);
-  const mountedRef = useRef(true);
-  const firstLoadDoneRef = useRef(false);
   const fade = useSharedValue(0);
 
   React.useEffect(() => {
-    mountedRef.current = true;
+    const task = InteractionManager.runAfterInteractions(() => setSettled(true));
+    const timer = setTimeout(() => setTimedOut(true), 1500);
     return () => {
-      mountedRef.current = false;
+      task.cancel?.();
+      clearTimeout(timer);
     };
   }, []);
 
@@ -90,17 +100,15 @@ export default function Profile() {
         if (cancelled) return;
         setProfile(prof);
         setSessions(hist);
-        if (firstLoadDoneRef.current) return;
-        firstLoadDoneRef.current = true;
-        InteractionManager.runAfterInteractions(() => {
-          if (mountedRef.current) setReady(true);
-        });
+        setDataLoaded(true);
       })();
       return () => {
         cancelled = true;
       };
     }, [])
   );
+
+  const ready = dataLoaded && settled && ((premiumLoaded && authHydrated) || timedOut);
 
   React.useEffect(() => {
     if (!ready) return;
@@ -252,7 +260,7 @@ export default function Profile() {
             {/* Squelette par-dessus, il s'efface en fondu puis se retire. */}
             {!skeletonGone && (
               <Animated.View style={[styles.skeletonLayer, skeletonStyle]} pointerEvents="none">
-                <ProfileSkeleton />
+                <ProfileSkeleton showAccount={!user} />
               </Animated.View>
             )}
             </View>

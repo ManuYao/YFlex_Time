@@ -4,6 +4,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import PressTap from '../common/PressTap';
 import AppIcon from '../common/AppIcon';
 import { BlockStrip } from '../common/MixPublicSheet';
+import { SkeletonGroup, SkeletonBlock } from '../common/Skeleton';
 import { haptic } from '../../hooks/useHaptic';
 import { fonts } from '../../lib/fonts';
 import { fetchFeed } from '../../lib/publicMixes';
@@ -84,7 +85,21 @@ export default function ProfileMixShare({ onOpenPublic, onOpenHub, refreshKey = 
           onPress={onOpenPublic}
         >
           <Text style={styles.countText}>{countLabel}</Text>
-          {strip.length > 0 && <BlockStrip blocks={strip} height={4} style={styles.strip} />}
+          {/* La bande de couleurs arrive avec le fil (réseau, parfois plusieurs
+              secondes) : sa place est RÉSERVÉE dès le départ. Avant, elle
+              ajoutait 12 px à la carte en arrivant et tout ce qui est dessous
+              descendait d'un coup. */}
+          {strip.length > 0 ? (
+            <BlockStrip blocks={strip} height={4} style={styles.strip} />
+          ) : (
+            <View style={styles.stripSlot}>
+              {status === 'loading' ? (
+                <SkeletonGroup>
+                  <SkeletonBlock height={4} radius={2} />
+                </SkeletonGroup>
+              ) : null}
+            </View>
+          )}
         </NavRow>
       </View>
     </View>
@@ -161,5 +176,11 @@ const styles = StyleSheet.create({
   strip: {
     alignSelf: 'stretch',
     marginTop: 8,
+  },
+  // Même encombrement que la bande réelle (8 de marge + 4 de haut).
+  stripSlot: {
+    alignSelf: 'stretch',
+    marginTop: 8,
+    height: 4,
   },
 });
