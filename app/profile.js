@@ -1,8 +1,9 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, useWindowDimensions } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, InteractionManager, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { BlurTargetView } from 'expo-blur';
+import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
 import GradientBackground from '../components/common/GradientBackground';
 import IconButton from '../components/common/IconButton';
@@ -10,9 +11,10 @@ import MixPill from '../components/common/MixPill';
 import ModeStatsSheet from '../components/common/ModeStatsSheet';
 import DisciplineSheet from '../components/common/DisciplineSheet';
 import MixPublicSheet from '../components/common/MixPublicSheet';
-import ShareSessionSheet from '../components/common/ShareSessionSheet';
+import ShareRecapSheet from '../components/common/ShareRecapSheet';
 import ConfirmSheet from '../components/common/ConfirmSheet';
 import PseudoSheet from '../components/common/PseudoSheet';
+import ProfileSkeleton from '../components/screens/ProfileSkeleton';
 import ProfileHeader from '../components/screens/ProfileHeader';
 import ProfileAccount from '../components/screens/ProfileAccount';
 import ProfileAnalytics from '../components/screens/ProfileAnalytics';
@@ -59,17 +61,59 @@ export default function Profile() {
   const [pseudoSheet, setPseudoSheet] = useState(null); // null | 'edit' | 'welcome'
   const nameSyncedForRef = useRef(null);
 
-  // Charger le profil et l'historique au montage et au focus
+  // Chargement en deux temps : un SQUELETTE d'abord (blocs gris qui respirent),
+  // le vrai contenu ensuite. Avant, l'écran montait d'un coup tout son arbre
+  // lourd (graphiques, flou, anneau) PENDANT l'animation d'ouverture — d'où le
+  // petit gel — et montrait d'abord des valeurs par défaut (« Athlète », des
+  // zéros) avant les vraies. Le contenu réel n'apparaît que lorsque les données
+  // sont lues ET que la transition d'écran est terminée, avec un fondu depuis
+  // le squelette. Aux retours sur l'écran (depuis les Paramètres…), on
+  // rafraîchit les données sans remontrer le squelette.
+  const [ready, setReady] = useState(false);
+  const [skeletonGone, setSkeletonGone] = useState(false);
+  const mountedRef = useRef(true);
+  const firstLoadDoneRef = useRef(false);
+  const fade = useSharedValue(0);
+
+  React.useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   useFocusEffect(
     React.useCallback(() => {
+      let cancelled = false;
       (async () => {
-        const prof = await loadProfile();
+        const [prof, hist] = await Promise.all([loadProfile(), loadHistory()]);
+        if (cancelled) return;
         setProfile(prof);
-        const hist = await loadHistory();
         setSessions(hist);
+        if (firstLoadDoneRef.current) return;
+        firstLoadDoneRef.current = true;
+        InteractionManager.runAfterInteractions(() => {
+          if (mountedRef.current) setReady(true);
+        });
       })();
+      return () => {
+        cancelled = true;
+      };
     }, [])
   );
+
+  React.useEffect(() => {
+    if (!ready) return;
+    fade.value = withTiming(1, { duration: 260 }, (finished) => {
+      if (finished) runOnJS(setSkeletonGone)(true);
+    });
+  }, [ready]);
+
+  // Pas de `entering` sur le contenu : un fondu piloté à la main évite le piège
+  // d'une entrée figée à opacité 0 quand les enfants changent juste après le
+  // montage (voir MaintenanceScreen).
+  const contentStyle = useAnimatedStyle(() => ({ opacity: fade.value }));
+  const skeletonStyle = useAnimatedStyle(() => ({ opacity: 1 - fade.value }));
 
   // Persister les disciplines quand elles changent
   const handleDisciplinesChange = async (newIds) => {
@@ -108,8 +152,12 @@ export default function Profile() {
     if (user) updateDisplayName(name).catch(() => {});
   };
 
-  // Calculer les vraies stats
-  const stats = useMemo(() => computeProfileStats(sessions, timers), [sessions, timers]);
+  // Calculer les vraies stats — seulement une fois l'écran prêt : ce calcul
+  // parcourt tout l'historique, il n'a pas à se jouer pendant la transition.
+  const stats = useMemo(
+    () => computeProfileStats(ready ? sessions : [], timers),
+    [ready, sessions, timers]
+  );
 
   // Identité du profil
   const identity = useMemo(
@@ -162,11 +210,15 @@ export default function Profile() {
               />
             </View>
 
+            <View style={styles.body}>
             <ScrollView
               style={styles.list}
               contentContainerStyle={styles.listContent}
               showsVerticalScrollIndicator={false}
+              scrollEnabled={ready}
             >
+              {ready && (
+              <Animated.View style={contentStyle}>
               <ProfileHeader
                 identity={identity}
                 disciplineIds={profile?.disciplineIds ?? []}
@@ -189,11 +241,21 @@ export default function Profile() {
               />
               <ProfileGamification
                 badgeCounts={stats.badgeCounts}
-                hasSession={!!stats.lastSession}
+                hasData={stats.hasData}
                 onOpenModeStats={setStatsTimerId}
-                onShareSession={() => setShareSheet(true)}
+                onShare={() => setShareSheet(true)}
               />
+              </Animated.View>
+              )}
             </ScrollView>
+
+            {/* Squelette par-dessus, il s'efface en fondu puis se retire. */}
+            {!skeletonGone && (
+              <Animated.View style={[styles.skeletonLayer, skeletonStyle]} pointerEvents="none">
+                <ProfileSkeleton />
+              </Animated.View>
+            )}
+            </View>
           </SafeAreaView>
         </GradientBackground>
       </BlurTargetView>
@@ -225,8 +287,16 @@ export default function Profile() {
           }}
         />
       )}
-      {shareSheet && stats.lastSession && (
-        <ShareSessionSheet session={stats.lastSession} screenH={screenH} onClose={() => setShareSheet(false)} />
+      {shareSheet && stats.hasData && (
+        <ShareRecapSheet
+          screenH={screenH}
+          sessions={sessions}
+          timers={timers}
+          badgeCounts={stats.badgeCounts}
+          lastSession={stats.lastSession}
+          identity={{ pseudo: identity.pseudo, initials: identity.initials }}
+          onClose={() => setShareSheet(false)}
+        />
       )}
       {statsTimer && (
         <ModeStatsSheet
@@ -288,7 +358,12 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     letterSpacing: -0.4,
   },
+  body: { flex: 1 },
   list: { flex: 1 },
+  skeletonLayer: {
+    ...StyleSheet.absoluteFill,
+    overflow: 'hidden',
+  },
   listContent: {
     paddingHorizontal: 20,
     paddingBottom: 40,

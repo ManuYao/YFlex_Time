@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { TIMERS } from '../lib/timers-config';
@@ -6,6 +6,8 @@ import {
   addToLibrary as persistAddToLibrary,
   removeFromLibrary as persistRemoveFromLibrary,
   saveCurrentMix as persistCurrentMix,
+  loadLibrary,
+  saveLibrary,
   hydrateMixState,
   LIBRARY_KEY,
   CURRENT_KEY,
@@ -70,6 +72,9 @@ export function TimersProvider({ children }) {
   const [library, setLibrary] = useState([]);
   const [currentMix, setCurrentMixState] = useState(null);
   const [hydrated, setHydrated] = useState(false);
+  // Dernier MIX courant, lisible depuis les callbacks sans les recréer.
+  const currentMixRef = useRef(null);
+  currentMixRef.current = currentMix;
 
   useEffect(() => {
     (async () => {
@@ -118,9 +123,43 @@ export function TimersProvider({ children }) {
     [persist]
   );
 
-  const saveCurrentMix = useCallback(async (mix) => {
+  const saveCurrentMix = useCallback(async (mixIn) => {
+    // Le lien vers la publication (`publishedId`) suit le mix : un brouillon
+    // recopié sans ce champ ne doit pas le perdre (même règle que la
+    // bibliothèque, lib/mixes.js addToLibrary).
+    const prev = currentMixRef.current;
+    const mix =
+      mixIn && !mixIn.publishedId && prev?.publishedId && prev.id === mixIn.id
+        ? { ...mixIn, publishedId: prev.publishedId }
+        : mixIn;
     setCurrentMixState(mix);
     await persistCurrentMix(mix);
+  }, []);
+
+  // Relie (ou délie, `publishedId` nul) un mix à sa publication dans le fil
+  // public — dans « Mes mix » ET comme MIX courant s'il s'agit du même. C'est ce
+  // lien, et non le nom, qui permet de publier plusieurs mix sans qu'ils
+  // s'écrasent entre eux.
+  const markPublished = useCallback(async (mixId, publishedId) => {
+    if (!mixId) return;
+    const apply = (m) => {
+      const next = { ...m };
+      if (publishedId) next.publishedId = publishedId;
+      else delete next.publishedId;
+      return next;
+    };
+    const list = await loadLibrary();
+    if (list.some((m) => m.id === mixId)) {
+      const next = list.map((m) => (m.id === mixId ? apply(m) : m));
+      await saveLibrary(next);
+      setLibrary(next);
+    }
+    const cur = currentMixRef.current;
+    if (cur && cur.id === mixId) {
+      const next = apply(cur);
+      setCurrentMixState(next);
+      await persistCurrentMix(next);
+    }
   }, []);
 
   const saveAsLibraryEntry = useCallback(async (mix) => {
@@ -163,6 +202,28 @@ export function TimersProvider({ children }) {
     }
   }, []);
 
+  // Une publication a été retirée du fil (ici ou depuis « Mes publications ») :
+  // les mix qui y étaient reliés redeviennent privés.
+  const clearPublication = useCallback(async (publishedId) => {
+    if (!publishedId) return;
+    const list = await loadLibrary();
+    if (list.some((m) => m.publishedId === publishedId)) {
+      const next = list.map((m) => {
+        if (m.publishedId !== publishedId) return m;
+        const { publishedId: _gone, ...rest } = m;
+        return rest;
+      });
+      await saveLibrary(next);
+      setLibrary(next);
+    }
+    const cur = currentMixRef.current;
+    if (cur && cur.publishedId === publishedId) {
+      const { publishedId: _gone, ...rest } = cur;
+      setCurrentMixState(rest);
+      await persistCurrentMix(rest);
+    }
+  }, []);
+
   const timers = useMemo(
     () => applyOverrides(TIMERS, overrides, currentMix),
     [overrides, currentMix]
@@ -181,8 +242,10 @@ export function TimersProvider({ children }) {
       saveAsLibraryEntry,
       removeFromLibrary,
       loadFromLibrary,
+      markPublished,
+      clearPublication,
     }),
-    [timers, updateStat, resetTimer, resetAll, hydrated, library, currentMix, saveCurrentMix, saveAsLibraryEntry, removeFromLibrary, loadFromLibrary]
+    [timers, updateStat, resetTimer, resetAll, hydrated, library, currentMix, saveCurrentMix, saveAsLibraryEntry, removeFromLibrary, loadFromLibrary, markPublished, clearPublication]
   );
 
   return <TimersContext.Provider value={value}>{children}</TimersContext.Provider>;

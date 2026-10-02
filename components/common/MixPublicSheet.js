@@ -276,7 +276,7 @@ function FeedCard({
 function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine }) {
   const router = useRouter();
   const { user } = useAuth();
-  const { library, currentMix, saveAsLibraryEntry, saveCurrentMix } = useTimers();
+  const { library, currentMix, saveAsLibraryEntry, saveCurrentMix, clearPublication } = useTimers();
 
   const [category, setCategory] = useState(null);
   const [sort, setSort] = useState('recent');
@@ -405,7 +405,8 @@ function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine }) {
       return;
     }
     haptic.success();
-    await saveAsLibraryEntry(mix);
+    // `fromFeed` : « Mes mix » range les mix des autres à part des miens.
+    await saveAsLibraryEntry({ ...mix, fromFeed: { author: item.author, feedId: item.id } });
   };
 
   const handleOpenReport = (item) => {
@@ -447,14 +448,19 @@ function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine }) {
   // les corrections vers le fil). Depuis le constructeur lui-même, `onEdit`
   // charge le brouillon sur place au lieu de naviguer.
   const handleEdit = async (item) => {
-    const mix = feedItemToMix(item);
-    if (!mix) {
+    const base = feedItemToMix(item);
+    if (!base) {
       haptic.error();
       return;
     }
+    // Mon propre mix : marqué « à moi » (pas un mix des autres) et relié à sa
+    // publication, pour que republier le mette à jour au lieu d'en créer un autre.
+    const mix = { ...base, own: true, publishedId: item.id };
     haptic.medium();
     if (onEdit) {
-      await onEdit(mix, item);
+      // `false` = pas maintenant (une confirmation s'affiche) : la feuille reste ouverte.
+      const r = await onEdit(mix, item);
+      if (r === false) return;
       close();
       return;
     }
@@ -479,18 +485,25 @@ function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine }) {
     }
     haptic.warning();
     setItems((list) => list.filter((i) => i.id !== item.id));
+    await clearPublication(item.id);
     showToast({ text: 'Retiré du fil public.', icon: 'check' });
   };
 
   const handleTest = async (item) => {
-    const mix = feedItemToMix(item);
-    if (!mix) {
+    const base = feedItemToMix(item);
+    if (!base) {
       haptic.error();
       return;
     }
+    // Marqué d'où il vient : « Mes mix » range les mix des autres à part des miens.
+    const mix =
+      userId && item.ownerId === userId
+        ? { ...base, own: true, publishedId: item.id }
+        : { ...base, fromFeed: { author: item.author, feedId: item.id } };
     haptic.medium();
     if (onTest) {
-      await onTest(mix);
+      const r = await onTest(mix);
+      if (r === false) return;
       close();
       return;
     }

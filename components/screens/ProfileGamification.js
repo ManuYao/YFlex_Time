@@ -21,7 +21,7 @@ function rowCaption({ count, badges }) {
   return `${count} / ${next.threshold} · ${next.label}`;
 }
 
-export default function ProfileGamification({ badgeCounts, onOpenModeStats, hasSession, onShareSession }) {
+export default function ProfileGamification({ badgeCounts, onOpenModeStats, hasData, onShare }) {
   const customTargetRef = useRef(null);
   const ROWS = React.useMemo(
     () =>
@@ -170,10 +170,10 @@ export default function ProfileGamification({ badgeCounts, onOpenModeStats, hasS
           variant="spectrum"
           size="lg"
           icon="share"
-          label="Partager ma séance"
+          label="Partager mon bilan"
           haptic={haptic.medium}
-          onPress={onShareSession}
-          disabled={!hasSession}
+          onPress={onShare}
+          disabled={!hasData}
           fullWidth
         />
       </View>

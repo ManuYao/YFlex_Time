@@ -8,7 +8,7 @@ import {
   StyleSheet,
   useWindowDimensions,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -36,6 +36,9 @@ import AppIcon from '../components/common/AppIcon';
 import MixShareSheet, { publishErrorText } from '../components/common/MixShareSheet';
 import MixPublicSheet from '../components/common/MixPublicSheet';
 import MixLibrarySheet from '../components/common/MixLibrarySheet';
+import UnsavedChangesSheet from '../components/common/UnsavedChangesSheet';
+import MiniToast from '../components/common/MiniToast';
+import SaveFlashRing from '../components/common/SaveFlashRing';
 import {
   BLOCK_TYPES,
   getBlockType,
@@ -47,7 +50,7 @@ import {
   MAX_BLOCK_NOTE_LENGTH,
   getRangesForType,
 } from '../lib/mix-blocks';
-import { makeDefaultMix, isDefaultMix } from '../lib/mixes';
+import { makeDefaultMix, isDefaultMix, mixSignature } from '../lib/mixes';
 import { loadProfile } from '../lib/profile';
 import { updatePublishedMix } from '../lib/publicMixes';
 import { DAYS, loadPlanning, formatBlockAsText } from '../lib/planning';
@@ -69,7 +72,9 @@ import { useMixLauncher } from '../hooks/useMixLauncher';
 import { useAuth } from '../contexts/AuthContext';
 
 const ACCENT = '#9575FF';
-const SAVE_HOLD_MS = 3000;
+// Maintenir « Enregistrer » 2 s = copie dans Mes mix (jamais plus long : au-delà on
+// croit que le bouton ne répond pas).
+const SAVE_HOLD_MS = 2000;
 
 export default function MixBuilder() {
   const router = useRouter();
@@ -82,7 +87,9 @@ export default function MixBuilder() {
     saveAsLibraryEntry,
     loadFromLibrary,
     removeFromLibrary,
+    markPublished,
   } = useTimers();
+  const insets = useSafeAreaInsets();
 
   const [draft, setDraft] = useState(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -90,7 +97,22 @@ export default function MixBuilder() {
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [shareMix, setShareMix] = useState(null);
+  // La publication liée au brouillon (publishedLink) ne vaut que pour LE
+  // brouillon : partager un autre mix depuis « Mes mix » ne doit jamais mettre
+  // à jour la publication du mix qu'on est en train de modifier.
+  const [shareIsDraft, setShareIsDraft] = useState(false);
   const [feedOpen, setFeedOpen] = useState(false);
+  // Retour visuel de « Enregistrer » : null | 'saved' | 'added'.
+  const [saveStatus, setSaveStatus] = useState(null);
+  const [saveTick, setSaveTick] = useState(0);
+  const [toast, setToast] = useState(null);
+  const [barH, setBarH] = useState(150);
+  // Avertissement « modifications non sauvegardées » : { action } (remplacer le
+  // brouillon par un autre mix) ou { leaving: true } (quitter le constructeur).
+  const [unsaved, setUnsaved] = useState(null);
+  const toastTimer = useRef(null);
+  const saveStatusTimer = useRef(null);
+  const resetUndoRef = useRef(null);
   const launchMix = useMixLauncher();
   const { user } = useAuth();
   const params = useLocalSearchParams();
@@ -113,11 +135,23 @@ export default function MixBuilder() {
   // places du quota.
   const launchingRef = useRef(false);
 
+  useEffect(
+    () => () => {
+      clearTimeout(toastTimer.current);
+      clearTimeout(saveStatusTimer.current);
+    },
+    []
+  );
+
+  // Empreinte du CONTENU (nom + blocs) : ne bouge pas quand seul un lien de
+  // publication change.
+  const draftSig = draft ? mixSignature(draft) : '';
+
   // Une modification du brouillon après une mise à jour réussie (ou ratée) :
   // le bandeau redevient « à envoyer ».
   useEffect(() => {
     setPubState((p) => (p.phase === 'ok' || p.phase === 'err' ? { phase: 'idle', text: null } : p));
-  }, [draft]);
+  }, [draftSig]);
 
   useEffect(() => {
     if (draft) return;
@@ -143,10 +177,55 @@ export default function MixBuilder() {
 
   const updateName = (v) => setDraft((d) => ({ ...d, name: v }));
 
+  const cloneMix = (m) => ({ ...m, blocks: m.blocks.map((b) => ({ ...b })) });
+
+  // Le brouillon est une copie : une publication faite depuis la feuille de
+  // partage n'y apparaît pas toute seule. On relit donc le lien de publication
+  // là où il est tenu à jour (Mes mix, MIX courant).
+  const withLatestPublishedId = (m) => {
+    const lib = library.find((x) => x.id === m.id);
+    const cur = currentMix?.id === m.id ? currentMix : null;
+    const pid = lib?.publishedId ?? cur?.publishedId ?? m.publishedId;
+    return pid ? { ...m, publishedId: pid } : m;
+  };
+
+  const inLibrary = library.some((m) => m.id === draft.id);
+  // Le brouillon a-t-il changé depuis qu'il a été chargé ou enregistré ? Le MIX
+  // courant est la référence : il est écrit à chaque chargement et à chaque
+  // enregistrement.
+  const dirty = !!currentMix && draftSig !== mixSignature(currentMix);
+  const hasUnsavedWork = dirty && draft.blocks.length > 0;
+
+  // ---- Petits messages et retour visuel ----
+
+  const showToast = (t, ms = 3200) => {
+    clearTimeout(toastTimer.current);
+    setToast({ ...t, id: Date.now() });
+    toastTimer.current = setTimeout(() => setToast(null), ms);
+  };
+
+  const dismissUndo = () => {
+    if (!resetUndoRef.current) return;
+    resetUndoRef.current = null;
+    clearTimeout(toastTimer.current);
+    setToast(null);
+  };
+
+  const flashSaved = (status, text) => {
+    setSaveStatus(status);
+    setSaveTick((t) => t + 1);
+    showToast({ text, icon: 'check' });
+    clearTimeout(saveStatusTimer.current);
+    saveStatusTimer.current = setTimeout(() => setSaveStatus(null), 2000);
+  };
+
+  // ---- Blocs ----
+
   const addBlock = (typeId) => {
     const block = makeBlock(typeId);
     if (!block) return;
     haptic.light();
+    dismissUndo();
     // Pas de rôle figé à la création : il suit le nom du bloc (resolveBlockRole)
     // tant que l'utilisateur n'a pas touché une pastille.
     // La feuille se referme elle-même (animation), puis onClose remet addOpen à false.
@@ -170,16 +249,142 @@ export default function MixBuilder() {
     setDraft((d) => ({ ...d, blocks: data }));
   };
 
-  const handleCancel = () => {
-    haptic.warning();
-    router.back();
+  // Tout vider en un appui (plus de suppression bloc par bloc). Seuls les blocs
+  // du brouillon partent : le nom, « Mes mix » et les publications ne bougent
+  // pas. Un « Annuler » de quelques secondes rattrape une erreur de doigt.
+  const undoReset = () => {
+    const blocks = resetUndoRef.current;
+    if (!blocks) return;
+    resetUndoRef.current = null;
+    haptic.light();
+    clearTimeout(toastTimer.current);
+    setToast(null);
+    setDraft((d) => (d.blocks.length === 0 ? { ...d, blocks } : d));
   };
 
+  const handleReset = () => {
+    if (draft.blocks.length === 0) return;
+    haptic.warning();
+    resetUndoRef.current = draft.blocks;
+    setDraft((d) => ({ ...d, blocks: [] }));
+    showToast({ text: 'Builder vidé', icon: 'reset', actionLabel: 'Annuler', onAction: undoReset }, 6000);
+  };
+
+  // ---- Enregistrer ----
+
+  // Le brouillon devient le MIX courant ; s'il est déjà dans « Mes mix », son
+  // entrée est mise à jour au passage (sinon la version enregistrée là-bas
+  // restait l'ancienne).
+  const persistDraft = async () => {
+    const mix = withLatestPublishedId(cloneMix(draft));
+    await saveCurrentMix(mix);
+    if (inLibrary) {
+      await saveAsLibraryEntry({ ...mix, name: mix.name?.trim() ? mix.name : 'Sans nom' });
+    }
+  };
+
+  // Un appui : on enregistre et on RESTE sur la page (avant, l'écran se fermait
+  // tout seul, ce qui surprenait). Le retour est visuel : contour vert, bouton
+  // « Enregistré », petit message.
   const handleSave = async () => {
     if (draft.blocks.length === 0) return;
     haptic.success();
-    await saveCurrentMix(draft);
+    await persistDraft();
+    flashSaved('saved', inLibrary ? 'Enregistré · Mes mix mis à jour' : 'Enregistré comme ton MIX');
+  };
+
+  // Maintien 2 s : archiver dans « Mes mix ». Un mix qui n'y était pas encore y
+  // entre et le brouillon devient cette entrée ; un mix déjà archivé y laisse
+  // une COPIE (l'original, et sa publication éventuelle, ne bougent pas).
+  const handleSaveAsNew = async () => {
+    if (draft.blocks.length === 0) return;
+    haptic.success();
+    const base = withLatestPublishedId(cloneMix(draft));
+    const baseName = (base.name || '').trim() || 'Sans nom';
+    const taken = library.some((m) => m.name === baseName);
+    const entry = {
+      ...base,
+      id: `mix_${Date.now()}`,
+      name: (inLibrary && taken ? `${baseName.slice(0, 19)} (copie)` : baseName).slice(0, 28),
+    };
+    if (inLibrary) {
+      // La copie est à moi, et n'est pas publiée.
+      delete entry.publishedId;
+      delete entry.fromFeed;
+      delete entry.own;
+      await saveAsLibraryEntry(entry);
+      flashSaved('added', 'Copie ajoutée à Mes mix');
+      return;
+    }
+    await saveAsLibraryEntry(entry);
+    await saveCurrentMix(entry);
+    setDraft(cloneMix(entry));
+    flashSaved('added', 'Ajouté à Mes mix');
+  };
+
+  // ---- Quitter / changer de mix sans rien perdre ----
+
+  const handleCancel = () => {
+    haptic.warning();
+    if (hasUnsavedWork) {
+      setUnsaved({ leaving: true });
+      return;
+    }
     router.back();
+  };
+
+  // L'ancien MIX courant, s'il n'est nulle part ailleurs (ni dans Mes mix, ni le
+  // MIX d'usine), est rangé dans Mes mix avant d'être remplacé : rien ne se perd
+  // en silence (même règle que « Tester » depuis le fil).
+  const stashBaseline = async () => {
+    if (currentMix?.blocks?.length && !isDefaultMix(currentMix) && !library.some((m) => m.id === currentMix.id)) {
+      await saveAsLibraryEntry(cloneMix(currentMix));
+    }
+  };
+
+  // Remplace le brouillon par un autre mix (`action`). Si le brouillon a des
+  // modifications non enregistrées, rien ne bouge : l'avertissement s'ouvre et
+  // rend `false` (la feuille d'où l'on vient reste ouverte).
+  const guardedReplace = async (action) => {
+    if (hasUnsavedWork) {
+      haptic.warning();
+      setUnsaved({ action });
+      return false;
+    }
+    await stashBaseline();
+    await action();
+    return true;
+  };
+
+  const handleUnsavedSave = async () => {
+    const pending = unsaved;
+    if (!pending) return;
+    if (pending.leaving) {
+      await persistDraft();
+      router.back();
+      return;
+    }
+    // Changer de mix : le brouillon modifié est enregistré dans Mes mix (mis à
+    // jour s'il y est déjà), puis on continue.
+    const mix = withLatestPublishedId(cloneMix(draft));
+    const name = mix.name?.trim() ? mix.name : 'Sans nom';
+    await saveAsLibraryEntry(inLibrary ? { ...mix, name } : { ...mix, id: `mix_${Date.now()}`, name });
+    await pending.action();
+    setLibraryOpen(false);
+    setFeedOpen(false);
+  };
+
+  const handleUnsavedDiscard = async () => {
+    const pending = unsaved;
+    if (!pending) return;
+    if (pending.leaving) {
+      router.back();
+      return;
+    }
+    await stashBaseline();
+    await pending.action();
+    setLibraryOpen(false);
+    setFeedOpen(false);
   };
 
   // Lancer = enregistrer ce brouillon comme MIX courant ET partir tout de
@@ -195,12 +400,27 @@ export default function MixBuilder() {
     }
   };
 
+  // ---- Publication ----
+
+  // Une publication faite (ou retirée) depuis la feuille de partage : le
+  // brouillon, s'il s'agit de ce mix, retient son lien.
+  const handlePublishedChange = (mixId, publishedId) => {
+    setDraft((d) => {
+      if (!d || d.id !== mixId) return d;
+      const next = { ...d };
+      if (publishedId) next.publishedId = publishedId;
+      else delete next.publishedId;
+      return next;
+    });
+  };
+
   // Envoie les corrections (nom, orthographe, blocs) vers le fil public.
   const handlePublishUpdate = async () => {
     if (!publishedLink || pubState.phase === 'busy') return;
     if (!user) {
       haptic.warning();
       setPubState({ phase: 'err', text: 'Connecte-toi pour mettre à jour ton mix publié.' });
+      showToast({ text: 'Connecte-toi pour mettre à jour ton mix publié.', icon: 'lock' });
       return;
     }
     setPubState({ phase: 'busy', text: null });
@@ -212,39 +432,37 @@ export default function MixBuilder() {
     });
     if (!res.ok) {
       haptic.error();
-      setPubState({ phase: 'err', text: publishErrorText(res) });
+      const text = publishErrorText(res);
+      setPubState({ phase: 'err', text });
+      showToast({ text, icon: 'close' });
       return;
     }
     haptic.success();
     // La publication peut avoir changé d'id (remplacement) : on suit la nouvelle.
     setPublishedLink({ id: res.item.id, category: res.item.category });
-    setPubState({
-      phase: 'ok',
-      text: res.reset
-        ? 'Mis à jour. Les étoiles ont repris à zéro.'
-        : 'À jour dans le fil public.',
+    handlePublishedChange(draft.id, res.item.id);
+    await markPublished(draft.id, res.item.id);
+    const text = res.reset
+      ? 'Mis à jour. Les étoiles ont repris à zéro.'
+      : 'À jour dans le fil public.';
+    setPubState({ phase: 'ok', text });
+    showToast({ text, icon: 'check' });
+  };
+
+  // ---- Charger un autre mix ----
+
+  const handleLoadMix = (mixId) =>
+    guardedReplace(async () => {
+      haptic.medium();
+      const loaded = await loadFromLibrary(mixId);
+      if (loaded) {
+        dismissUndo();
+        setDraft(cloneMix(loaded));
+        // Un autre mix n'est pas la publication qu'on modifiait.
+        setPublishedLink(null);
+        setPubState({ phase: 'idle', text: null });
+      }
     });
-  };
-
-  const handleSaveAsNew = async () => {
-    if (draft.blocks.length === 0) return;
-    haptic.success();
-    const entry = {
-      ...draft,
-      id: `mix_${Date.now()}`,
-      name: (draft.name || 'Sans nom').slice(0, 28),
-      blocks: draft.blocks.map((b) => ({ ...b })),
-    };
-    await saveAsLibraryEntry(entry);
-  };
-
-  const handleLoadMix = async (mixId) => {
-    haptic.medium();
-    const loaded = await loadFromLibrary(mixId);
-    if (loaded) {
-      setDraft({ ...loaded, blocks: loaded.blocks.map((b) => ({ ...b })) });
-    }
-  };
 
   const handleDeleteMix = async (mixId) => {
     haptic.warning();
@@ -256,41 +474,42 @@ export default function MixBuilder() {
   // MixShareSheet — aperçu avant d'envoyer, onglet « Recevoir » pour coller un
   // lien reçu (retour utilisateur v14.3.0 : beaucoup d'apps de messagerie ne
   // rendent pas cliquable un scheme personnalisé).
-  const openShare = (mix) => {
+  const openShare = (mix, { isDraft = false } = {}) => {
     haptic.light();
-    setShareMix(mix);
+    setShareMix(withLatestPublishedId(mix));
+    setShareIsDraft(isDraft);
     setShareOpen(true);
   };
 
   const handleImported = (mix) => {
-    setDraft({ ...mix, blocks: mix.blocks.map((b) => ({ ...b })) });
+    dismissUndo();
+    setDraft(cloneMix(mix));
+    setPublishedLink(null);
   };
+
+  // « Modifier » sur ma carte du fil, depuis le constructeur : la publication
+  // devient le brouillon, liée à son id. Un brouillon modifié n'est jamais
+  // écrasé sans avertissement.
+  const handleEditFromFeed = (mix, item) =>
+    guardedReplace(async () => {
+      await saveCurrentMix(mix);
+      dismissUndo();
+      setDraft(cloneMix(mix));
+      setPublishedLink({ id: item.id, category: item.category });
+      setPubState({ phase: 'idle', text: null });
+    });
 
   // « Tester » dans le fil public, depuis le Constructeur : le mix devient le
   // MIX courant ET le brouillon affiché (même geste que charger un mix de la
   // bibliothèque) au lieu de quitter l'écran avec un brouillon non enregistré.
-  // « Modifier » sur ma carte du fil, depuis le constructeur : la publication
-  // devient le brouillon, liée à son id. L'ancien brouillon est rangé dans
-  // « Mes mix » s'il serait perdu.
-  const handleEditFromFeed = async (mix, item) => {
-    if (draft?.blocks?.length && !isDefaultMix(draft) && !library.some((m) => m.id === draft.id)) {
-      await saveAsLibraryEntry({
-        ...draft,
-        id: `mix_${Date.now()}`,
-        name: (draft.name || 'Sans nom').slice(0, 28),
-        blocks: draft.blocks.map((b) => ({ ...b })),
-      });
-    }
-    await saveCurrentMix(mix);
-    setDraft({ ...mix, blocks: mix.blocks.map((b) => ({ ...b })) });
-    setPublishedLink({ id: item.id, category: item.category });
-    setPubState({ phase: 'idle', text: null });
-  };
-
-  const handleTestFromFeed = async (mix) => {
-    await saveCurrentMix(mix);
-    setDraft({ ...mix, blocks: mix.blocks.map((b) => ({ ...b })) });
-  };
+  const handleTestFromFeed = (mix) =>
+    guardedReplace(async () => {
+      await saveCurrentMix(mix);
+      dismissUndo();
+      setDraft(cloneMix(mix));
+      setPublishedLink(null);
+      setPubState({ phase: 'idle', text: null });
+    });
 
   const editingBlock = editingBlockId
     ? draft.blocks.find((b) => b.id === editingBlockId)
@@ -305,24 +524,9 @@ export default function MixBuilder() {
             <Text style={styles.pubBannerKicker}>MIX PUBLIÉ</Text>
           </View>
           <Text style={styles.pubBannerText}>
-            Tu modifies ton mix du fil public. Tes changements n'y apparaissent qu'après la mise à jour.
+            Tu modifies ton mix du fil public. Tes changements n'y apparaissent qu'après « Mettre à
+            jour le fil » (bouton en bas) : il remplace « Lancer » tant que tu modifies ce mix.
           </Text>
-          <Button
-            variant="accent"
-            color={ACCENT}
-            size="sm"
-            icon={pubState.phase === 'ok' ? 'check' : 'globe'}
-            label={
-              pubState.phase === 'busy'
-                ? 'Envoi…'
-                : pubState.phase === 'ok'
-                  ? 'À jour'
-                  : 'Mettre à jour le fil'
-            }
-            disabled={pubState.phase === 'busy' || pubState.phase === 'ok' || draft.blocks.length === 0}
-            onPress={handlePublishUpdate}
-            style={styles.pubBannerBtn}
-          />
           {!!pubState.text && (
             <Text style={[styles.pubBannerFeedback, { color: pubState.phase === 'ok' ? '#1FC777' : '#FF5454' }]}>
               {pubState.text}
@@ -380,8 +584,20 @@ export default function MixBuilder() {
       </View>
 
       <View style={styles.sectionHead}>
-        <Text style={styles.sectionTitle}>Blocs de la séance</Text>
-        <Text style={styles.sectionHint}>Tap édite · Glisse ← supprime · Maintiens drag</Text>
+        <View style={styles.sectionHeadText}>
+          <Text style={styles.sectionTitle}>Blocs de la séance</Text>
+          <Text style={styles.sectionHint}>Tap édite · Glisse ← supprime · Maintiens drag</Text>
+        </View>
+        {draft.blocks.length > 0 && (
+          <Button
+            variant="glass"
+            size="sm"
+            icon="reset"
+            label="Tout vider"
+            onPress={handleReset}
+            accessibilityLabel="Vider le builder : retirer tous les blocs"
+          />
+        )}
       </View>
     </View>
   );
@@ -400,7 +616,7 @@ export default function MixBuilder() {
             <IconButton
               icon="share"
               size={ROUND_SIZE.nav}
-              onPress={() => openShare(draft)}
+              onPress={() => openShare(draft, { isDraft: true })}
               accessibilityLabel="Partager ce mix"
             />
             <Button
@@ -443,7 +659,7 @@ export default function MixBuilder() {
         {/* Fixe, jamais dans le scroll (retour utilisateur 25/09/2026 : avec
             beaucoup de blocs, "Ajouter un bloc" finissait tout en bas de la
             liste et fallait tout dérouler pour l'atteindre). */}
-        <View style={styles.bottomBar}>
+        <View style={styles.bottomBar} onLayout={(e) => setBarH(e.nativeEvent.layout.height)}>
           <Button
             variant="glass"
             fullWidth
@@ -463,20 +679,57 @@ export default function MixBuilder() {
               disabled={draft.blocks.length === 0}
               onTap={handleSave}
               onLongComplete={handleSaveAsNew}
+              status={saveStatus}
+              flashTick={saveTick}
             />
-            <Button
-              variant="accent"
-              color={ACCENT}
-              icon="play"
-              label="Lancer"
-              disabled={draft.blocks.length === 0}
-              onPress={handleLaunch}
-              accessibilityLabel="Lancer ce mix"
-              style={styles.launchSlot}
-            />
+            {/* En modification d'un mix publié, l'action principale est
+                « Mettre à jour le fil » (même état que l'encadré du haut) :
+                « Lancer » n'a plus sa place ici. */}
+            {publishedLink ? (
+              <Button
+                variant="accent"
+                color={ACCENT}
+                icon={pubState.phase === 'ok' ? 'check' : 'globe'}
+                label={
+                  pubState.phase === 'busy'
+                    ? 'Envoi…'
+                    : pubState.phase === 'ok'
+                      ? 'À jour'
+                      : 'Mettre à jour le fil'
+                }
+                disabled={pubState.phase === 'busy' || pubState.phase === 'ok' || draft.blocks.length === 0}
+                onPress={handlePublishUpdate}
+                accessibilityLabel="Mettre à jour ce mix dans le fil public"
+                style={styles.launchSlot}
+              />
+            ) : (
+              <Button
+                variant="accent"
+                color={ACCENT}
+                icon="play"
+                label="Lancer"
+                disabled={draft.blocks.length === 0}
+                onPress={handleLaunch}
+                accessibilityLabel="Lancer ce mix"
+                style={styles.launchSlot}
+              />
+            )}
           </View>
         </View>
       </SafeAreaView>
+
+      {/* Petit message (enregistré, builder vidé…) juste au-dessus de la barre du bas. */}
+      {!!toast && (
+        <View style={[styles.toastLayer, { bottom: insets.bottom + barH + 4 }]} pointerEvents="box-none">
+          <MiniToast
+            key={toast.id}
+            text={toast.text}
+            icon={toast.icon}
+            actionLabel={toast.actionLabel}
+            onAction={toast.onAction}
+          />
+        </View>
+      )}
 
       {/* Feuilles dans la fenêtre principale, pas dans des <Modal> : Android
           n'envoie ni les événements ni les insets du clavier à une Modal, le
@@ -507,7 +760,8 @@ export default function MixBuilder() {
           onLoad={handleLoadMix}
           onDelete={handleDeleteMix}
           onShare={(m) => {
-            setShareMix(m);
+            setShareMix(withLatestPublishedId(m));
+            setShareIsDraft(false);
             setShareOpen(true);
           }}
         />
@@ -517,7 +771,8 @@ export default function MixBuilder() {
         <MixShareSheet
           screenH={screenH}
           mix={shareMix}
-          publishedLink={publishedLink}
+          publishedLink={shareIsDraft ? publishedLink : null}
+          onPublishedChange={handlePublishedChange}
           onClose={() => setShareOpen(false)}
           onImported={handleImported}
           onOpenFeed={() => setFeedOpen(true)}
@@ -530,6 +785,17 @@ export default function MixBuilder() {
           onClose={() => setFeedOpen(false)}
           onTest={handleTestFromFeed}
           onEdit={handleEditFromFeed}
+        />
+      )}
+
+      {!!unsaved && (
+        <UnsavedChangesSheet
+          screenH={screenH}
+          leaving={!!unsaved.leaving}
+          mixName={(draft.name || '').trim()}
+          onSave={handleUnsavedSave}
+          onDiscard={handleUnsavedDiscard}
+          onClose={() => setUnsaved(null)}
         />
       )}
     </GradientBackground>
@@ -729,11 +995,12 @@ function RoleChip({ role, selected, onPress, onLayout }) {
   );
 }
 
-// Enregistrer : un appui = enregistrer, 3 s d'appui = archiver en nouveau mix.
+// Enregistrer : un appui = enregistrer (on reste sur la page, avec un retour
+// visuel), 2 s d'appui = archiver une copie dans Mes mix.
 // Garde sa propre mécanique d'appui (la barre qui se remplit, que Button ne
 // sait pas faire) mais porte le rendu de la recette 'accent' de
 // lib/buttonTokens.js : même capsule que tous les autres boutons.
-function SaveButton({ disabled, onTap, onLongComplete }) {
+function SaveButton({ disabled, onTap, onLongComplete, status = null, flashTick = 0 }) {
   const haptic = useHaptic();
   const progress = useSharedValue(0);
   const scale = useSharedValue(1);
@@ -748,7 +1015,12 @@ function SaveButton({ disabled, onTap, onLongComplete }) {
     transform: [{ scale: scale.value }],
   }));
 
+  const confirmed = status === 'saved' || status === 'added';
+
   return (
+    // Contour vert qui se dessine à chaque enregistrement réussi : la
+    // confirmation que « ça a bien été pris », sans quitter l'écran.
+    <SaveFlashRing trigger={flashTick} radius={BUTTON_HEIGHT.lg / 2} style={styles.saveSlot}>
     <Pressable
       disabled={disabled}
       delayLongPress={SAVE_HOLD_MS}
@@ -776,7 +1048,7 @@ function SaveButton({ disabled, onTap, onLongComplete }) {
         }
         onTap?.();
       }}
-      style={styles.saveSlot}
+      style={styles.savePress}
     >
       <Animated.View
         style={[styles.saveOuter, disabled ? styles.saveDisabled : { boxShadow: r.outer }, scaleStyle]}
@@ -808,15 +1080,19 @@ function SaveButton({ disabled, onTap, onLongComplete }) {
             pointerEvents="none"
           />
           <Animated.View pointerEvents="none" style={[styles.btnPrimaryFill, fillStyle]} />
-          <Text style={[styles.saveText, { color: r.textColor }]} numberOfLines={1}>
-            Enregistrer
+          {confirmed && <AppIcon name="check" size={16} color="#1FC777" />}
+          <Text style={[styles.saveText, { color: confirmed ? '#1FC777' : r.textColor }]} numberOfLines={1}>
+            {status === 'added' ? 'Ajouté' : status === 'saved' ? 'Enregistré' : 'Enregistrer'}
           </Text>
-          <Text style={styles.btnPrimaryHint} numberOfLines={1}>
-            Maintiens 3s = nouveau
-          </Text>
+          {!confirmed && (
+            <Text style={styles.btnPrimaryHint} numberOfLines={1}>
+              Maintiens 2s = nouveau
+            </Text>
+          )}
         </View>
       </Animated.View>
     </Pressable>
+    </SaveFlashRing>
   );
 }
 
@@ -1364,8 +1640,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 10,
     marginBottom: 10,
     paddingHorizontal: 4,
+  },
+  sectionHeadText: {
+    flexShrink: 1,
+    gap: 4,
   },
   sectionTitle: {
     fontFamily: fonts.sansBold,
@@ -1533,6 +1814,18 @@ const styles = StyleSheet.create({
   saveSlot: {
     flex: 1,
   },
+  // Dans SaveFlashRing (hauteur = celle du bouton) : jamais de flex ici, une
+  // base nulle écraserait le bouton (piège n°14).
+  savePress: {
+    alignSelf: 'stretch',
+  },
+  toastLayer: {
+    position: 'absolute',
+    left: 20,
+    right: 20,
+    height: 52,
+    zIndex: 50,
+  },
   // Lancer : plus large que Enregistrer (flex 1.35 contre 1).
   launchSlot: {
     flex: 1.35,
@@ -1545,7 +1838,7 @@ const styles = StyleSheet.create({
     opacity: 0.38,
   },
   // paddingBottom : remonte un peu « Enregistrer » pour laisser respirer
-  // l'indice « Maintiens 3s » posé en bas de la capsule.
+  // l'indice « Maintiens 2s » posé en bas de la capsule.
   saveInner: {
     flex: 1,
     borderRadius: BUTTON_HEIGHT.lg / 2,

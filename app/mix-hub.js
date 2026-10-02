@@ -93,7 +93,7 @@ export default function MixHub() {
   // L'ancien MIX, s'il a été modifié et n'est pas déjà enregistré, est rangé
   // dans « Mes mix » avant d'être remplacé : rien ne se perd (même règle que
   // « Tester » depuis le profil).
-  const handleTestFromFeed = async (mix) => {
+  const stashCurrent = async () => {
     if (
       currentMix?.blocks?.length &&
       !isDefaultMix(currentMix) &&
@@ -101,6 +101,10 @@ export default function MixHub() {
     ) {
       await saveAsLibraryEntry(currentMix);
     }
+  };
+
+  const handleTestFromFeed = async (mix) => {
+    await stashCurrent();
     await saveCurrentMix(mix);
   };
 
@@ -299,6 +303,8 @@ export default function MixHub() {
           onClose={() => setSheet(null)}
           onLoad={async (id) => {
             haptic.medium();
+            // L'ancien MIX n'est jamais perdu : rangé dans Mes mix s'il n'y est pas.
+            await stashCurrent();
             await loadFromLibrary(id);
           }}
           onDelete={async (id) => {
@@ -307,7 +313,7 @@ export default function MixHub() {
           }}
           onShare={(m) => setSheet({ type: 'share', tab: 'send', mix: m })}
           hint="Tap = en faire ton MIX · croix = supprimer"
-          emptyText="Aucun mix enregistré. Dans le constructeur, maintiens « Enregistrer » 3 s pour en archiver un."
+          emptyText="Aucun mix enregistré. Dans le constructeur, maintiens « Enregistrer » 2 s pour en archiver un."
         />
       )}
 

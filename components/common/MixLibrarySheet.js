@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useMemo, useRef } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
@@ -6,14 +6,30 @@ import BottomSheet from './BottomSheet';
 import IconButton from './IconButton';
 import AppIcon from './AppIcon';
 import { getMixTotalDuration, hasEstimatedDuration } from '../../lib/mix-blocks';
+import { isFeedMix } from '../../lib/mixes';
+import { findPublication } from '../../lib/publicMixShape';
 import { fonts } from '../../lib/fonts';
 import { ROUND_SIZE } from '../../lib/buttonTokens';
 import { useHaptic } from '../../hooks/useHaptic';
+import { useMyPublications } from '../../hooks/useMyPublications';
+
+const ONLINE = '#1FC777';
 
 /**
  * « Mes mix » : la bibliothèque des mix enregistrés. Sortie du constructeur
  * (app/mix-builder.js) pour être aussi ouverte depuis le hub Mix et Partage
  * (app/mix-hub.js) — une seule liste, un seul rendu.
+ *
+ * Deux familles, séparées à l'écran : MES CRÉATIONS, et les mix ENREGISTRÉS
+ * DEPUIS LE FIL PUBLIC (créés par d'autres). Un mix du fil reste modifiable une
+ * fois dans la bibliothèque : on le charge comme les autres.
+ *
+ * Chaque création porte un repère de publication : « EN LIGNE » (publié dans le
+ * fil public) ou « PRIVÉ ». Sans compte ou sans réseau on ne peut pas savoir :
+ * aucun repère n'est alors affiché (jamais « privé » sur une supposition).
+ *
+ * `onLoad(id)` peut renvoyer `false` pour dire « pas maintenant » (une
+ * confirmation s'affiche par-dessus) : la feuille reste alors ouverte.
  *
  * `hint` : ligne d'aide sous la liste (dépend de l'écran d'où on l'ouvre).
  */
@@ -24,10 +40,11 @@ export default function MixLibrarySheet({
   onLoad,
   onDelete,
   onShare,
-  hint = 'Tap = charger · 3s sur Enregistrer = nouveau mix',
-  emptyText = 'Aucun mix sauvegardé. Maintiens "Enregistrer" 3s dans le constructeur pour en archiver un.',
+  hint = 'Tap = charger · 2s sur Enregistrer = nouveau mix',
+  emptyText = 'Aucun mix sauvegardé. Maintiens "Enregistrer" 2s dans le constructeur pour en archiver un.',
 }) {
   const haptic = useHaptic();
+  const pubs = useMyPublications();
   // Partager depuis la liste : cette feuille se referme d'abord, la feuille
   // de partage monte ensuite (jamais deux feuilles l'une sur l'autre).
   const shareAfterCloseRef = useRef(null);
@@ -36,90 +53,145 @@ export default function MixLibrarySheet({
     onClose();
     if (m) onShare(m);
   };
+
+  // `close` (animé) n'existe que dans le rendu de BottomSheet : on le garde
+  // dans une ref pour que les lignes ci-dessous s'en servent.
+  const close = useRef(null);
+
+  const ownIds = useMemo(() => new Set(pubs.items.map((p) => p.id)), [pubs.items]);
+  // Publications déjà reliées à un mix précis : un autre mix de même nom ne les
+  // revendique pas par son nom.
+  const claimedIds = useMemo(
+    () => new Set(library.map((m) => m.publishedId).filter(Boolean)),
+    [library]
+  );
+  const groups = useMemo(() => {
+    const mine = [];
+    const fromFeed = [];
+    for (const m of library) (isFeedMix(m, ownIds) ? fromFeed : mine).push(m);
+    return { mine, fromFeed };
+  }, [library, ownIds]);
+
+  const renderRow = (m, { feed }) => {
+    const total = getMixTotalDuration(m.blocks || []);
+    const min = Math.floor(total / 60);
+    const sec = total % 60;
+    // Le repère de publication ne concerne que MES créations.
+    const published = !feed && pubs.status === 'ok' ? findPublication(m, pubs.items, claimedIds) : null;
+    const showPrivate = !feed && pubs.status === 'ok' && !published;
+    const author = feed ? m.fromFeed?.author : null;
+    return (
+      <View key={m.id} style={styles.libRow}>
+        <Pressable
+          onPress={async () => {
+            const r = await onLoad(m.id);
+            if (r !== false) close.current?.();
+          }}
+          style={({ pressed }) => [styles.libRowMain, pressed && { opacity: 0.7 }]}
+        >
+          <View
+            style={[
+              styles.libDot,
+              { backgroundColor: published ? ONLINE : feed ? 'rgba(149,117,255,0.75)' : 'rgba(255,255,255,0.40)' },
+            ]}
+          />
+          <View style={{ flex: 1 }}>
+            <View style={styles.nameLine}>
+              <Text style={styles.libName} numberOfLines={1}>{m.name}</Text>
+              {!!published && (
+                <View style={styles.onlinePill}>
+                  <AppIcon name="globe" size={10} color={ONLINE} />
+                  <Text style={styles.onlineText}>EN LIGNE</Text>
+                </View>
+              )}
+              {showPrivate && (
+                <View style={styles.privatePill}>
+                  <AppIcon name="lock" size={10} color="rgba(255,255,255,0.45)" />
+                  <Text style={styles.privateText}>PRIVÉ</Text>
+                </View>
+              )}
+            </View>
+            <Text style={styles.libMeta} numberOfLines={1}>
+              {(m.blocks?.length || 0)} blocs · {hasEstimatedDuration(m.blocks) ? '~' : ''}
+              {String(min).padStart(2, '0')}:{String(sec).padStart(2, '0')}
+              {author ? ` · par ${author}` : ''}
+            </Text>
+          </View>
+        </Pressable>
+        <Pressable
+          onPress={() => {
+            haptic.light();
+            shareAfterCloseRef.current = m;
+            close.current?.();
+          }}
+          style={({ pressed }) => [styles.libShare, pressed && { opacity: 0.7 }]}
+          hitSlop={10}
+        >
+          <AppIcon name="share" size={14} color="rgba(255,255,255,0.55)" />
+        </Pressable>
+        <Pressable
+          onPress={() => onDelete(m.id)}
+          style={({ pressed }) => [styles.libDelete, pressed && { opacity: 0.7 }]}
+          hitSlop={10}
+        >
+          <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
+            <Path d="M3 3l8 8M11 3l-8 8" stroke="#FF5454" strokeWidth={2} strokeLinecap="round" />
+          </Svg>
+        </Pressable>
+      </View>
+    );
+  };
+
   return (
     <BottomSheet screenH={screenH} onClose={handleClosed}>
-      {({ close }) => (
-        <View>
-          <View style={styles.headerRow}>
-            <View>
-              <Text style={styles.kicker}>MES MIX</Text>
-              <Text style={styles.title}>
-                {library.length} enregistré{library.length > 1 ? 's' : ''}
-              </Text>
+      {({ close: sheetClose }) => {
+        close.current = sheetClose;
+        return (
+          <View>
+            <View style={styles.headerRow}>
+              <View>
+                <Text style={styles.kicker}>MES MIX</Text>
+                <Text style={styles.title}>
+                  {library.length} enregistré{library.length > 1 ? 's' : ''}
+                </Text>
+              </View>
+              <IconButton
+                icon="close"
+                size={ROUND_SIZE.sheet}
+                haptic={haptic.light}
+                onPress={sheetClose}
+                accessibilityLabel="Fermer"
+              />
             </View>
-            <IconButton
-              icon="close"
-              size={ROUND_SIZE.sheet}
-              haptic={haptic.light}
-              onPress={close}
-              accessibilityLabel="Fermer"
-            />
-          </View>
 
-          <View style={styles.libList}>
-            {library.length === 0 && (
-              <Text style={styles.libEmpty}>{emptyText}</Text>
+            {library.length === 0 && <Text style={styles.libEmpty}>{emptyText}</Text>}
+
+            {groups.mine.length > 0 && (
+              <View style={styles.group}>
+                <Text style={styles.groupTitle}>MES CRÉATIONS · {groups.mine.length}</Text>
+                <View style={styles.libList}>{groups.mine.map((m) => renderRow(m, { feed: false }))}</View>
+              </View>
             )}
-            {library.map((m) => {
-              const total = getMixTotalDuration(m.blocks || []);
-              const min = Math.floor(total / 60);
-              const sec = total % 60;
-              return (
-                <View key={m.id} style={styles.libRow}>
-                  <Pressable
-                    onPress={() => {
-                      onLoad(m.id);
-                      close();
-                    }}
-                    style={({ pressed }) => [
-                      styles.libRowMain,
-                      pressed && { opacity: 0.7 },
-                    ]}
-                  >
-                    <View style={[styles.libDot, { backgroundColor: 'rgba(255,255,255,0.40)' }]} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.libName} numberOfLines={1}>{m.name}</Text>
-                      <Text style={styles.libMeta}>
-                        {(m.blocks?.length || 0)} blocs · {hasEstimatedDuration(m.blocks) ? '~' : ''}{String(min).padStart(2, '0')}:{String(sec).padStart(2, '0')}
-                      </Text>
-                    </View>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => {
-                      haptic.light();
-                      shareAfterCloseRef.current = m;
-                      close();
-                    }}
-                    style={({ pressed }) => [
-                      styles.libShare,
-                      pressed && { opacity: 0.7 },
-                    ]}
-                    hitSlop={10}
-                  >
-                    <AppIcon name="share" size={14} color="rgba(255,255,255,0.55)" />
-                  </Pressable>
-                  <Pressable
-                    onPress={() => onDelete(m.id)}
-                    style={({ pressed }) => [
-                      styles.libDelete,
-                      pressed && { opacity: 0.7 },
-                    ]}
-                    hitSlop={10}
-                  >
-                    <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
-                      <Path d="M3 3l8 8M11 3l-8 8" stroke="#FF5454" strokeWidth={2} strokeLinecap="round" />
-                    </Svg>
-                  </Pressable>
-                </View>
-              );
-            })}
-          </View>
 
-          <Text style={styles.libHint}>
-            {hint}
-          </Text>
-        </View>
-      )}
+            {groups.fromFeed.length > 0 && (
+              <View style={styles.group}>
+                <View style={styles.groupHead}>
+                  <AppIcon name="globe" size={11} color="rgba(149,117,255,0.9)" />
+                  <Text style={[styles.groupTitle, { color: 'rgba(149,117,255,0.9)' }]}>
+                    ENREGISTRÉS DEPUIS LE FIL · {groups.fromFeed.length}
+                  </Text>
+                </View>
+                <View style={styles.libList}>{groups.fromFeed.map((m) => renderRow(m, { feed: true }))}</View>
+                <Text style={styles.groupNote}>
+                  Créés par d'autres : tu peux les modifier, ta version reste la tienne.
+                </Text>
+              </View>
+            )}
+
+            <Text style={styles.libHint}>{hint}</Text>
+          </View>
+        );
+      }}
     </BottomSheet>
   );
 }
@@ -144,9 +216,32 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     letterSpacing: -0.5,
   },
+  group: {
+    marginBottom: 14,
+  },
+  groupHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 8,
+  },
+  groupTitle: {
+    fontFamily: fonts.sansBold,
+    fontSize: 10,
+    letterSpacing: 2.4,
+    color: 'rgba(255,255,255,0.55)',
+    marginBottom: 8,
+  },
+  groupNote: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 11,
+    lineHeight: 15,
+    color: 'rgba(255,255,255,0.40)',
+    marginTop: 8,
+    paddingHorizontal: 2,
+  },
   libList: {
     gap: 8,
-    marginBottom: 16,
   },
   libEmpty: {
     fontFamily: fonts.sansMedium,
@@ -177,11 +272,51 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
   },
+  nameLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   libName: {
+    flexShrink: 1,
     fontFamily: fonts.sansBold,
     fontSize: 13,
     color: '#FFFFFF',
     letterSpacing: -0.2,
+  },
+  onlinePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: 'rgba(31,199,119,0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(31,199,119,0.45)',
+  },
+  onlineText: {
+    fontFamily: fonts.monoBold,
+    fontSize: 8.5,
+    letterSpacing: 1,
+    color: ONLINE,
+  },
+  privatePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  privateText: {
+    fontFamily: fonts.monoBold,
+    fontSize: 8.5,
+    letterSpacing: 1,
+    color: 'rgba(255,255,255,0.45)',
   },
   libMeta: {
     fontFamily: fonts.monoRegular,

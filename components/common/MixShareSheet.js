@@ -32,14 +32,19 @@ import { copyToClipboard } from '../../lib/clipboard';
 import { isShareOnboarded, markShareOnboarded } from '../../lib/shareOnboarding';
 import { loadProfile } from '../../lib/profile';
 import {
-  fetchMyPublished,
-  fetchPublishedById,
+  fetchMyPublishedMixes,
   isFeedConfigured,
   publishMix,
   unpublishMix,
   updatePublishedMix,
 } from '../../lib/publicMixes';
-import { checkPublishable, formatFeedDuration, formatRating } from '../../lib/publicMixShape';
+import {
+  MAX_PUBLISHED_MIXES,
+  checkPublishable,
+  formatFeedDuration,
+  formatRating,
+  samePublishedContent,
+} from '../../lib/publicMixShape';
 
 const ACCENT = '#9575FF'; // violet du MIX
 const OK_GREEN = '#1FC777';
@@ -56,7 +61,7 @@ export const publishErrorText = (res) => {
     return `Tu as déjà ${res.max} mixes publiés. Retire-en un pour en publier un autre.`;
   }
   if (res.reason === 'duplicate') {
-    return 'Tu as déjà un autre mix publié sous ce nom. Change le nom ou retire l\'autre.';
+    return 'Un autre de tes mix est déjà publié sous ce nom. Change le nom pour garder les deux.';
   }
   if (res.reason === 'unavailable') return "Le fil public n'est pas encore ouvert.";
   return 'Impossible de publier, vérifie ta connexion.';
@@ -109,20 +114,34 @@ function OptionCard({ icon, title, sub, children }) {
 /**
  * Carte « Publier dans le fil public » : compte obligatoire, catégorie au choix.
  *
- * `publishedLink` ({ id, category }) : ce mix vient d'une publication qu'on est
- * en train de modifier (constructeur ouvert depuis « Modifier »). On la retrouve
- * par son id et non par son nom : renommer le mix ne doit pas créer un
- * doublon en laissant l'ancien bloqué en ligne (le piège d'origine, qui
- * empêchait l'auteur de retirer ou corriger son mix).
+ * On peut publier PLUSIEURS mix (jusqu'à MAX_PUBLISHED_MIXES), un par nom. Chaque
+ * mix est relié à sa publication par un identifiant (`mix.publishedId`, posé à
+ * la publication), jamais par son nom seul : deux mix de même nom ne
+ * s'écrasent plus en silence.
+ *
+ * Retrouver la publication de CE mix, dans l'ordre :
+ *  1. `publishedLink` ({ id, category }) : le constructeur est ouvert sur une
+ *     publication qu'on modifie (« Modifier »), on la retrouve par son id ;
+ *  2. `mix.publishedId` : le lien posé à la dernière publication ;
+ *  3. le même nom ET le même contenu : un mix publié avant l'existence du lien,
+ *     qu'on relie alors sans rien changer ;
+ *  4. même nom mais contenu différent : c'est un AUTRE mix (`clash`). Rien n'est
+ *     écrasé : on demande de changer le nom, ou de remplacer l'autre en toute
+ *     connaissance de cause.
  */
-function PublishCard({ mix, goLogin, publishedLink }) {
+function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
   const { user } = useAuth();
+  const { markPublished } = useTimers();
   const userId = user?.id ?? null;
   const [pseudo, setPseudo] = useState('');
   const [category, setCategory] = useState(null);
   const [published, setPublished] = useState(null);
+  const [clash, setClash] = useState(null); // un AUTRE de mes mix publié sous ce nom
+  const [count, setCount] = useState(null); // combien j'en ai publié
   const [phase, setPhase] = useState('checking'); // 'checking' | 'ready' | 'busy' | 'unavailable'
   const [feedback, setFeedback] = useState(null); // { ok: boolean, text }
+
+  const linkId = publishedLink?.id || mix?.publishedId || null;
 
   useEffect(() => {
     if (!userId || !isFeedConfigured) return undefined;
@@ -130,21 +149,28 @@ function PublishCard({ mix, goLogin, publishedLink }) {
     setPhase('checking');
     (async () => {
       const profile = await loadProfile();
-      let res = publishedLink?.id
-        ? await fetchPublishedById(publishedLink.id, userId)
-        : { ok: true, item: null };
-      // Lien absent ou publication introuvable (retirée entre-temps) : retour à
-      // la recherche par nom, comme avant.
-      if (res.ok && !res.item) res = await fetchMyPublished(mix?.name, userId);
+      const all = await fetchMyPublishedMixes(userId);
       if (cancelled) return;
       setPseudo(profile.pseudo);
-      if (!res.ok && res.reason === 'unavailable') {
+      if (!all.ok && all.reason === 'unavailable') {
         setPhase('unavailable');
         return;
       }
       // Panne réseau : on laisse publier quand même, sans savoir s'il l'est déjà.
-      const item = res.ok ? res.item : null;
+      const list = all.ok ? all.items : [];
+      setCount(all.ok ? list.length : null);
+      const name = String(mix?.name || '').trim().slice(0, 28);
+      let item = linkId ? list.find((p) => p.id === linkId) || null : null;
+      let other = null;
+      if (!item && name) {
+        const byName = list.find((p) => p.name.trim() === name) || null;
+        if (byName) {
+          if (samePublishedContent(mix, byName)) item = byName;
+          else other = byName;
+        }
+      }
       setPublished(item);
+      setClash(item ? null : other);
       // Catégorie du mix déjà publié, sinon la discipline principale du profil.
       setCategory(item?.category ?? publishedLink?.category ?? profile.disciplineIds?.[0] ?? null);
       setPhase('ready');
@@ -152,7 +178,7 @@ function PublishCard({ mix, goLogin, publishedLink }) {
     return () => {
       cancelled = true;
     };
-  }, [userId, mix?.name, publishedLink?.id]);
+  }, [userId, mix?.name, mix?.id, linkId]);
 
   const handlePublish = async () => {
     if (phase === 'busy') return;
@@ -165,9 +191,10 @@ function PublishCard({ mix, goLogin, publishedLink }) {
     const wasPublished = !!published;
     setPhase('busy');
     setFeedback(null);
-    // Déjà publié (retrouvé par lien ou par nom) : modification SUR PLACE, qui
-    // garde les étoiles si la base le permet (supabase-mix-update.sql), sinon
-    // remplacement. Sinon, première publication.
+    // Déjà publié (retrouvé par lien ou par contenu) : modification SUR PLACE,
+    // qui garde les étoiles si la base le permet (supabase-mix-update.sql),
+    // sinon remplacement. Sinon, nouvelle publication (jamais en écrasant un
+    // autre mix).
     const res = published
       ? await updatePublishedMix(published.id, mix, { userId, authorName: pseudo, category })
       : await publishMix(mix, { userId, authorName: pseudo, category });
@@ -179,14 +206,44 @@ function PublishCard({ mix, goLogin, publishedLink }) {
     }
     haptic.success();
     setPublished(res.item);
+    setClash(null);
+    if (!wasPublished) setCount((c) => (c == null ? c : c + 1));
+    await markPublished(mix.id, res.item.id);
+    onPublishedChange?.(mix.id, res.item.id);
     setFeedback({
       ok: true,
       text: !wasPublished
-        ? 'Publié ! Il est visible dans le fil public.'
+        ? 'Publié ! Il est visible dans le fil public. Tu peux en publier d’autres.'
         : res.reset
           ? 'Mis à jour dans le fil public. Les étoiles ont repris à zéro.'
           : 'Mis à jour dans le fil public.',
     });
+  };
+
+  // Choix assumé : l'AUTRE mix publié sous ce nom est remplacé par celui-ci.
+  const handleReplaceClash = async () => {
+    if (phase === 'busy' || !clash) return;
+    const check = checkPublishable(mix);
+    if (!check.ok || !category) {
+      haptic.warning();
+      setFeedback({ ok: false, text: check.ok ? 'Choisis une catégorie.' : check.reason });
+      return;
+    }
+    setPhase('busy');
+    setFeedback(null);
+    const res = await updatePublishedMix(clash.id, mix, { userId, authorName: pseudo, category });
+    setPhase('ready');
+    if (!res.ok) {
+      haptic.error();
+      setFeedback({ ok: false, text: publishErrorText(res) });
+      return;
+    }
+    haptic.success();
+    setPublished(res.item);
+    setClash(null);
+    await markPublished(mix.id, res.item.id);
+    onPublishedChange?.(mix.id, res.item.id);
+    setFeedback({ ok: true, text: 'Remplacé dans le fil public.' });
   };
 
   const handleUnpublish = async () => {
@@ -202,6 +259,9 @@ function PublishCard({ mix, goLogin, publishedLink }) {
     }
     haptic.warning();
     setPublished(null);
+    setCount((c) => (c == null ? c : Math.max(0, c - 1)));
+    await markPublished(mix.id, null);
+    onPublishedChange?.(mix.id, null);
     setFeedback({ ok: true, text: 'Retiré du fil public.' });
   };
 
@@ -274,17 +334,39 @@ function PublishCard({ mix, goLogin, publishedLink }) {
         })}
       </View>
 
+      {!!clash && (
+        <View style={styles.clashBox}>
+          <Text style={styles.clashTitle}>Ce nom est déjà pris</Text>
+          <Text style={styles.clashText}>
+            Un autre de tes mix est publié sous le nom « {clash.name} ». Change le nom de celui-ci pour
+            les garder tous les deux en ligne, ou remplace l'ancien par celui-ci.
+          </Text>
+        </View>
+      )}
+
       <Button
         variant="accent"
         color={ACCENT}
         fullWidth
         icon="globe"
-        label={published ? 'Mettre à jour' : 'Publier'}
+        label={published ? 'Mettre à jour' : clash ? 'Change le nom pour publier' : 'Publier'}
         onPress={handlePublish}
-        disabled={busy || !category}
+        disabled={busy || !category || !!clash}
         haptic={haptic.medium}
         style={styles.cardAction}
       />
+      {!!clash && (
+        <Button
+          variant="ghost"
+          size="md"
+          fullWidth
+          label={`Remplacer « ${clash.name} » en ligne`}
+          onPress={handleReplaceClash}
+          disabled={busy || !category}
+          labelStyle={{ color: ERROR_RED }}
+          haptic={haptic.warning}
+        />
+      )}
       {!!published && (
         <Button
           variant="ghost"
@@ -302,6 +384,11 @@ function PublishCard({ mix, goLogin, publishedLink }) {
           Mettre à jour change le mix publié (nom et blocs). Tu peux aussi le retirer du fil à tout moment.
         </Text>
       )}
+      {count != null && (
+        <Text style={styles.hint}>
+          Tu as {count} mix publié{count > 1 ? 's' : ''} sur {MAX_PUBLISHED_MIXES} possibles — un par nom.
+        </Text>
+      )}
       {!!feedback && (
         <Text style={[styles.feedback, { color: feedback.ok ? OK_GREEN : ERROR_RED }]}>{feedback.text}</Text>
       )}
@@ -311,7 +398,7 @@ function PublishCard({ mix, goLogin, publishedLink }) {
 
 // Composant à part : l'effet qui fait défiler a besoin de scrollToEnd, que
 // BottomSheet ne fournit qu'à ses enfants.
-function ShareContent({ mix, close, scrollToEnd, onImported, goLogin, openFeed, initialTab, publishedLink }) {
+function ShareContent({ mix, close, scrollToEnd, onImported, goLogin, openFeed, initialTab, publishedLink, onPublishedChange }) {
   const { saveAsLibraryEntry, saveCurrentMix } = useTimers();
   const [tab, setTab] = useState(initialTab);
   const [showBlocks, setShowBlocks] = useState(false);
@@ -470,7 +557,7 @@ function ShareContent({ mix, close, scrollToEnd, onImported, goLogin, openFeed, 
                 )}
               </OptionCard>
 
-              <PublishCard mix={mix} goLogin={goLogin} publishedLink={publishedLink} />
+              <PublishCard mix={mix} goLogin={goLogin} publishedLink={publishedLink} onPublishedChange={onPublishedChange} />
             </>
           )}
 
@@ -563,6 +650,7 @@ export default function MixShareSheet({
   onOpenFeed,
   initialTab = 'send',
   publishedLink = null,
+  onPublishedChange,
 }) {
   const router = useRouter();
   const afterCloseRef = useRef(null);
@@ -583,6 +671,7 @@ export default function MixShareSheet({
         <ShareContent
           initialTab={initialTab}
           publishedLink={publishedLink}
+          onPublishedChange={onPublishedChange}
           mix={mix}
           close={close}
           scrollToEnd={scrollToEnd}
@@ -759,6 +848,26 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
 
+  clashBox: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,84,84,0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,84,84,0.35)',
+  },
+  clashTitle: {
+    fontFamily: fonts.sansBold,
+    fontSize: 12.5,
+    color: ERROR_RED,
+    marginBottom: 4,
+  },
+  clashText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
+    lineHeight: 17,
+    color: 'rgba(255,255,255,0.70)',
+  },
   publishedRow: {
     flexDirection: 'row',
     alignItems: 'center',
