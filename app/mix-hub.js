@@ -96,6 +96,7 @@ export default function MixHub() {
   const stashCurrent = async () => {
     if (
       currentMix?.blocks?.length &&
+      !currentMix.isPreview &&
       !isDefaultMix(currentMix) &&
       !library.some((m) => m.id === currentMix.id)
     ) {
@@ -103,10 +104,8 @@ export default function MixHub() {
     }
   };
 
-  const handleTestFromFeed = async (mix) => {
-    await stashCurrent();
-    await saveCurrentMix(mix);
-  };
+  // « Tester » = aperçu en mémoire (voir MixPublicSheet) : rien à enregistrer ici.
+  const handleTestFromFeed = async () => {};
 
   return (
     <GradientBackground colors={[MIX_COLOR, '#0A0A0A', '#000000']} ambient textMode="light">

@@ -12,6 +12,7 @@ import MixCommentsView from './MixCommentsView';
 import StarRating, { STAR_ON } from './StarRating';
 import { haptic } from '../../hooks/useHaptic';
 import { useAuth } from '../../contexts/AuthContext';
+import { setPreviewMix } from '../../lib/previewMix';
 import { useTimers } from '../../contexts/TimersContext';
 import { fonts } from '../../lib/fonts';
 import { ROUND_SIZE } from '../../lib/buttonTokens';
@@ -406,8 +407,14 @@ function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine, launc
       return;
     }
     haptic.success();
-    // `fromFeed` : « Mes mix » range les mix des autres à part des miens.
-    await saveAsLibraryEntry({ ...mix, fromFeed: { author: item.author, feedId: item.id } });
+    // `fromFeed` : « Mes mix » range les mix des autres à part des miens. Le nom
+    // doit rester unique dans la liste : s'il existe déjà, on ajoute « 2 », « 3 »…
+    const key = (x) => (x || '').trim().toLowerCase();
+    const used = new Set(library.map((m) => key(m.name)));
+    const base = mix.name || 'Sans nom';
+    let name = base;
+    for (let i = 2; used.has(key(name)); i++) name = `${base.slice(0, 24)} ${i}`;
+    await saveAsLibraryEntry({ ...mix, name: name.slice(0, 28), fromFeed: { author: item.author, feedId: item.id } });
   };
 
   const handleOpenReport = (item) => {
@@ -439,7 +446,7 @@ function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine, launc
   // L'ancien MIX, s'il a été modifié et n'est pas déjà enregistré, est rangé
   // dans « Mes mix » avant d'être remplacé : rien ne se perd.
   const stashCurrentMix = async () => {
-    if (currentMix?.blocks?.length && !isDefaultMix(currentMix) && !library.some((m) => m.id === currentMix.id)) {
+    if (currentMix?.blocks?.length && !currentMix.isPreview && !isDefaultMix(currentMix) && !library.some((m) => m.id === currentMix.id)) {
       await saveAsLibraryEntry(currentMix);
     }
   };
@@ -502,6 +509,8 @@ function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine, launc
         ? { ...base, own: true, publishedId: item.id }
         : { ...base, fromFeed: { author: item.author, feedId: item.id } };
     haptic.medium();
+    // L'aperçu vit en mémoire : ni MIX courant, ni Mes mix.
+    setPreviewMix(mix);
     if (onTest) {
       const r = await onTest(mix);
       if (r === false) return;
@@ -512,10 +521,7 @@ function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine, launc
     }
     // « Tester » = ouvrir l'APERÇU du mix dans le constructeur (lecture seule) :
     // on voit ce qu'on va lancer, on peut le lancer, ou l'enregistrer (maintien)
-    // pour le modifier ensuite. L'ancien MIX est rangé dans « Mes mix » s'il n'y
-    // est pas, pour ne rien perdre.
-    await stashCurrentMix();
-    await saveCurrentMix(mix);
+    // pour le modifier ensuite. Rien n'est enregistré tant qu'on ne le demande pas.
     afterClose(() => openPreview());
     close();
   };

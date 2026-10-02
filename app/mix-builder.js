@@ -52,6 +52,7 @@ import {
 } from '../lib/mix-blocks';
 import { makeDefaultMix, isDefaultMix, mixSignature } from '../lib/mixes';
 import { loadProfile } from '../lib/profile';
+import { getPreviewMix } from '../lib/previewMix';
 import { updatePublishedMix } from '../lib/publicMixes';
 import { DAYS, loadPlanning, formatBlockAsText } from '../lib/planning';
 import { BLOCK_ROLES, getBlockRole, resolveBlockRole } from '../lib/blockRoles';
@@ -159,7 +160,10 @@ export default function MixBuilder() {
 
   useEffect(() => {
     if (draft) return;
-    if (currentMix) {
+    const pv = params.preview === '1' ? getPreviewMix() : null;
+    if (pv) {
+      setDraft({ ...pv, blocks: pv.blocks.map((b) => ({ ...b })) });
+    } else if (currentMix) {
       setDraft({ ...currentMix, blocks: currentMix.blocks.map((b) => ({ ...b })) });
     } else {
       setDraft(makeDefaultMix());
@@ -181,7 +185,11 @@ export default function MixBuilder() {
 
   const updateName = (v) => setDraft((d) => ({ ...d, name: v }));
 
-  const cloneMix = (m) => ({ ...m, blocks: m.blocks.map((b) => ({ ...b })) });
+  // Copie sans le drapeau « aperçu » : tout ce qui est enregistré devient un vrai mix.
+  const cloneMix = (m) => {
+    const { isPreview: _p, ...rest } = m;
+    return { ...rest, blocks: m.blocks.map((b) => ({ ...b })) };
+  };
 
   // Le brouillon est une copie : une publication faite depuis la feuille de
   // partage n'y apparaît pas toute seule. On relit donc le lien de publication
@@ -198,7 +206,8 @@ export default function MixBuilder() {
   // courant est la référence : il est écrit à chaque chargement et à chaque
   // enregistrement.
   const dirty = !!currentMix && draftSig !== mixSignature(currentMix);
-  const hasUnsavedWork = dirty && draft.blocks.length > 0;
+  // En aperçu, le brouillon n'est pas « modifié » : rien n'est à perdre.
+  const hasUnsavedWork = dirty && !preview && draft.blocks.length > 0;
 
   // ---- Petits messages et retour visuel ----
 
@@ -385,7 +394,7 @@ export default function MixBuilder() {
   // MIX d'usine), est rangé dans Mes mix avant d'être remplacé : rien ne se perd
   // en silence (même règle que « Tester » depuis le fil).
   const stashBaseline = async () => {
-    if (currentMix?.blocks?.length && !isDefaultMix(currentMix) && !library.some((m) => m.id === currentMix.id)) {
+    if (currentMix?.blocks?.length && !currentMix.isPreview && !isDefaultMix(currentMix) && !library.some((m) => m.id === currentMix.id)) {
       await saveAsLibraryEntry(cloneMix(currentMix));
     }
   };
@@ -443,7 +452,14 @@ export default function MixBuilder() {
     if (draft.blocks.length === 0 || launchingRef.current) return;
     launchingRef.current = true;
     try {
-      await launchMix(draft);
+      if (preview) {
+        // Lancer un aperçu : le MIX courant devient ce mix (marqué « aperçu », jamais
+        // rangé dans Mes mix tout seul) ; l'ancien reste sauvegardé s'il était à moi.
+        await stashBaseline();
+        await launchMix({ ...draft, isPreview: true });
+        return;
+      }
+      await launchMix(cloneMix(draft));
     } finally {
       launchingRef.current = false;
     }
@@ -556,7 +572,7 @@ export default function MixBuilder() {
   // bibliothèque) au lieu de quitter l'écran avec un brouillon non enregistré.
   const handleTestFromFeed = (mix) =>
     guardedReplace(async () => {
-      await saveCurrentMix(mix);
+      // Aperçu : rien n'est enregistré (ni MIX courant, ni Mes mix).
       dismissUndo();
       setPreview(true);
       setDraft(cloneMix(mix));
