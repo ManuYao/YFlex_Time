@@ -37,6 +37,9 @@ const range = (from, to, step) => {
   return out;
 };
 
+// Vrai si la charge se termine par un demi-kilo (12,5 → oui, 12 → non).
+const isHalf = (w) => Number.isFinite(w) && Math.abs((w % 1) - 0.5) < 0.01;
+
 const inRange = (list, v) => list.length > 0 && v >= list[0] && v <= list[list.length - 1];
 const nearest = (list, v) =>
   list.reduce((best, x) => (Math.abs(x - v) < Math.abs(best - v) ? x : best), list[0]);
@@ -115,7 +118,9 @@ export default function ExerciseDetailSheet({
   const category = getCategory(snapshot.category);
   const values = useMemo(
     () => ({
-      weight: range(0, 200, 2.5),
+      // Kilos ENTIERS : les poids réels d'une salle (haltères, machines) vont de
+      // 1 en 1. Les demi-kilos (rondelles) passent par la case « + 0,5 kg ».
+      weight: range(0, 200, 1),
       sets: range(1, 20, 1),
       rest: range(0, 300, 5),
     }),
@@ -209,12 +214,43 @@ export default function ExerciseDetailSheet({
               <WheelPicker
                 key={field.key}
                 values={values[field.key]}
-                selectedValue={draft[field.key] ?? field.fallback}
+                selectedValue={
+                  field.key === 'weight'
+                    ? Math.floor(draft.weight ?? field.fallback)
+                    : draft[field.key] ?? field.fallback
+                }
                 type={field.pickerType}
                 accentColor={category.color}
-                onChange={(v) => updateDraft(field.key, v)}
+                onChange={(v) =>
+                  updateDraft(field.key, field.key === 'weight' ? v + (isHalf(draft.weight) ? 0.5 : 0) : v)
+                }
                 visibleItems={wheelItems}
               />
+
+              {/* Demi-kilo : un appui ajoute 0,5 kg à la valeur de la roue
+                  (12 kg → 12,5 kg), un second appui l'enlève. */}
+              {field.key === 'weight' && (
+                <PressTap
+                  tapScale={0.97}
+                  onHapticIn={haptic.selection}
+                  onPress={() =>
+                    updateDraft(
+                      'weight',
+                      Math.floor(draft.weight ?? field.fallback) + (isHalf(draft.weight) ? 0 : 0.5)
+                    )
+                  }
+                  accessibilityLabel="Ajouter 0,5 kilo"
+                  containerStyle={styles.halfWrap}
+                  style={[styles.halfBtn, isHalf(draft.weight) && { borderColor: category.color, backgroundColor: `${category.color}26` }]}
+                >
+                  <AppIcon
+                    name={isHalf(draft.weight) ? 'check' : 'plus'}
+                    size={14}
+                    color={isHalf(draft.weight) ? category.color : 'rgba(255,255,255,0.7)'}
+                  />
+                  <Text style={[styles.halfText, isHalf(draft.weight) && { color: '#FFFFFF' }]}>0,5 kg</Text>
+                </PressTap>
+              )}
 
               <Button
                 variant="solid"
@@ -535,6 +571,26 @@ const styles = StyleSheet.create({
 
   // Placement seulement : le rendu des boutons vient de Button
   // (lib/buttonTokens.js).
+  halfWrap: {
+    alignSelf: 'center',
+    marginTop: 4,
+  },
+  halfBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    height: 38,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+  },
+  halfText: {
+    fontFamily: fonts.sansBold,
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.75)',
+  },
   cta: {
     marginTop: 20,
   },
