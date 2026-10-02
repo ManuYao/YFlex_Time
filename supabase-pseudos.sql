@@ -45,3 +45,46 @@ revoke all on public.pseudos from anon, authenticated;
 grant select on public.pseudos to anon, authenticated;
 grant insert (user_id, pseudo) on public.pseudos to authenticated;
 grant update (pseudo, updated_at) on public.pseudos to authenticated;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Le pseudo SUIT partout : quand quelqu'un change de nom, ses mix publiés et ses
+-- commentaires prennent le nouveau nom (avant, l'ancien restait écrit sur chaque
+-- publication). Tout est relié au compte, pas à un texte recopié.
+-- Les commentaires supprimés ne sont pas touchés (la base les verrouille).
+-- Aussi lancé à la toute première réservation d'un pseudo : les publications
+-- déjà faites sous ce compte sont alignées d'un coup.
+
+create or replace function public.propagate_pseudo()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update public.shared_mixes
+     set author_name = btrim(new.pseudo)
+   where owner_id = new.user_id
+     and author_name is distinct from btrim(new.pseudo);
+
+  update public.mix_comments
+     set author_name = btrim(new.pseudo)
+   where author_id = new.user_id
+     and not deleted
+     and author_name is distinct from btrim(new.pseudo);
+
+  -- « ↪ à Karim » : les réponses adressées à l'ancien nom suivent aussi.
+  if tg_op = 'UPDATE' and old.pseudo is distinct from new.pseudo then
+    update public.mix_comments
+       set reply_to_name = btrim(new.pseudo)
+     where reply_to_name = btrim(old.pseudo)
+       and not deleted;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists pseudos_propagate on public.pseudos;
+create trigger pseudos_propagate
+  after insert or update of pseudo on public.pseudos
+  for each row execute function public.propagate_pseudo();
