@@ -1,4 +1,4 @@
-import React, { useMemo, useRef } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
@@ -8,6 +8,8 @@ import AppIcon from './AppIcon';
 import { getMixTotalDuration, hasEstimatedDuration } from '../../lib/mix-blocks';
 import { isFeedMix } from '../../lib/mixes';
 import { findPublication } from '../../lib/publicMixShape';
+import { unpublishMix } from '../../lib/publicMixes';
+import { useTimers } from '../../contexts/TimersContext';
 import { fonts } from '../../lib/fonts';
 import { ROUND_SIZE } from '../../lib/buttonTokens';
 import { useHaptic } from '../../hooks/useHaptic';
@@ -45,6 +47,9 @@ export default function MixLibrarySheet({
 }) {
   const haptic = useHaptic();
   const pubs = useMyPublications();
+  const { clearPublication } = useTimers();
+  // Message après une suppression (ex. « retiré aussi du fil public »).
+  const [notice, setNotice] = useState(null);
   // Partager depuis la liste : cette feuille se referme d'abord, la feuille
   // de partage monte ensuite (jamais deux feuilles l'une sur l'autre).
   const shareAfterCloseRef = useRef(null);
@@ -71,6 +76,27 @@ export default function MixLibrarySheet({
     for (const m of library) (isFeedMix(m, ownIds) ? fromFeed : mine).push(m);
     return { mine, fromFeed };
   }, [library, ownIds]);
+
+  // Supprimer un mix de MA liste retire aussi sa publication du fil public :
+  // l'un suit l'autre. Un mix pris chez quelqu'un d'autre n'a rien à retirer.
+  const handleDelete = async (m, publication) => {
+    onDelete(m.id);
+    if (!publication) {
+      setNotice(null);
+      return;
+    }
+    const res = await unpublishMix(publication.id);
+    if (res.ok) {
+      await clearPublication(publication.id);
+      pubs.refresh();
+      setNotice({ ok: true, text: 'Supprimé, et retiré aussi du fil public.' });
+    } else {
+      setNotice({
+        ok: false,
+        text: 'Supprimé ici, mais pas retiré du fil public (connexion). Retire-le depuis Mes publications.',
+      });
+    }
+  };
 
   const renderRow = (m, { feed }) => {
     const total = getMixTotalDuration(m.blocks || []);
@@ -130,7 +156,7 @@ export default function MixLibrarySheet({
           <AppIcon name="share" size={14} color="rgba(255,255,255,0.55)" />
         </Pressable>
         <Pressable
-          onPress={() => onDelete(m.id)}
+          onPress={() => handleDelete(m, published)}
           style={({ pressed }) => [styles.libDelete, pressed && { opacity: 0.7 }]}
           hitSlop={10}
         >
@@ -186,6 +212,10 @@ export default function MixLibrarySheet({
                   Créés par d'autres : tu peux les modifier, ta version reste la tienne.
                 </Text>
               </View>
+            )}
+
+            {!!notice && (
+              <Text style={[styles.notice, { color: notice.ok ? '#1FC777' : '#FF5454' }]}>{notice.text}</Text>
             )}
 
             <Text style={styles.libHint}>{hint}</Text>
@@ -340,6 +370,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,84,84,0.10)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  notice: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 12,
+    lineHeight: 17,
+    textAlign: 'center',
+    marginBottom: 10,
   },
   libHint: {
     fontFamily: fonts.sansMedium,
