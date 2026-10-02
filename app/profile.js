@@ -1,6 +1,6 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, InteractionManager, useWindowDimensions } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { BlurTargetView } from 'expo-blur';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
@@ -44,6 +44,10 @@ import { loadHistory } from '../lib/history';
  */
 export default function Profile() {
   const router = useRouter();
+  // Marges de sécurité lues côté JS (connues dès le premier rendu) au lieu du
+  // SafeAreaView natif : celui-ci appliquait sa marge un instant APRÈS le
+  // premier affichage d'un écran, la page « montait » puis redescendait.
+  const insets = useSafeAreaInsets();
   const { height: screenH } = useWindowDimensions();
   const { timers } = useTimers();
   const { isPremium, loaded: premiumLoaded } = usePremium();
@@ -196,7 +200,7 @@ export default function Profile() {
     <View style={styles.root}>
       <BlurTargetView ref={blurTargetRef} style={StyleSheet.absoluteFill}>
         <GradientBackground colors={['#1A1A1A', '#0A0A0A', '#000000']} ambient>
-          <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+          <View style={[styles.safe, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
             {/* Fil conducteur : le MIX reste à un tap (MixPill). */}
             <View style={styles.statusBar}>
               <MixPill />
@@ -264,7 +268,7 @@ export default function Profile() {
               </Animated.View>
             )}
             </View>
-          </SafeAreaView>
+          </View>
         </GradientBackground>
       </BlurTargetView>
 

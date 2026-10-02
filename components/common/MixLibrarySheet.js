@@ -7,7 +7,7 @@ import IconButton from './IconButton';
 import AppIcon from './AppIcon';
 import { getMixTotalDuration, hasEstimatedDuration } from '../../lib/mix-blocks';
 import { isFeedMix } from '../../lib/mixes';
-import { findPublication } from '../../lib/publicMixShape';
+import { assignPublications } from '../../lib/publicMixShape';
 import { unpublishMix } from '../../lib/publicMixes';
 import { useTimers } from '../../contexts/TimersContext';
 import { fonts } from '../../lib/fonts';
@@ -64,11 +64,10 @@ export default function MixLibrarySheet({
   const close = useRef(null);
 
   const ownIds = useMemo(() => new Set(pubs.items.map((p) => p.id)), [pubs.items]);
-  // Publications déjà reliées à un mix précis : un autre mix de même nom ne les
-  // revendique pas par son nom.
-  const claimedIds = useMemo(
-    () => new Set(library.map((m) => m.publishedId).filter(Boolean)),
-    [library]
+  // Qui est « en ligne » : chaque publication n'est attribuée qu'à UN mix.
+  const assigned = useMemo(
+    () => (pubs.status === 'ok' ? assignPublications(library.filter((m) => !isFeedMix(m, ownIds)), pubs.items) : new Map()),
+    [library, pubs.status, pubs.items, ownIds]
   );
   const groups = useMemo(() => {
     const mine = [];
@@ -103,7 +102,7 @@ export default function MixLibrarySheet({
     const min = Math.floor(total / 60);
     const sec = total % 60;
     // Le repère de publication ne concerne que MES créations.
-    const published = !feed && pubs.status === 'ok' ? findPublication(m, pubs.items, claimedIds) : null;
+    const published = !feed && pubs.status === 'ok' ? assigned.get(m.id) ?? null : null;
     const showPrivate = !feed && pubs.status === 'ok' && !published;
     const author = feed ? m.fromFeed?.author : null;
     return (
