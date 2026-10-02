@@ -41,6 +41,12 @@ import { useHaptic } from '../hooks/useHaptic';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { useSound } from '../hooks/useSound';
 import { tickVoiceCoach, speakEnd, stopVoiceCoach } from '../lib/voiceCoach';
+import { loadCooldownMap, saveCooldownMap, consumeLaunch } from '../lib/cooldown';
+import { loadIsPremium } from '../lib/premium';
+
+// Une séance TABATA / MIX ne compte dans le quota gratuit de la semaine qu'après
+// 40 s de chrono : un retour brusque au tout début ne coûte rien.
+const QUOTA_VALIDATE_AFTER_S = 40;
 import {
   TIMER_ACTIONS,
   onTimerNotificationAction,
@@ -201,6 +207,19 @@ export default function Running() {
     }
     router.replace({ pathname: '/home', params: { lastTimerId: timer.id } });
   };
+
+  // Validation du quota (TABATA / MIX, hors Premium), une seule fois par séance.
+  const quotaCountedRef = useRef(false);
+  useEffect(() => {
+    if (quotaCountedRef.current) return;
+    if (timer.id !== 'tabata' && timer.id !== 'mix') return;
+    if (secondsElapsed < QUOTA_VALIDATE_AFTER_S) return;
+    quotaCountedRef.current = true;
+    (async () => {
+      if (await loadIsPremium()) return;
+      saveCooldownMap(consumeLaunch(await loadCooldownMap(), timer.id));
+    })();
+  }, [secondsElapsed >= QUOTA_VALIDATE_AFTER_S]);
 
   const handleReset = () => {
     haptic.warning();
