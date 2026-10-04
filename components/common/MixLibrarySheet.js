@@ -8,6 +8,7 @@ import AppIcon from './AppIcon';
 import { getMixTotalDuration, hasEstimatedDuration } from '../../lib/mix-blocks';
 import { isFeedMix } from '../../lib/mixes';
 import { assignPublications } from '../../lib/publicMixShape';
+import { formatMixClock } from '../../lib/formatters';
 import { unpublishMix } from '../../lib/publicMixes';
 import { useTimers } from '../../contexts/TimersContext';
 import { fonts } from '../../lib/fonts';
@@ -99,8 +100,6 @@ export default function MixLibrarySheet({
 
   const renderRow = (m, { feed }) => {
     const total = getMixTotalDuration(m.blocks || []);
-    const min = Math.floor(total / 60);
-    const sec = total % 60;
     // Le repère de publication ne concerne que MES créations.
     const published = !feed && pubs.status === 'ok' ? assigned.get(m.id) ?? null : null;
     const showPrivate = !feed && pubs.status === 'ok' && !published;
@@ -138,7 +137,7 @@ export default function MixLibrarySheet({
             </View>
             <Text style={styles.libMeta} numberOfLines={1}>
               {(m.blocks?.length || 0)} blocs · {hasEstimatedDuration(m.blocks) ? '~' : ''}
-              {String(min).padStart(2, '0')}:{String(sec).padStart(2, '0')}
+              {formatMixClock(total)}
               {author ? ` · par ${author}` : ''}
             </Text>
           </View>

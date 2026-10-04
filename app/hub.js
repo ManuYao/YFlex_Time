@@ -10,6 +10,7 @@ import IconButton from '../components/common/IconButton';
 import PressTap from '../components/common/PressTap';
 import AppIcon from '../components/common/AppIcon';
 import TickRing from '../components/common/TickRing';
+import { SkeletonGroup, SkeletonBlock } from '../components/common/Skeleton';
 import { MIX_COLOR } from '../components/common/MixPill';
 import { useTimers } from '../contexts/TimersContext';
 import { haptic } from '../hooks/useHaptic';
@@ -18,7 +19,7 @@ import { D, slideInY } from '../lib/animations';
 import { loadHistory, computeTotals, computeStreak } from '../lib/history';
 import { loadPlanning, todayKey } from '../lib/planning';
 import { getBlockType, getBlockDuration, getMixTotalDuration, hasEstimatedDuration } from '../lib/mix-blocks';
-import { formatDuration } from '../lib/formatters';
+import { formatMixClock } from '../lib/formatters';
 
 // Dégradé du MIX, repris tel quel de lib/timers-config.js (via le contexte) :
 // la carte du hub est « un MIX » avant d'être un lien.
@@ -38,7 +39,9 @@ const FALLBACK_MIX_BG = ['#9575FF', '#4B2FC9', '#1A0D52'];
 export default function Hub() {
   const router = useRouter();
   const { timers, currentMix, library } = useTimers();
-  const [sessions, setSessions] = useState([]);
+  // `null` tant que rien n'est lu : les tuiles montrent un petit squelette au lieu
+  // d'afficher « Aucune séance » / « Rien de prévu » une fraction de seconde.
+  const [sessions, setSessions] = useState(null);
   const [planning, setPlanning] = useState(null);
 
   useFocusEffect(
@@ -60,6 +63,7 @@ export default function Hub() {
   const mixBg = mixTimer?.bgColors ?? FALLBACK_MIX_BG;
 
   const historySummary = useMemo(() => {
+    if (sessions === null) return null;
     if (sessions.length === 0) return 'Aucune séance pour l\'instant';
     const { count, timeLabel } = computeTotals(sessions);
     const streak = computeStreak(sessions);
@@ -68,6 +72,7 @@ export default function Hub() {
   }, [sessions]);
 
   const planningSummary = useMemo(() => {
+    if (planning === null) return null;
     const blocks = planning?.[todayKey()]?.blocks ?? [];
     if (blocks.length === 0) return 'Rien de prévu aujourd\'hui';
     return `Aujourd'hui · ${blocks.length} bloc${blocks.length > 1 ? 's' : ''}`;
@@ -169,7 +174,7 @@ export default function Hub() {
                   <Text style={styles.mixCurrentText} numberOfLines={1}>
                     {currentMix?.name || 'Mon mix'} · {blocks.length} bloc{blocks.length > 1 ? 's' : ''} ·{' '}
                     {hasEstimatedDuration(blocks) ? '~' : ''}
-                    {formatDuration(totalSec)}
+                    {formatMixClock(totalSec)}
                   </Text>
                 </View>
               ) : (
@@ -227,9 +232,16 @@ function HubTile({ icon, title, summary, onPress }) {
       <Text style={styles.tileTitle} numberOfLines={2}>
         {title}
       </Text>
-      <Text style={styles.tileSummary} numberOfLines={3}>
-        {summary}
-      </Text>
+      {summary == null ? (
+        <SkeletonGroup style={styles.tileSkeleton}>
+          <SkeletonBlock width="92%" height={11} radius={6} />
+          <SkeletonBlock width="64%" height={11} radius={6} />
+        </SkeletonGroup>
+      ) : (
+        <Text style={styles.tileSummary} numberOfLines={3}>
+          {summary}
+        </Text>
+      )}
       <Text style={styles.tileChevron}>›</Text>
     </PressTap>
   );
@@ -237,6 +249,10 @@ function HubTile({ icon, title, summary, onPress }) {
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
+  tileSkeleton: {
+    gap: 6,
+    paddingTop: 4,
+  },
   statusBar: {
     paddingHorizontal: 24,
     paddingTop: 4,

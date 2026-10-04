@@ -22,7 +22,7 @@ import { haptic } from '../hooks/useHaptic';
 import { fonts } from '../lib/fonts';
 import { D, slideInY } from '../lib/animations';
 import { getBlockType, getBlockDuration, getMixTotalDuration, hasEstimatedDuration } from '../lib/mix-blocks';
-import { formatDuration } from '../lib/formatters';
+import { formatMixClock } from '../lib/formatters';
 import { isDefaultMix } from '../lib/mixes';
 
 const FALLBACK_MIX_BG = ['#9575FF', '#4B2FC9', '#1A0D52'];
@@ -152,7 +152,7 @@ export default function MixHub() {
               {hasMix
                 ? `${blocks.length} bloc${blocks.length > 1 ? 's' : ''} · ${
                     hasEstimatedDuration(blocks) ? '~' : ''
-                  }${formatDuration(totalSec)}`
+                  }${formatMixClock(totalSec)}`
                 : 'Compose ta séance bloc par bloc : AMRAP, EMOM, TABATA, repos…'}
             </Text>
 

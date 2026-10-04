@@ -9,9 +9,14 @@ import { TIMERS } from '../lib/timers-config';
 // séance, donc heatMap/statsMap doivent se recalculer sans remount du
 // provider. Un seul loadHistory() sert aux deux dérivés pour éviter une
 // double lecture AsyncStorage par focus.
+//
+// `loaded` : l'historique a été lu au moins une fois. L'accueil attend ce signal
+// pour choisir le timer de départ (lib/smartStart.js) : tant qu'il est faux,
+// `heatMap` et `statsMap` sont vides, ce qui se lirait comme « aucune séance ».
 export function useTimerHeat() {
   const [heatMap, setHeatMap] = useState({});
   const [statsMap, setStatsMap] = useState({});
+  const [loaded, setLoaded] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -24,6 +29,7 @@ export function useTimerHeat() {
           nextStats[timer.id] = computeModeTotals(list, timer.id);
         }
         setStatsMap(nextStats);
+        setLoaded(true);
       });
       return () => {
         cancelled = true;
@@ -31,5 +37,5 @@ export function useTimerHeat() {
     }, [])
   );
 
-  return { heatMap, statsMap };
+  return { heatMap, statsMap, loaded };
 }

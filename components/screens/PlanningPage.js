@@ -17,6 +17,7 @@ import ExerciseLibrarySheet from '../common/ExerciseLibrarySheet';
 import ExerciseDetailSheet from '../common/ExerciseDetailSheet';
 import SaveFlashRing from '../common/SaveFlashRing';
 import ShineSweep from '../common/ShineSweep';
+import MiniToast from '../common/MiniToast';
 import { fonts } from '../../lib/fonts';
 import { categoryChip } from '../../lib/exercises';
 import { loadHistory } from '../../lib/history';
@@ -41,6 +42,7 @@ import {
   getDay,
   isBlockLaunchable,
   loadPlanning,
+  moveBlock,
   removeBlock,
   removeTag,
   renameBlock,
@@ -62,6 +64,11 @@ const HOLD_RETENTION = { top: 36, left: 36, right: 36, bottom: 36 };
 const MIX_COLOR = '#9575FF';
 
 const ARCHIVE_HOLD_MS = 2000;
+// Note du jour : sauvegardée toute seule dès que la frappe s'arrête 2 s (en
+// plus de la sauvegarde à la perte de focus).
+const NOTE_AUTOSAVE_MS = 2000;
+// Durée d'affichage du message « Bloc déplacé ».
+const TOAST_MS = 3600;
 // Note en cours de saisie : distance gardée sous le haut de la zone qui
 // défile, et au-dessus du clavier.
 const NOTE_SCROLL_OFFSET = 16;
@@ -105,6 +112,65 @@ export default function PlanningPage({
   // ferme, la fermeture doit attendre son résultat pour savoir quelle étiquette
   // ouvrir.
   const pendingDetailRef = useRef(null);
+
+  // Dernière version du planning, lisible depuis une minuterie ou une feuille
+  // sans tomber sur une copie périmée (la sauvegarde auto d'une note peut
+  // arriver pendant qu'une feuille est ouverte).
+  const planningRef = useRef(planning);
+  planningRef.current = planning;
+  const mountedRef = useRef(true);
+
+  // Message « Bloc déplacé vers … » : { text, dayKey }.
+  const [toast, setToast] = useState(null);
+  const toastTimer = useRef(null);
+  const showToast = (next) => {
+    clearTimeout(toastTimer.current);
+    setToast(next);
+    toastTimer.current = setTimeout(() => setToast(null), TOAST_MS);
+  };
+
+  // Sauvegarde de la note du jour. `notePending` = le texte pas encore écrit
+  // ({ dayKey, text }) : il porte SON jour, donc une sauvegarde qui part après
+  // un changement de jour tombe quand même sur le bon. Les écritures passent
+  // l'une derrière l'autre (`noteQueue`) : la seconde voit le résultat de la
+  // première et ne rejoue pas le retour visuel pour le même texte.
+  const noteTimer = useRef(null);
+  const notePending = useRef(null);
+  const noteQueue = useRef(Promise.resolve());
+
+  const saveNote = useCallback((key, text) => {
+    noteQueue.current = noteQueue.current
+      .then(async () => {
+        const dayNow = planningRef.current[key] ?? {};
+        if (dayNow.archivedAt) return; // jour verrouillé entre-temps
+        if (text === (dayNow.note || '')) return; // rien de changé : pas de sauvegarde, pas de flash
+        const next = await setDayNote(planningRef.current, key, text);
+        planningRef.current = next;
+        if (!mountedRef.current) return;
+        setPlanning(next);
+        setNoteSaveTick((n) => n + 1); // contour vert (SaveFlashRing)
+        haptic.light();
+      })
+      .catch(() => {});
+  }, []);
+
+  const flushNote = useCallback(() => {
+    clearTimeout(noteTimer.current);
+    noteTimer.current = null;
+    const pending = notePending.current;
+    notePending.current = null;
+    if (pending) saveNote(pending.dayKey, pending.text);
+  }, [saveNote]);
+
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+      clearTimeout(toastTimer.current);
+      // Quitter la page avec une note pas encore écrite ne la perd pas.
+      flushNote();
+    },
+    []
+  );
 
   // Clavier et note du jour. L'app est bord à bord : Android ne réduit plus
   // la fenêtre, le clavier passe par-dessus la page (barre du bas comprise).
@@ -196,6 +262,18 @@ export default function PlanningPage({
   const day = getDay(dayKey);
   const dayState = planning[dayKey] ?? { blocks: [], archivedAt: null };
   const archived = !!dayState.archivedAt;
+
+  // Valeur par défaut du champ de note. Le champ n'est pas contrôlé : si
+  // `defaultValue` change pendant qu'on retape juste après une sauvegarde auto,
+  // React Native peut réécrire le texte natif avec l'ancienne valeur et avaler
+  // un caractère. Une fois qu'on a tapé dans le champ d'un jour, on garde donc
+  // pour ce jour la valeur du départ (le texte réel est celui du champ) ; la
+  // garde est levée au changement de jour, le champ étant alors remonté.
+  const noteFrozen = useRef({ dayKey: null, value: '' });
+  const noteDefault = noteFrozen.current.dayKey === dayKey ? noteFrozen.current.value : dayState.note;
+  useEffect(() => {
+    noteFrozen.current = { dayKey: null, value: '' };
+  }, [dayKey]);
   const counts = countDay(planning, dayKey);
   const today = todayKey();
 
@@ -211,15 +289,23 @@ export default function PlanningPage({
     setPlanning(next);
   };
 
-  // Remonté sur perte de focus, pas à chaque frappe : éviter de marteler
-  // AsyncStorage. `key={dayKey}` sur le TextInput (plus bas) le remonte à
-  // chaque changement de jour, donc son texte affiché reste toujours celui
-  // du jour réellement sélectionné sans état local à synchroniser.
-  const handleNoteBlur = async (key, text) => {
-    const prevNote = (planning[key] ?? {}).note || '';
-    if (text === prevNote) return; // rien de changé : pas de sauvegarde, pas de flash
-    setPlanning(await setDayNote(planning, key, text));
-    setNoteSaveTick((n) => n + 1);
+  // Deux déclencheurs, jamais à chaque frappe (éviter de marteler
+  // AsyncStorage) : la perte de focus (sauvegarde immédiate) et une pause de
+  // 2 s dans la frappe (sauvegarde auto, le clavier reste ouvert). Chaque vraie
+  // sauvegarde joue le contour vert et un petit tap (saveNote). `key={dayKey}`
+  // sur le TextInput (plus bas) le remonte à chaque changement de jour, donc son
+  // texte affiché reste toujours celui du jour réellement sélectionné sans état
+  // local à synchroniser.
+  const handleNoteChange = (key, text) => {
+    // Dès qu'on tape, la valeur par défaut du champ est figée (voir noteFrozen).
+    if (noteFrozen.current.dayKey !== key) noteFrozen.current = { dayKey: key, value: noteDefault };
+    notePending.current = { dayKey: key, text };
+    clearTimeout(noteTimer.current);
+    noteTimer.current = setTimeout(flushNote, NOTE_AUTOSAVE_MS);
+  };
+  const handleNoteBlur = (key, text) => {
+    notePending.current = { dayKey: key, text };
+    flushNote();
   };
 
   return (
@@ -318,7 +404,8 @@ export default function PlanningPage({
               <TextInput
                 key={dayKey}
                 ref={noteRef}
-                defaultValue={dayState.note}
+                defaultValue={noteDefault}
+                onChangeText={(text) => handleNoteChange(dayKey, text)}
                 onEndEditing={(e) => handleNoteBlur(dayKey, e.nativeEvent.text)}
                 placeholder="Ajouter une note pour ce jour…"
                 placeholderTextColor="rgba(255,255,255,0.30)"
@@ -408,13 +495,29 @@ export default function PlanningPage({
           screenH={screenH}
           initialName={sheet.blockId ? findBlock(sheet.blockId)?.name ?? '' : ''}
           archived={sheet.blockId ? !!findBlock(sheet.blockId)?.archivedAt : false}
+          moveTargets={DAYS.filter((d) => d.key !== dayKey).map((d) => {
+            const target = planning[d.key] ?? { blocks: [], archivedAt: null };
+            return {
+              key: d.key,
+              long: d.long,
+              count: target.blocks.length,
+              archived: !!target.archivedAt,
+            };
+          })}
           onClose={closeSheet}
           onSubmit={async (name) => {
             setPlanning(
               sheet.blockId
-                ? await renameBlock(planning, dayKey, sheet.blockId, name)
-                : await addBlock(planning, dayKey, name)
+                ? await renameBlock(planningRef.current, dayKey, sheet.blockId, name)
+                : await addBlock(planningRef.current, dayKey, name)
             );
+          }}
+          onMove={async (toKey) => {
+            const current = planningRef.current;
+            const next = await moveBlock(current, dayKey, sheet.blockId, toKey);
+            if (next === current) return; // refusé (jour archivé, bloc introuvable…)
+            setPlanning(next);
+            showToast({ text: `Bloc déplacé vers ${getDay(toKey).long}`, dayKey: toKey });
           }}
           onArchive={async () => {
             const { planning: next } = await archiveBlock(planning, dayKey, sheet.blockId);
@@ -462,6 +565,24 @@ export default function PlanningPage({
             setPlanning(await removeTag(planning, dayKey, sheet.blockId, sheet.tagId));
           }}
         />
+      )}
+
+      {/* Confirmation d'un déplacement de bloc, posée au-dessus de la barre du
+          bas ; « Voir » ouvre le jour d'arrivée. */}
+      {toast && (
+        <View pointerEvents="box-none" style={[styles.toastLayer, { bottom: bottomBarH.current + 4 }]}>
+          <MiniToast
+            text={toast.text}
+            icon="move"
+            actionLabel="Voir"
+            onAction={() => {
+              haptic.selection();
+              setDayKey(toast.dayKey);
+              clearTimeout(toastTimer.current);
+              setToast(null);
+            }}
+          />
+        </View>
       )}
     </View>
   );
@@ -1061,5 +1182,14 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 8,
     gap: 10,
+  },
+
+  // Calque du message « Bloc déplacé » : MiniToast se pose en bas de son
+  // parent ; `bottom` (posé en ligne) le remonte au-dessus de la barre du bas.
+  toastLayer: {
+    position: 'absolute',
+    left: 20,
+    right: 20,
+    top: 0,
   },
 });

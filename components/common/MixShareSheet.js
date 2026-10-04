@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Keyboard, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Linking from 'expo-linking';
@@ -30,6 +30,7 @@ import {
   extractShareCode,
 } from '../../lib/mixShare';
 import { copyToClipboard } from '../../lib/clipboard';
+import { findLibraryMatch, readUid } from '../../lib/mixIdentity';
 import { isShareOnboarded, markShareOnboarded } from '../../lib/shareOnboarding';
 import { loadProfile } from '../../lib/profile';
 import {
@@ -65,6 +66,9 @@ export const publishErrorText = (res) => {
   }
   if (res.reason === 'duplicate') {
     return 'Ce nom est déjà utilisé dans le fil public. Change le nom du mix.';
+  }
+  if (res.reason === 'already') {
+    return 'Ce mix est déjà publié dans le fil. Ouvre-le pour le mettre à jour.';
   }
   if (res.reason === 'unavailable') return "Le fil public n'est pas encore ouvert.";
   return 'Impossible de publier, vérifie ta connexion.';
@@ -171,6 +175,12 @@ function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
       setCount(all.ok ? list.length : null);
       const name = String(mix?.name || '').trim().slice(0, 28);
       let item = linkId ? list.find((p) => p.id === linkId) || null : null;
+      // Même clé unique (lib/mixIdentity.js) : c'est le même mix, même renommé
+      // depuis — on le met à jour au lieu d'en publier un deuxième.
+      if (!item) {
+        const uid = readUid(mix);
+        if (uid) item = list.find((p) => p.uid === uid) || null;
+      }
       let other = null;
       if (!item && name) {
         const byName = list.find((p) => p.name.trim() === name) || null;
@@ -185,8 +195,10 @@ function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
       setTaken(byOther.ok && !!byOther.item);
       setPublished(item);
       setClash(item ? null : other);
-      // Catégorie du mix déjà publié, sinon la discipline principale du profil.
-      setCategory(item?.category ?? publishedLink?.category ?? profile.disciplineIds?.[0] ?? null);
+      // Catégorie du mix déjà publié — ou celle que le constructeur est en train
+      // de lui donner (pas encore envoyée) —, sinon la discipline principale du profil.
+      const pending = item && publishedLink?.id === item.id ? publishedLink.category : null;
+      setCategory(pending ?? item?.category ?? publishedLink?.category ?? profile.disciplineIds?.[0] ?? null);
       setPhase('ready');
     })();
     return () => {
@@ -227,7 +239,7 @@ function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
     setClash(null);
     if (!wasPublished) setCount((c) => (c == null ? c : c + 1));
     await markPublished(mix.id, res.item.id);
-    onPublishedChange?.(mix.id, res.item.id);
+    onPublishedChange?.(mix.id, res.item.id, res.item.category);
     setFeedback({
       ok: true,
       text: !wasPublished
@@ -260,7 +272,7 @@ function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
     setPublished(res.item);
     setClash(null);
     await markPublished(mix.id, res.item.id);
-    onPublishedChange?.(mix.id, res.item.id);
+    onPublishedChange?.(mix.id, res.item.id, res.item.category);
     setFeedback({ ok: true, text: 'Remplacé.' });
   };
 
@@ -319,6 +331,9 @@ function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
   }
 
   const busy = phase === 'busy' || phase === 'checking';
+  // Contenu OU catégorie différents de ce qui est en ligne : il y a une mise à jour à envoyer.
+  const publishedChanged =
+    !!published && (!samePublishedContent(mix, published) || (!!category && category !== published.category));
 
   return (
     <OptionCard icon="globe" title="Publier dans le fil public" sub={sub}>
@@ -336,7 +351,7 @@ function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
           <View
             style={[
               styles.statusChip,
-              clash || taken || (published && !samePublishedContent(mix, published))
+              clash || taken || publishedChanged
                 ? styles.statusWarn
                 : published
                   ? styles.statusOk
@@ -347,9 +362,9 @@ function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
               {clash || taken
                 ? 'NOM DÉJÀ PRIS'
                 : published
-                  ? samePublishedContent(mix, published)
-                    ? 'EN LIGNE'
-                    : 'MODIFIÉ'
+                  ? publishedChanged
+                    ? 'MODIFIÉ'
+                    : 'EN LIGNE'
                   : 'NOUVEAU'}
             </Text>
           </View>
@@ -493,7 +508,7 @@ function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
 // Composant à part : l'effet qui fait défiler a besoin de scrollToEnd, que
 // BottomSheet ne fournit qu'à ses enfants.
 function ShareContent({ mix: mixProp, close, scrollToEnd, onImported, goLogin, openFeed, initialTab, publishedLink: linkProp, onPublishedChange }) {
-  const { saveAsLibraryEntry, saveCurrentMix, library } = useTimers();
+  const { receiveMix, saveCurrentMix, library } = useTimers();
   // UN SEUL mix pour toute la feuille : le titre, l'aperçu, « Copier le lien » et
   // « Publier » suivent le même. Changer ici change tout, d'un coup.
   const [picked, setPicked] = useState(null);
@@ -515,6 +530,12 @@ function ShareContent({ mix: mixProp, close, scrollToEnd, onImported, goLogin, o
   const [showBlocks, setShowBlocks] = useState(false);
   const [pasted, setPasted] = useState('');
   const [preview, setPreview] = useState(null);
+  // Anti-doublon (clé unique du mix, lib/mixIdentity.js) : le mix reçu est-il déjà
+  // dans la bibliothèque ? 'same' = même version, 'update' = version différente.
+  const previewMatch = useMemo(
+    () => (preview ? findLibraryMatch(library, preview) : null),
+    [preview, library]
+  );
   const [error, setError] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showTip, setShowTip] = useState(false);
@@ -571,11 +592,16 @@ function ShareContent({ mix: mixProp, close, scrollToEnd, onImported, goLogin, o
   const handleImport = async () => {
     // La feuille reste touchable pendant sa fermeture : pas de double import.
     if (!preview || importingRef.current) return;
+    // Déjà là, même version : rien à ajouter (le bouton est grisé, ceci est un
+    // second rempart contre la double sauvegarde).
+    if (previewMatch?.status === 'same') return;
     importingRef.current = true;
     haptic.success();
-    await saveAsLibraryEntry(preview);
-    await saveCurrentMix(preview);
-    onImported?.(preview);
+    // `update: true` : si le mix est déjà là mais en version différente, la
+    // personne a touché « Mettre à jour » — jamais une deuxième copie.
+    const res = await receiveMix(preview, { update: true });
+    await saveCurrentMix(res.entry);
+    onImported?.(res.entry);
     close();
   };
 
@@ -756,11 +782,30 @@ function ShareContent({ mix: mixProp, close, scrollToEnd, onImported, goLogin, o
                 {preview.blocks.length} bloc{preview.blocks.length > 1 ? 's' : ''}
               </Text>
               <BlockRows blocks={preview.blocks} />
+              {previewMatch?.status === 'same' && (
+                <Text style={[styles.feedback, { color: OK_GREEN }]}>
+                  Ce mix est déjà dans ta bibliothèque (« {previewMatch.entry.name} »).
+                </Text>
+              )}
+              {previewMatch?.status === 'update' && (
+                <Text style={[styles.feedback, { color: ACCENT }]}>
+                  Tu as déjà ce mix (« {previewMatch.entry.name} »), mais cette version est différente. Tu peux
+                  mettre ta copie à jour : elle sera remplacée.
+                </Text>
+              )}
               <Button
                 variant="accent"
                 color={ACCENT}
                 fullWidth
-                label="Ajouter à ma bibliothèque"
+                icon={previewMatch?.status === 'same' ? 'check' : previewMatch?.status === 'update' ? 'reset' : undefined}
+                label={
+                  previewMatch?.status === 'same'
+                    ? 'Déjà dans ma bibliothèque'
+                    : previewMatch?.status === 'update'
+                      ? 'Mettre à jour ma version'
+                      : 'Ajouter à ma bibliothèque'
+                }
+                disabled={previewMatch?.status === 'same'}
                 onPress={handleImport}
                 style={{ marginTop: 12 }}
               />

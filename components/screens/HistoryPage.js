@@ -40,6 +40,7 @@ import { D, easeImpact, popIn, popOut } from '../../lib/animations';
 import { useHaptic } from '../../hooks/useHaptic';
 import { useLongPress } from '../../hooks/useLongPress';
 import ChipRow from '../common/ChipRow';
+import HistorySkeleton from './HistorySkeleton';
 
 const FILTERS = ['TOUS', 'AMRAP', 'BASIC', 'EMOM', 'TABATA', 'MIX'];
 
@@ -91,6 +92,10 @@ const SCOPE_CAPTION = {
   week: 'SEMAINE',
 };
 
+// Une seule liste vide partagée : une identité stable évite de recalculer les
+// dérivés à chaque rendu tant que rien n'est chargé.
+const EMPTY_SESSIONS = [];
+
 export default function HistoryPage({
   width,
   height,
@@ -102,7 +107,12 @@ export default function HistoryPage({
   const router = useRouter();
   const haptic = useHaptic();
   const insets = useSafeAreaInsets();
-  const [sessions, setSessions] = useState([]);
+  // `null` tant que l'historique n'est pas lu : l'écran montre alors un squelette
+  // (HistoryListSkeleton) au lieu du message « Aucune séance » qui clignotait une
+  // fraction de seconde avant l'arrivée des vraies données.
+  const [loadedSessions, setSessions] = useState(null);
+  const loaded = loadedSessions !== null;
+  const sessions = loadedSessions ?? EMPTY_SESSIONS;
   const [filter, setFilter] = useState('TOUS');
   const [visibleDays, setVisibleDays] = useState(DAYS_PER_PAGE);
   const [hintId, setHintId] = useState(null);
@@ -390,7 +400,7 @@ export default function HistoryPage({
       <View style={styles.heroRow}>
         <HeroStat
           label="SÉANCES"
-          value={String(countTotals.count)}
+          value={loaded ? String(countTotals.count) : '–'}
           caption={SCOPE_CAPTION[countScope]}
           color="#FFFFFF"
           shimmerKey={shimmerTick}
@@ -399,7 +409,7 @@ export default function HistoryPage({
         />
         <HeroStat
           label="TEMPS"
-          value={timeTotals.timeLabel}
+          value={loaded ? timeTotals.timeLabel : '–'}
           caption={SCOPE_CAPTION[timeScope]}
           color="#1FC777"
           shimmerKey={shimmerTick}
@@ -408,8 +418,8 @@ export default function HistoryPage({
         />
         <HeroStat
           label="STREAK"
-          value={String(streak)}
-          unit="j"
+          value={loaded ? String(streak) : '–'}
+          unit={loaded ? 'j' : undefined}
           caption="D'AFFILÉE"
           color="#FFC933"
           shimmerKey={shimmerTick}
@@ -510,7 +520,9 @@ export default function HistoryPage({
           geom.scrollY = e.nativeEvent.contentOffset.y;
         }}
       >
-        {grouped.length === 0 ? (
+        {!loaded ? (
+          <HistorySkeleton />
+        ) : grouped.length === 0 ? (
           <View style={styles.empty}>
             <Text style={styles.emptyTitle}>Aucune séance</Text>
             <Text style={styles.emptyHint}>

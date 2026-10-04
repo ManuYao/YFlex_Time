@@ -1,9 +1,9 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, InteractionManager, useWindowDimensions } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { BlurTargetView } from 'expo-blur';
-import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 
 import GradientBackground from '../components/common/GradientBackground';
 import IconButton from '../components/common/IconButton';
@@ -23,6 +23,7 @@ import ProfileGamification from '../components/screens/ProfileGamification';
 import { useTimers } from '../contexts/TimersContext';
 import { useAuth } from '../contexts/AuthContext';
 import { usePremium } from '../hooks/usePremium';
+import { useScreenReady } from '../hooks/useScreenReady';
 import { haptic } from '../hooks/useHaptic';
 import { fonts } from '../lib/fonts';
 import { getBadgeProgress } from '../lib/badges';
@@ -83,19 +84,12 @@ export default function Profile() {
   // secondes, puis elle « redescendait ». Une minuterie de sécurité (1,5 s)
   // évite qu'un état lent bloque l'écran sur le squelette.
   const [dataLoaded, setDataLoaded] = useState(false);
-  const [settled, setSettled] = useState(false);
-  const [timedOut, setTimedOut] = useState(false);
-  const [skeletonGone, setSkeletonGone] = useState(false);
-  const fade = useSharedValue(0);
-
-  React.useEffect(() => {
-    const task = InteractionManager.runAfterInteractions(() => setSettled(true));
-    const timer = setTimeout(() => setTimedOut(true), 1500);
-    return () => {
-      task.cancel?.();
-      clearTimeout(timer);
-    };
-  }, []);
+  // Le mécanisme (squelette → contenu en fondu, minuterie de sécurité) est celui
+  // de tous les écrans : hooks/useScreenReady.js.
+  const { ready, skeletonGone, contentStyle, skeletonStyle } = useScreenReady({
+    dataReady: dataLoaded,
+    softReady: premiumLoaded && authHydrated,
+  });
 
   useFocusEffect(
     React.useCallback(() => {
@@ -112,21 +106,6 @@ export default function Profile() {
       };
     }, [])
   );
-
-  const ready = dataLoaded && settled && ((premiumLoaded && authHydrated) || timedOut);
-
-  React.useEffect(() => {
-    if (!ready) return;
-    fade.value = withTiming(1, { duration: 260 }, (finished) => {
-      if (finished) runOnJS(setSkeletonGone)(true);
-    });
-  }, [ready]);
-
-  // Pas de `entering` sur le contenu : un fondu piloté à la main évite le piège
-  // d'une entrée figée à opacité 0 quand les enfants changent juste après le
-  // montage (voir MaintenanceScreen).
-  const contentStyle = useAnimatedStyle(() => ({ opacity: fade.value }));
-  const skeletonStyle = useAnimatedStyle(() => ({ opacity: 1 - fade.value }));
 
   // Persister les disciplines quand elles changent
   const handleDisciplinesChange = async (newIds) => {

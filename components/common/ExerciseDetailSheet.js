@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, TextInput, StyleSheet } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
 import BottomSheet from './BottomSheet';
@@ -8,14 +8,20 @@ import WheelPicker from './WheelPicker';
 import Button from './Button';
 import IconButton from './IconButton';
 import AppIcon from './AppIcon';
+import TouchShield from './TouchShield';
 import { fonts } from '../../lib/fonts';
 import { formatValue, formatSecondsCompact } from '../../lib/formatters';
 import { getCategory } from '../../lib/exercises';
 import { BLOCK_TYPES, getBlockType, getRangesForType } from '../../lib/mix-blocks';
-import { PLANNING_TIMER_TYPES } from '../../lib/planningMix';
+import { PLANNING_TIMER_TYPES, carryTimerParams } from '../../lib/planningMix';
 import { useLayoutLevel } from '../../lib/responsive';
 import { DANGER, ROUND_SIZE } from '../../lib/buttonTokens';
 import { haptic } from '../../hooks/useHaptic';
+import { useSubmitGuard } from '../../hooks/useSubmitGuard';
+
+// Même plafond que le nom d'un exercice créé dans la bibliothèque
+// (ExerciseLibrarySheet).
+const MAX_LABEL_LENGTH = 32;
 
 // Les 4 types utilisables comme chrono d'une étiquette (jamais MIX ni REPOS),
 // dans l'ordre du menu de l'accueil (AMRAP, BASIC, EMOM, TABATA), pas celui
@@ -95,11 +101,19 @@ export default function ExerciseDetailSheet({
   // et lirait tag.weight sur un tag déjà supprimé.
   const [snapshot] = useState(() => tag);
   const [draft, setDraft] = useState(() => ({
+    label: tag.label,
     weight: tag.weight,
     sets: tag.sets,
     rest: tag.rest,
   }));
   const [editing, setEditing] = useState(null);
+  // Renommage de l'exercice : vue à part dans la même feuille (comme les roues),
+  // le nouveau nom se range dans `draft` et part avec « Enregistrer ».
+  const [renaming, setRenaming] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
+  // Anti double-appui sur les boutons de validation (OK, Enregistrer) : points
+  // animés tout de suite, appuis avalés le temps que la vue change.
+  const guard = useSubmitGuard();
 
   // Type de chrono à lancer pour cet exercice (v15.1.0, import Planning→MIX,
   // voir lib/planningMix.js) — distinct de `draft.rest` ci-dessus (repos entre
@@ -128,6 +142,19 @@ export default function ExerciseDetailSheet({
   );
 
   const field = FIELDS.find((f) => f.key === editing);
+
+  const submitName = () => {
+    const next = nameDraft.trim();
+    if (!next) return;
+    guard.run(
+      'name',
+      () => {
+        setDraft((prev) => ({ ...prev, label: next }));
+        setRenaming(false);
+      },
+      haptic.medium
+    );
+  };
 
   const hasRest = (id) => id === 'tabata' || id === 'basic';
   const hasRounds = (id) => !!id && id !== 'amrap';
@@ -162,20 +189,20 @@ export default function ExerciseDetailSheet({
       setTimerParams(null);
       return;
     }
-    const type = getBlockType(id);
-    // Réglages de départ calés sur ce qui est affiché au-dessus (séries →
-    // tours, repos → repos) ; le temps de travail reste celui du type.
-    let rest = type.defaults.rest ?? 0;
-    if (hasRest(id) && draft.rest != null) {
-      const list = getRangesForType(id, { duration: type.defaults.duration, rest }).rest;
-      if (inRange(list, draft.rest)) rest = nearest(list, draft.rest);
-    }
+    // On reprend ce que la personne venait de régler pour le type quitté (le
+    // repos de BASIC devient la durée d'AMRAP ou l'intervalle d'EMOM, et
+    // inversement ; repos → repos, tours → tours), puis les séries et le repos
+    // de l'exercice, puis les défauts du type (lib/planningMix.js).
     setTimerType(id);
-    setTimerParams({
-      duration: type.defaults.duration ?? 0,
-      rest,
-      rounds: hasRounds(id) && draft.sets != null ? draft.sets : type.defaults.rounds ?? 1,
-    });
+    setTimerParams(
+      carryTimerParams({
+        toType: id,
+        fromType: timerType,
+        fromParams: timerParams,
+        rest: draft.rest,
+        sets: draft.sets,
+      })
+    );
   };
 
   const timerTypeInfo = timerType ? getBlockType(timerType) : null;
@@ -185,17 +212,77 @@ export default function ExerciseDetailSheet({
   const timerRanges = timerType ? getRangesForType(timerType, timerParams) : null;
 
   return (
-    <BottomSheet screenH={screenH} onClose={onClose} zIndex={94}>
+    // keyboardAware : la feuille contient désormais un champ texte (nom de
+    // l'exercice) — obligatoire, sinon le clavier recouvre le champ et le bouton.
+    <BottomSheet screenH={screenH} onClose={onClose} zIndex={94} keyboardAware>
       {({ close }) => (
         <View>
           <View style={styles.header}>
-            <Text style={styles.title}>{snapshot.label}</Text>
+            <View style={styles.titleRow}>
+              <Text style={styles.title} numberOfLines={1}>{draft.label}</Text>
+              {/* Renommer : visible sur la fiche principale seulement, pas
+                  pendant le réglage d'une roue. */}
+              {!field && !timerEditing && !renaming && (
+                <IconButton
+                  icon="edit"
+                  variant="ghost"
+                  size={32}
+                  iconSize={16}
+                  hitSlop={10}
+                  accessibilityLabel="Modifier le nom"
+                  style={styles.renameBtn}
+                  onPress={() => {
+                    haptic.light();
+                    setNameDraft(draft.label);
+                    setRenaming(true);
+                  }}
+                />
+              )}
+            </View>
             <Text style={styles.subtitle}>
               {[blockName, dayLabel].filter(Boolean).join(' · ').toUpperCase()}
             </Text>
           </View>
 
-          {field ? (
+          {renaming ? (
+            <View>
+              <View style={styles.editHeader}>
+                <IconButton
+                  icon="back"
+                  size={ROUND_SIZE.sheet}
+                  onPress={() => {
+                    haptic.light();
+                    setRenaming(false);
+                  }}
+                  accessibilityLabel="Retour"
+                />
+                <Text style={styles.editLabel}>MODIFIER LE NOM</Text>
+              </View>
+
+              <TextInput
+                value={nameDraft}
+                onChangeText={setNameDraft}
+                placeholder="Nom de l'exercice"
+                placeholderTextColor="rgba(255,255,255,0.30)"
+                selectionColor="#FFFFFF"
+                maxLength={MAX_LABEL_LENGTH}
+                autoFocus
+                returnKeyType="done"
+                onSubmitEditing={() => submitName()}
+                style={styles.nameInput}
+              />
+
+              <Button
+                variant="solid"
+                fullWidth
+                label="OK"
+                disabled={!nameDraft.trim()}
+                loading={guard.busyKey === 'name'}
+                onPress={() => submitName()}
+                style={styles.cta}
+              />
+            </View>
+          ) : field ? (
             <View>
               <View style={styles.editHeader}>
                 {/* Vibration déjà dans le handler : pas de prop `haptic`. */}
@@ -256,10 +343,8 @@ export default function ExerciseDetailSheet({
                 variant="solid"
                 fullWidth
                 label="OK"
-                onPress={() => {
-                  haptic.medium();
-                  setEditing(null);
-                }}
+                loading={guard.busyKey === 'ok'}
+                onPress={() => guard.run('ok', () => setEditing(null), haptic.medium)}
                 style={styles.cta}
               />
             </View>
@@ -292,10 +377,8 @@ export default function ExerciseDetailSheet({
                 variant="solid"
                 fullWidth
                 label="OK"
-                onPress={() => {
-                  haptic.medium();
-                  setTimerEditing(null);
-                }}
+                loading={guard.busyKey === 'ok'}
+                onPress={() => guard.run('ok', () => setTimerEditing(null), haptic.medium)}
                 style={styles.cta}
               />
             </View>
@@ -433,14 +516,20 @@ export default function ExerciseDetailSheet({
                 variant="solid"
                 fullWidth
                 label="Enregistrer"
-                onPress={() => {
-                  haptic.medium();
-                  onSave({
-                    ...draft,
-                    timerConfig: timerType ? { type: timerType, ...timerParams } : null,
-                  });
-                  close();
-                }}
+                loading={guard.busyKey === 'save'}
+                onPress={() =>
+                  guard.run(
+                    'save',
+                    () => {
+                      onSave({
+                        ...draft,
+                        timerConfig: timerType ? { type: timerType, ...timerParams } : null,
+                      });
+                      close();
+                    },
+                    haptic.medium
+                  )
+                }
                 style={styles.cta}
               />
 
@@ -458,6 +547,12 @@ export default function ExerciseDetailSheet({
               />
             </View>
           )}
+
+          {/* Pendant une validation (et un instant après), tout appui est
+              avalé : le second appui d'un double-clic tomberait sinon sur ce
+              que la nouvelle vue affiche à la même place (une case, voire
+              « Enregistrer »). */}
+          {guard.locked && <TouchShield />}
         </View>
       )}
     </BottomSheet>
@@ -468,9 +563,33 @@ const styles = StyleSheet.create({
   header: {
     marginBottom: 18,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  // Bouton rond de 32 dp qui n'agrandit pas l'en-tête : marge négative
+  // verticale, même principe que le ⋮ des cartes de bloc (PlanningPage).
+  renameBtn: {
+    marginVertical: -6,
+  },
   title: {
+    flexShrink: 1,
     fontFamily: fonts.sansBold,
     fontSize: 17,
+    color: '#FFFFFF',
+  },
+  nameInput: {
+    marginTop: 8,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    fontFamily: fonts.sansSemibold,
+    fontSize: 15,
     color: '#FFFFFF',
   },
   subtitle: {

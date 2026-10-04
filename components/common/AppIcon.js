@@ -124,6 +124,7 @@ export const ICON_NAMES = [
   'user', 'bar', 'swim', 'run',
   'star', 'star-fill', 'globe', 'flag',
   'hub', 'expand', 'history', 'calendar', 'chat',
+  'edit', 'move',
 ];
 
 export default function AppIcon({ name, size = 20, color = '#FFFFFF', opacity = 1, strokeWidth, style }) {
@@ -412,6 +413,19 @@ export default function AppIcon({ name, size = 20, color = '#FFFFFF', opacity = 
       );
       break;
     // Feuillet de planning : un jour entouré dans une grille de semaine.
+    // Crayon : renommer (menus du Planning).
+    case 'edit':
+      body = (
+        <>
+          <Path {...line} d="M4.5 19.5l.9-4.1L16.2 4.6a2.1 2.1 0 0 1 3 3L8.4 18.6l-3.9.9z" />
+          <Path {...line} d="M14.4 6.4l3.2 3.2" />
+        </>
+      );
+      break;
+    // Deux flèches opposées : déplacer un bloc d'un jour à l'autre.
+    case 'move':
+      body = <Path {...line} d="M4 8h15M15 4l4 4-4 4M20 16H5M9 12l-4 4 4 4" />;
+      break;
     case 'calendar':
       body = (
         <>

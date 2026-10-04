@@ -5,6 +5,7 @@ import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanima
 
 import PressTap from './PressTap';
 import AppIcon from './AppIcon';
+import DotsLoader from './DotsLoader';
 import ShineSweep from './ShineSweep';
 import { fonts } from '../../lib/fonts';
 import {
@@ -40,6 +41,9 @@ import {
  * - label, icon (nom AppIcon ou élément), iconPosition 'left' | 'right'
  * - children : contenu libre à la place du label
  * - fullWidth, disabled, shine (force le reflet on/off), onPress, onLongPress
+ * - loading : le libellé est remplacé par cinq points animés (DotsLoader) et
+ *   les appuis sont ignorés — le bouton garde exactement sa taille (le contenu
+ *   reste en place, invisible) et sa couleur (≠ disabled, qui l'éteint)
  * - haptic : appelée au toucher (ex. haptic.light)
  * - style : placement du bouton (marges, flex, alignSelf) — posé sur la zone
  *   d'appui, pour qu'un `flex: 1` fasse bien grandir le bouton dans une rangée
@@ -56,6 +60,7 @@ export default function Button({
   children,
   fullWidth = false,
   disabled = false,
+  loading = false,
   shine,
   onPress,
   onLongPress,
@@ -65,6 +70,9 @@ export default function Button({
   accessibilityLabel,
 }) {
   const r = buttonRecipe({ variant, tone, color });
+  // Chargement : plus aucun appui (ni animation, ni vibration), mais le bouton
+  // garde son apparence pleine — c'est une attente, pas un refus.
+  const inactive = disabled || loading;
   const height = BUTTON_HEIGHT[size];
   const radius = height / 2;
   const press = useSharedValue(0);
@@ -84,13 +92,36 @@ export default function Button({
       icon ?? null
     );
 
+  const content = (
+    <>
+      {iconNode && iconPosition === 'left' ? <View style={styles.iconLeft}>{iconNode}</View> : null}
+      {children ??
+        (label != null ? (
+          <Text
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.8}
+            style={[
+              styles.label,
+              { color: r.textColor, fontSize: BUTTON_FONT[size] },
+              size === 'sm' && styles.labelSm,
+              labelStyle,
+            ]}
+          >
+            {label}
+          </Text>
+        ) : null)}
+      {iconNode && iconPosition === 'right' ? <View style={styles.iconRight}>{iconNode}</View> : null}
+    </>
+  );
+
   return (
     <PressTap
-      onPress={disabled ? undefined : onPress}
-      onLongPress={disabled ? undefined : onLongPress}
-      disabled={disabled}
+      onPress={inactive ? undefined : onPress}
+      onLongPress={inactive ? undefined : onLongPress}
+      disabled={inactive}
       tapScale={TAP_SCALE[size]}
-      onHapticIn={disabled ? undefined : haptic}
+      onHapticIn={inactive ? undefined : haptic}
       pressValue={press}
       accessibilityLabel={accessibilityLabel ?? label}
       containerStyle={[fullWidth && styles.fullWidth, style]}
@@ -134,30 +165,23 @@ export default function Button({
             pointerEvents="none"
           />
         ) : null}
-        {hasShine ? <ShineSweep width={box.w} height={box.h} active={!disabled} /> : null}
+        {hasShine ? <ShineSweep width={box.w} height={box.h} active={!inactive} /> : null}
         <Animated.View
           pointerEvents="none"
           style={[StyleSheet.absoluteFill, { backgroundColor: r.overlay }, overlayStyle]}
         />
 
-        {iconNode && iconPosition === 'left' ? <View style={styles.iconLeft}>{iconNode}</View> : null}
-        {children ??
-          (label != null ? (
-            <Text
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.8}
-              style={[
-                styles.label,
-                { color: r.textColor, fontSize: BUTTON_FONT[size] },
-                size === 'sm' && styles.labelSm,
-                labelStyle,
-              ]}
-            >
-              {label}
-            </Text>
-          ) : null)}
-        {iconNode && iconPosition === 'right' ? <View style={styles.iconRight}>{iconNode}</View> : null}
+        {/* En chargement, le contenu reste en place mais invisible : le bouton
+            garde sa largeur et sa hauteur, les points se posent par-dessus.
+            Hors chargement, aucune vue de plus : la mise en page de tous les
+            boutons de l'app reste celle d'avant. */}
+        {loading ? <View style={styles.hidden}>{content}</View> : content}
+
+        {loading ? (
+          <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.loadingLayer]}>
+            <DotsLoader color={r.textColor} size={size === 'sm' ? 5 : 6} />
+          </View>
+        ) : null}
       </View>
     </PressTap>
   );
@@ -196,4 +220,15 @@ const styles = StyleSheet.create({
   },
   iconLeft: { marginRight: 10 },
   iconRight: { marginLeft: 10 },
+  // Contenu masqué pendant le chargement : même rangée centrée que `inner`.
+  hidden: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    opacity: 0,
+  },
+  loadingLayer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

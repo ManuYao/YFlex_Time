@@ -9,6 +9,8 @@ import IconButton from '../components/common/IconButton';
 import AppIcon from '../components/common/AppIcon';
 import { getBlockType, getMixTotalDuration, formatBlockSubtitle, hasEstimatedDuration } from '../lib/mix-blocks';
 import { deserializeMix, sanitizeImportedPayload } from '../lib/mixShare';
+import { findLibraryMatch } from '../lib/mixIdentity';
+import { formatMixClock } from '../lib/formatters';
 import { fonts } from '../lib/fonts';
 import { BOTTOM_GAP, PAIR_GAP, ROUND_SIZE, SIDE_GAP } from '../lib/buttonTokens';
 import { useTimers } from '../contexts/TimersContext';
@@ -27,7 +29,7 @@ const ACCENT = '#9575FF'; // couleur MIX, cf. lib/timers-config.js
 export default function ImportMix() {
   const router = useRouter();
   const { m } = useLocalSearchParams();
-  const { saveAsLibraryEntry, saveCurrentMix } = useTimers();
+  const { receiveMix, saveCurrentMix, library } = useTimers();
   const [saving, setSaving] = useState(false);
 
   // Décodé une seule fois : re-décoder à chaque rendu referait tourner
@@ -38,12 +40,25 @@ export default function ImportMix() {
     return sanitizeImportedPayload(payload);
   }, [m]);
 
+  // Anti-doublon (clé unique du mix, lib/mixIdentity.js) : ouvrir deux fois le
+  // même lien ne crée pas deux mix. Déjà là, même version → rien à ajouter ;
+  // déjà là, version différente → UNIQUEMENT une mise à jour.
+  const match = useMemo(() => (mix ? findLibraryMatch(library, mix) : null), [mix, library]);
+
   const handleAdd = async () => {
     if (!mix || saving) return;
+    if (match?.status === 'same') {
+      // Rien à écrire : on ouvre simplement celui qu'on a déjà.
+      setSaving(true);
+      haptic.light();
+      await saveCurrentMix(match.entry);
+      router.replace('/mix-builder');
+      return;
+    }
     setSaving(true);
     haptic.success();
-    await saveAsLibraryEntry(mix);
-    await saveCurrentMix(mix);
+    const res = await receiveMix(mix, { update: true });
+    await saveCurrentMix(res.entry);
     router.replace('/mix-builder');
   };
 
@@ -80,8 +95,6 @@ export default function ImportMix() {
   }
 
   const total = getMixTotalDuration(mix.blocks);
-  const min = Math.floor(total / 60);
-  const sec = total % 60;
 
   return (
     <GradientBackground colors={[ACCENT, '#0A0A0A', '#000000']} ambient textMode="light">
@@ -95,8 +108,20 @@ export default function ImportMix() {
         <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
           <Text style={styles.name} numberOfLines={2}>{mix.name}</Text>
           <Text style={styles.meta}>
-            {mix.blocks.length} bloc{mix.blocks.length > 1 ? 's' : ''} · {hasEstimatedDuration(mix.blocks) ? '~' : ''}{String(min).padStart(2, '0')}:{String(sec).padStart(2, '0')}
+            {mix.blocks.length} bloc{mix.blocks.length > 1 ? 's' : ''} · {hasEstimatedDuration(mix.blocks) ? '~' : ''}{formatMixClock(total)}
           </Text>
+
+          {match?.status === 'same' && (
+            <Text style={styles.matchNote}>
+              Ce mix est déjà dans ta bibliothèque (« {match.entry.name} »).
+            </Text>
+          )}
+          {match?.status === 'update' && (
+            <Text style={styles.matchNote}>
+              Tu as déjà ce mix (« {match.entry.name} »), mais cette version est différente. Tu peux mettre ta
+              copie à jour : elle sera remplacée.
+            </Text>
+          )}
 
           <View style={styles.list}>
             {mix.blocks.map((block, i) => {
@@ -131,7 +156,13 @@ export default function ImportMix() {
           <Button
             variant="accent"
             color={ACCENT}
-            label="Ajouter à ma bibliothèque"
+            label={
+              match?.status === 'same'
+                ? 'Ouvrir mon mix'
+                : match?.status === 'update'
+                  ? 'Mettre à jour ma version'
+                  : 'Ajouter à ma bibliothèque'
+            }
             disabled={saving}
             onPress={handleAdd}
             style={styles.actionMain}
@@ -178,6 +209,14 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.55)',
     marginTop: 6,
     marginBottom: 22,
+  },
+
+  matchNote: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 13,
+    lineHeight: 18,
+    color: 'rgba(255,255,255,0.75)',
+    marginBottom: 16,
   },
 
   list: {

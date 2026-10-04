@@ -28,6 +28,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import GradientBackground from '../components/common/GradientBackground';
+import HomeSkeleton from '../components/screens/HomeSkeleton';
 import TickRing from '../components/common/TickRing';
 import WheelPicker from '../components/common/WheelPicker';
 import PressTap from '../components/common/PressTap';
@@ -72,6 +73,8 @@ import { useTimers } from '../contexts/TimersContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useHaptic } from '../hooks/useHaptic';
 import { useTimerHeat } from '../hooks/useTimerHeat';
+import { useScreenReady } from '../hooks/useScreenReady';
+import { resolveStartIndex } from '../lib/smartStart';
 import { useLongPress } from '../hooks/useLongPress';
 import { useCooldown } from '../hooks/useCooldown';
 import { usePremium } from '../hooks/usePremium';
@@ -132,7 +135,58 @@ const PROGRESSION_DELAY_MS = 1500;
 // une séance : revenir de /end-session ne doit pas rejouer le conseil.
 let progressionCheckedThisLaunch = false;
 
+/**
+ * Accueil — enveloppe de chargement + démarrage intelligent.
+ *
+ * À l'ouverture on se place sur le timer le PLUS UTILISÉ (celui qui a le plus de
+ * flammes, lib/smartStart.js) au lieu de toujours tomber sur le premier. Il faut
+ * donc connaître l'historique AVANT de monter le carrousel : `initialScrollIndex`
+ * ne vaut qu'au montage, le changer après ferait voir le premier timer puis un
+ * saut. Pendant cette lecture (quelques millisecondes), un squelette neutre
+ * remplace l'ancien écran noir ; il s'efface en fondu quand l'accueil est monté
+ * dessous (hooks/useScreenReady.js). Le montage lourd des cartes (60 graduations
+ * SVG chacune) se fait derrière lui, pendant que le squelette continue de
+ * respirer sur le fil d'interface — plus de micro-gel visible.
+ *
+ * Au retour d'une séance (`lastTimerId`), on n'attend pas l'historique : on
+ * retrouve le timer qu'on vient de quitter, sans squelette ni délai.
+ */
 export default function Home() {
+  const { timers, hydrated } = useTimers();
+  const { heatMap, statsMap, loaded: heatLoaded } = useTimerHeat();
+  const { lastTimerId } = useLocalSearchParams();
+  const { ready, skeletonGone, skeletonStyle } = useScreenReady({
+    dataReady: hydrated && (!!lastTimerId || heatLoaded),
+    waitForInteractions: false,
+    fadeMs: 240,
+  });
+
+  // Figé une fois pour toutes à la première fois qu'on est prêt : relire
+  // l'historique à chaque retour de focus ne doit jamais ramener l'écran sur un
+  // autre timer sous les doigts de l'utilisateur.
+  const startIndexRef = useRef(null);
+  if (ready && startIndexRef.current === null) {
+    startIndexRef.current = resolveStartIndex(
+      timers.map((tt) => tt.id),
+      { lastTimerId, heatMap, totalsMap: statsMap }
+    );
+  }
+
+  return (
+    <View style={styles.root}>
+      {ready && (
+        <HomeScreen initialIndex={startIndexRef.current ?? 0} heatMap={heatMap} statsMap={statsMap} />
+      )}
+      {!skeletonGone && (
+        <Animated.View style={[StyleSheet.absoluteFill, skeletonStyle]} pointerEvents="none">
+          <HomeSkeleton />
+        </Animated.View>
+      )}
+    </View>
+  );
+}
+
+function HomeScreen({ initialIndex, heatMap, statsMap }) {
   // Taille reelle de la racine : SCREEN_W/H (Dimensions window) ne correspond
   // pas forcement a la zone qu'occupe l'app (barres systeme, overlay Expo Go,
   // fenetre redimensionnee en split-screen/tablette pliable...). onLayout se
@@ -147,7 +201,6 @@ export default function Home() {
   const [ctaRect, setCtaRect] = useState(null);
   const { timers, updateStat, hydrated } = useTimers();
   const { settings } = useSettings();
-  const { heatMap, statsMap } = useTimerHeat();
   const { getStatus: getCooldownStatusRaw } = useCooldown();
   const { isPremium } = usePremium();
   // Premium débloque tout, sans jamais toucher au calcul de quota/lockout
@@ -169,12 +222,6 @@ export default function Home() {
     },
     [isPremium, getCooldownStatusRaw]
   );
-  const { lastTimerId } = useLocalSearchParams();
-  const initialIndex = (() => {
-    if (!lastTimerId) return 0;
-    const i = timers.findIndex((t) => t.id === lastTimerId);
-    return i >= 0 ? i : 0;
-  })();
   const [activeIndex, setActiveIndex] = useState(initialIndex);
   const [picker, setPicker] = useState(null);
   const [statsOpen, setStatsOpen] = useState(false);

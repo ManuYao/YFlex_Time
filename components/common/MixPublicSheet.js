@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 
@@ -19,6 +19,7 @@ import { ROUND_SIZE } from '../../lib/buttonTokens';
 import { TIMERS } from '../../lib/timers-config';
 import { DISCIPLINES, getDiscipline } from '../../lib/disciplines';
 import { isDefaultMix } from '../../lib/mixes';
+import { findLibraryMatch } from '../../lib/mixIdentity';
 import { fetchCommentCounts } from '../../lib/mixComments';
 import {
   fetchFeed,
@@ -78,7 +79,7 @@ function FeedCard({
   item,
   user,
   myStars,
-  saved,
+  savedState,
   reported,
   reporting,
   removing,
@@ -206,13 +207,16 @@ function FeedCard({
           {/* Tester est ouvert à tous ; Enregistrer, noter et signaler demandent un
               compte (le parent répond par un petit message si personne n'est connecté). */}
           <View style={styles.cardActions}>
+            {/* Anti-doublon (clé unique du mix) : déjà dans Mes mix → plus d'« Enregistrer »,
+                seulement « Enregistré » ; version du fil différente de celle gardée →
+                UNIQUEMENT « Mettre à jour », jamais une deuxième copie. */}
             <Button
               variant="glass"
               size="sm"
-              icon={saved ? 'check' : 'plus'}
-              label={saved ? 'Enregistré' : 'Enregistrer'}
+              icon={savedState === 'same' ? 'check' : savedState === 'update' ? 'reset' : 'plus'}
+              label={savedState === 'same' ? 'Enregistré' : savedState === 'update' ? 'Mettre à jour' : 'Enregistrer'}
               onPress={onSave}
-              disabled={saved}
+              disabled={savedState === 'same'}
               style={styles.actionBtn}
             />
             <Button
@@ -278,7 +282,7 @@ function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine, launc
   const router = useRouter();
   const openPreview = () => router.push({ pathname: '/mix-builder', params: { preview: '1' } });
   const { user } = useAuth();
-  const { library, currentMix, saveAsLibraryEntry, saveCurrentMix, clearPublication } = useTimers();
+  const { library, currentMix, saveAsLibraryEntry, receiveMix, saveCurrentMix, clearPublication } = useTimers();
 
   const [category, setCategory] = useState(null);
   const [sort, setSort] = useState('recent');
@@ -396,6 +400,19 @@ function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine, launc
     }
   };
 
+  // État de chaque carte du fil par rapport à « Mes mix » : null (pas encore
+  // enregistré), 'same' (déjà là, même version) ou 'update' (déjà là, mais le fil
+  // a une autre version). Reconnu par la clé unique du mix (lib/mixIdentity.js).
+  const savedStates = useMemo(() => {
+    const out = {};
+    for (const item of items) {
+      const mix = feedItemToMix(item);
+      const match = mix ? findLibraryMatch(library, mix) : null;
+      if (match) out[item.id] = match.status;
+    }
+    return out;
+  }, [items, library]);
+
   const handleSave = async (item) => {
     if (!userId) {
       promptLogin('Connecte-toi pour enregistrer ce mix.');
@@ -406,15 +423,22 @@ function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine, launc
       haptic.error();
       return;
     }
-    haptic.success();
     // `fromFeed` : « Mes mix » range les mix des autres à part des miens. Le nom
-    // doit rester unique dans la liste : s'il existe déjà, on ajoute « 2 », « 3 »…
-    const key = (x) => (x || '').trim().toLowerCase();
-    const used = new Set(library.map((m) => key(m.name)));
-    const base = mix.name || 'Sans nom';
-    let name = base;
-    for (let i = 2; used.has(key(name)); i++) name = `${base.slice(0, 24)} ${i}`;
-    await saveAsLibraryEntry({ ...mix, name: name.slice(0, 28), fromFeed: { author: item.author, feedId: item.id } });
+    // reste unique dans la liste (« 2 », « 3 »…) : receiveMix s'en charge.
+    // Un seul chemin pour enregistrer (lib/mixes.js receiveMix) : un mix déjà
+    // enregistré n'est jamais ajouté une deuxième fois ; `update: true` = la
+    // personne a touché « Mettre à jour », la mise à jour est alors appliquée.
+    const res = await receiveMix(
+      { ...mix, fromFeed: { author: item.author, feedId: item.id } },
+      { update: true }
+    );
+    if (res.status === 'same') {
+      haptic.warning();
+      showToast({ text: 'Déjà dans Mes mix.', icon: 'check' });
+      return;
+    }
+    haptic.success();
+    if (res.status === 'updated') showToast({ text: 'Mis à jour dans Mes mix.', icon: 'check' });
   };
 
   const handleOpenReport = (item) => {
@@ -677,7 +701,7 @@ function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine, launc
               item={item}
               user={user}
               myStars={myRatings[item.id] ?? 0}
-              saved={library.some((m) => m.id === `mix_pub_${item.id}`)}
+              savedState={savedStates[item.id] ?? null}
               reported={reportedIds.has(item.id)}
               reporting={reportingId === item.id}
               removing={removingId === item.id}

@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { TIMERS } from '../lib/timers-config';
 import {
   addToLibrary as persistAddToLibrary,
+  receiveMix as persistReceiveMix,
   removeFromLibrary as persistRemoveFromLibrary,
   saveCurrentMix as persistCurrentMix,
   loadLibrary,
@@ -15,6 +16,7 @@ import {
   LIBRARY_MIGRATION_KEY,
 } from '../lib/mixes';
 import { getMixTotalDuration, hasEstimatedDuration } from '../lib/mix-blocks';
+import { ensureUid } from '../lib/mixIdentity';
 
 const STORAGE_KEY = 'flexTimer_timerOverrides';
 
@@ -128,10 +130,16 @@ export function TimersProvider({ children }) {
     // recopié sans ce champ ne doit pas le perdre (même règle que la
     // bibliothèque, lib/mixes.js addToLibrary).
     const prev = currentMixRef.current;
-    const mix =
-      mixIn && !mixIn.publishedId && prev?.publishedId && prev.id === mixIn.id
-        ? { ...mixIn, publishedId: prev.publishedId }
-        : mixIn;
+    // Tout mix a sa clé unique (lib/mixIdentity.js) : un mix fabriqué à la volée
+    // (généré depuis le Planning) n'en a pas encore, il la reçoit ici. Un mix qui
+    // remplace le courant sans la porter (même id) hérite de celle de l'ancien.
+    const withUid =
+      mixIn && !mixIn.uid && prev?.uid && prev.id && prev.id === mixIn.id ? { ...mixIn, uid: prev.uid } : mixIn;
+    const keepLink =
+      withUid && !withUid.publishedId && prev?.publishedId && prev.id === withUid.id
+        ? { ...withUid, publishedId: prev.publishedId }
+        : withUid;
+    const mix = ensureUid(keepLink);
     setCurrentMixState(mix);
     await persistCurrentMix(mix);
   }, []);
@@ -162,9 +170,31 @@ export function TimersProvider({ children }) {
     }
   }, []);
 
+  // Rend l'entrée telle qu'elle est ENREGISTRÉE : si le mix portait l'uid d'une
+  // entrée existante, c'est celle-là qui est mise à jour (garde anti-doublon de
+  // lib/mixes.js addToLibrary), avec son id à elle — pas forcément celui passé.
   const saveAsLibraryEntry = useCallback(async (mix) => {
     const next = await persistAddToLibrary(mix);
     setLibrary(next);
+    return next.find((m) => m.id === mix.id) || next.find((m) => m.uid && m.uid === mix.uid) || null;
+  }, []);
+
+  // Reçoit un mix venu d'ailleurs (lien, fil public) : l'unique porte d'entrée,
+  // qui refuse la double sauvegarde et ne propose que la mise à jour
+  // (lib/mixes.js receiveMix). Si l'entrée mise à jour est aussi le MIX courant,
+  // celui-ci suit : sinon l'accueil afficherait encore l'ancienne version.
+  const receiveMix = useCallback(async (incoming, options) => {
+    const res = await persistReceiveMix(incoming, options);
+    setLibrary(res.library);
+    if (res.status === 'updated') {
+      const cur = currentMixRef.current;
+      if (cur && cur.id === res.entry.id) {
+        const next = { ...res.entry };
+        setCurrentMixState(next);
+        await persistCurrentMix(next);
+      }
+    }
+    return res;
   }, []);
 
   const removeFromLibrary = useCallback(async (id) => {
@@ -240,12 +270,13 @@ export function TimersProvider({ children }) {
       currentMix,
       saveCurrentMix,
       saveAsLibraryEntry,
+      receiveMix,
       removeFromLibrary,
       loadFromLibrary,
       markPublished,
       clearPublication,
     }),
-    [timers, updateStat, resetTimer, resetAll, hydrated, library, currentMix, saveCurrentMix, saveAsLibraryEntry, removeFromLibrary, loadFromLibrary, markPublished, clearPublication]
+    [timers, updateStat, resetTimer, resetAll, hydrated, library, currentMix, saveCurrentMix, saveAsLibraryEntry, receiveMix, removeFromLibrary, loadFromLibrary, markPublished, clearPublication]
   );
 
   return <TimersContext.Provider value={value}>{children}</TimersContext.Provider>;

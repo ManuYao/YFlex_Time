@@ -51,9 +51,12 @@ import {
   getRangesForType,
 } from '../lib/mix-blocks';
 import { makeDefaultMix, isDefaultMix, mixSignature } from '../lib/mixes';
+import { findLibraryMatch, withFreshUid } from '../lib/mixIdentity';
 import { loadProfile } from '../lib/profile';
 import { getPreviewMix } from '../lib/previewMix';
 import { updatePublishedMix } from '../lib/publicMixes';
+import { DISCIPLINES } from '../lib/disciplines';
+import { formatHoursMinutes } from '../lib/formatters';
 import { DAYS, loadPlanning, formatBlockAsText } from '../lib/planning';
 import { BLOCK_ROLES, getBlockRole, resolveBlockRole } from '../lib/blockRoles';
 import { fonts } from '../lib/fonts';
@@ -86,6 +89,7 @@ export default function MixBuilder() {
     library,
     saveCurrentMix,
     saveAsLibraryEntry,
+    receiveMix,
     loadFromLibrary,
     removeFromLibrary,
     markPublished,
@@ -152,11 +156,11 @@ export default function MixBuilder() {
   // publication change.
   const draftSig = draft ? mixSignature(draft) : '';
 
-  // Une modification du brouillon après une mise à jour réussie (ou ratée) :
-  // le bandeau redevient « à envoyer ».
+  // Une modification du brouillon (ou de sa catégorie) après une mise à jour
+  // réussie (ou ratée) : le bandeau redevient « à envoyer ».
   useEffect(() => {
     setPubState((p) => (p.phase === 'ok' || p.phase === 'err' ? { phase: 'idle', text: null } : p));
-  }, [draftSig]);
+  }, [draftSig, publishedLink?.category]);
 
   useEffect(() => {
     if (draft) return;
@@ -334,20 +338,54 @@ export default function MixBuilder() {
   // entrée ; un mix déjà archivé, renommé, y laisse une COPIE.
   // Aperçu → Mes mix : une copie à moi, jamais liée à la publication d'origine.
   // Le nom n'est pas modifiable en aperçu : s'il existe déjà, on ajoute « 2 », « 3 »…
+  //
+  // Anti-doublon (clé unique du mix, lib/mixIdentity.js) : si ce mix est DÉJÀ dans
+  // Mes mix, on n'en ajoute jamais une deuxième copie. Même version : on ouvre
+  // celle qu'on a déjà. Version différente : on propose UNIQUEMENT de la mettre à
+  // jour.
   const handleSavePreview = async () => {
+    const base = cloneMix(draft);
+    delete base.publishedId;
+    delete base.own;
+    const match = findLibraryMatch(library, base);
+
+    if (match?.status === 'same') {
+      haptic.warning();
+      await stashBaseline();
+      await saveCurrentMix(match.entry);
+      setDraft(cloneMix(match.entry));
+      setPreview(false);
+      showToast({ text: 'Déjà dans Mes mix : ouvert pour modification.', icon: 'check' });
+      return;
+    }
+
+    if (match) {
+      haptic.warning();
+      const applyUpdate = async () => {
+        const res = await receiveMix(base, { update: true });
+        await stashBaseline();
+        await saveCurrentMix(res.entry);
+        setDraft(cloneMix(res.entry));
+        setPreview(false);
+        flashSaved('added', 'Mix mis à jour dans Mes mix');
+      };
+      showToast(
+        {
+          text: `« ${match.entry.name} » est déjà dans Mes mix, en version différente.`,
+          icon: 'reset',
+          actionLabel: 'Mettre à jour',
+          onAction: applyUpdate,
+        },
+        7000
+      );
+      return;
+    }
+
     haptic.success();
-    const base = withLatestPublishedId(cloneMix(draft));
-    const name = (base.name || '').trim() || 'Sans nom';
-    const key = (x) => (x || '').trim().toLowerCase();
-    const used = new Set(library.map((m) => key(m.name)));
-    let finalName = name;
-    for (let i = 2; used.has(key(finalName)); i++) finalName = `${name.slice(0, 24)} ${i}`;
-    const entry = { ...base, id: `mix_${Date.now()}`, name: finalName.slice(0, 28) };
-    delete entry.publishedId;
-    delete entry.own;
-    await saveAsLibraryEntry(entry);
-    await saveCurrentMix(entry);
-    setDraft(cloneMix(entry));
+    await stashBaseline();
+    const res = await receiveMix(base);
+    await saveCurrentMix(res.entry);
+    setDraft(cloneMix(res.entry));
     setPreview(false);
     flashSaved('added', 'Ajouté à Mes mix : tu peux le modifier');
   };
@@ -365,17 +403,21 @@ export default function MixBuilder() {
     const base = withLatestPublishedId(cloneMix(draft));
     const entry = { ...base, id: `mix_${Date.now()}`, name: baseName.slice(0, 28) };
     if (inLibrary) {
-      // La copie est à moi, et n'est pas publiée.
+      // La copie est à moi, et n'est pas publiée. C'est un AUTRE mix : clé unique
+      // neuve, sinon elle serait prise pour l'original (anti-doublon).
       delete entry.publishedId;
       delete entry.fromFeed;
       delete entry.own;
-      await saveAsLibraryEntry(entry);
+      delete entry.syncSig;
+      await saveAsLibraryEntry(withFreshUid(entry));
       flashSaved('added', 'Ajouté à Mes mix');
       return;
     }
-    await saveAsLibraryEntry(entry);
-    await saveCurrentMix(entry);
-    setDraft(cloneMix(entry));
+    // Le mix entre dans Mes mix : même mix, il garde sa clé unique. Si Mes mix en
+    // contenait déjà un avec cette clé, c'est lui qui est mis à jour et rendu.
+    const stored = (await saveAsLibraryEntry(entry)) || entry;
+    await saveCurrentMix(stored);
+    setDraft(cloneMix(stored));
     flashSaved('added', 'Ajouté à Mes mix');
   };
 
@@ -469,7 +511,7 @@ export default function MixBuilder() {
 
   // Une publication faite (ou retirée) depuis la feuille de partage : le
   // brouillon, s'il s'agit de ce mix, retient son lien.
-  const handlePublishedChange = (mixId, publishedId) => {
+  const handlePublishedChange = (mixId, publishedId, category) => {
     setDraft((d) => {
       if (!d || d.id !== mixId) return d;
       const next = { ...d };
@@ -477,6 +519,19 @@ export default function MixBuilder() {
       else delete next.publishedId;
       return next;
     });
+    // Le lien du bandeau suit la publication : sans ça, sa catégorie (ou son id,
+    // si elle a été remplacée) resterait celle d'avant, et « Mettre à jour le
+    // fil » la remettrait.
+    if (draft?.id === mixId && publishedLink) {
+      setPublishedLink(publishedId ? { id: publishedId, category: category ?? publishedLink.category } : null);
+    }
+  };
+
+  // Change la catégorie de la publication qu'on modifie. Elle part avec « Mettre
+  // à jour le fil », comme le reste des corrections.
+  const handleChangeCategory = (categoryId) => {
+    if (!publishedLink || publishedLink.category === categoryId) return;
+    setPublishedLink((l) => (l ? { ...l, category: categoryId } : l));
   };
 
   // Envoie les corrections (nom, orthographe, blocs) vers le fil public.
@@ -505,7 +560,7 @@ export default function MixBuilder() {
     haptic.success();
     // La publication peut avoir changé d'id (remplacement) : on suit la nouvelle.
     setPublishedLink({ id: res.item.id, category: res.item.category });
-    handlePublishedChange(draft.id, res.item.id);
+    handlePublishedChange(draft.id, res.item.id, res.item.category);
     await markPublished(draft.id, res.item.id);
     const text = res.reset
       ? 'Mis à jour. Les étoiles ont repris à zéro.'
@@ -604,6 +659,24 @@ export default function MixBuilder() {
             <Text style={styles.pubBannerKicker}>MIX PUBLIÉ</Text>
           </View>
           <Text style={styles.pubBannerText}>Tu modifies un mix du fil public.</Text>
+          <Text style={styles.pubBannerLabel}>CATÉGORIE</Text>
+          <View style={styles.pubBannerChips}>
+            {DISCIPLINES.map((d) => {
+              const active = d.id === publishedLink.category;
+              return (
+                <PressTap
+                  key={d.id}
+                  tapScale={0.94}
+                  onHapticIn={haptic.selection}
+                  onPress={() => handleChangeCategory(d.id)}
+                  style={[styles.pubChip, active && styles.pubChipActive]}
+                >
+                  <AppIcon name={d.icon} size={11} color={active ? '#0A0A0A' : 'rgba(255,255,255,0.70)'} />
+                  <Text style={[styles.pubChipText, active && styles.pubChipTextActive]}>{d.short}</Text>
+                </PressTap>
+              );
+            })}
+          </View>
           {!!pubState.text && (
             <Text style={[styles.pubBannerFeedback, { color: pubState.phase === 'ok' ? '#1FC777' : '#FF5454' }]}>
               {pubState.text}
@@ -634,9 +707,19 @@ export default function MixBuilder() {
         <View style={styles.heroRight}>
           <Text style={styles.heroDurLabel}>{totalIsEstimate ? 'Durée estimée' : 'Durée'}</Text>
           <Text style={styles.heroDurValue}>
-            {String(totalMin).padStart(2, '0')}
-            <Text style={styles.heroDurSep}>:</Text>
-            {String(totalRest).padStart(2, '0')}
+            {totalSec >= 3600 ? (
+              <>
+                {Math.floor(Math.round(totalSec / 60) / 60)}
+                <Text style={styles.heroDurSep}>h</Text>
+                {String(Math.round(totalSec / 60) % 60).padStart(2, '0')}
+              </>
+            ) : (
+              <>
+                {String(totalMin).padStart(2, '0')}
+                <Text style={styles.heroDurSep}>:</Text>
+                {String(totalRest).padStart(2, '0')}
+              </>
+            )}
           </Text>
         </View>
       </View>
@@ -1567,6 +1650,7 @@ const dayHasImportable = (day) => (day?.blocks || []).some((b) => (b.tags?.lengt
 
 const formatTotalShort = (s) => {
   if (s < 60) return `${s}s`;
+  if (s >= 3600) return formatHoursMinutes(s);
   const m = Math.floor(s / 60);
   const sec = s % 60;
   return sec === 0 ? `${m}min` : `${m}min ${sec}s`;
@@ -1650,6 +1734,43 @@ const styles = StyleSheet.create({
   pubBannerBtn: {
     alignSelf: 'flex-start',
     marginTop: 12,
+  },
+  pubBannerLabel: {
+    fontFamily: fonts.sansBold,
+    fontSize: 10,
+    letterSpacing: 2.6,
+    color: 'rgba(255,255,255,0.50)',
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  pubBannerChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  pubChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  pubChipActive: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#FFFFFF',
+  },
+  pubChipText: {
+    fontFamily: fonts.sansBold,
+    fontSize: 10,
+    letterSpacing: 1.2,
+    color: 'rgba(255,255,255,0.75)',
+  },
+  pubChipTextActive: {
+    color: '#0A0A0A',
   },
   pubBannerFeedback: {
     fontFamily: fonts.sansSemibold,
