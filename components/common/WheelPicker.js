@@ -29,7 +29,20 @@ const SNAP_EPSILON = 1;
 // plafonne — au-delà, scale/opacity/rotateX ne bougent plus.
 const MAX_D = 2.4;
 
-const WheelItem = memo(function WheelItem({ value, type, index, scrollY, accentColor }) {
+// Roue VIRTUELLE : seuls les items proches de la valeur centrale sont montés.
+// Avant, tous l'étaient : la charge d'un exercice (0 à 200 kg) faisait ~800 vues
+// natives et ~600 animations Reanimated (3 styles animés par item) à monter à
+// l'ouverture de la roue et à DÉMONTER au « OK » — le gel d'un instant que tout
+// l'écran subissait, points de chargement compris. Maintenant : une vingtaine
+// d'items, quel que soit le nombre de valeurs.
+// WINDOW_BUFFER : items montés au-delà de la zone visible, de chaque côté (la
+// marge qui absorbe le retard du fil JavaScript sur un lancer rapide).
+// RECENTER_STEP : la fenêtre ne suit qu'après ce déplacement (pas un rendu par
+// cran) ; la marge réelle reste donc WINDOW_BUFFER - RECENTER_STEP items.
+const WINDOW_BUFFER = 10;
+const RECENTER_STEP = 4;
+
+const WheelItem = memo(function WheelItem({ value, type, index, scrollY, accentColor, offsetTop }) {
   const fmt = formatValue(value, type);
   const isLong = fmt.main.length > 5;
 
@@ -78,7 +91,9 @@ const WheelItem = memo(function WheelItem({ value, type, index, scrollY, accentC
   });
 
   return (
-    <Animated.View style={[styles.item, { height: ITEM_HEIGHT }, style]}>
+    <Animated.View
+      style={[styles.item, { height: ITEM_HEIGHT, top: offsetTop + index * ITEM_HEIGHT }, style]}
+    >
       <View style={styles.itemRow}>
         <Animated.Text
           style={[styles.mainText, { fontFamily: fonts.monoExtraBold }, mainStyle]}
@@ -117,6 +132,11 @@ export default function WheelPicker({
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   const initialIdx = Math.max(0, values.indexOf(selectedValue));
+  // Centre de la fenêtre d'items montés (voir WINDOW_BUFFER). Une ref en plus de
+  // l'état : `commit` peut être un appel d'un ancien rendu et doit lire la valeur
+  // du moment.
+  const [windowCenter, setWindowCenter] = useState(initialIdx);
+  const windowCenterRef = useRef(initialIdx);
   // true = le scroll en cours est notre recalage, pas le doigt de l'utilisateur
   const settlingRef = useRef(false);
   // Les flèches du rail mordraient sur la valeur dans une colonne étroite
@@ -162,6 +182,10 @@ export default function WheelPicker({
       withSpring(1, springBouncy)
     );
     onChangeRef.current?.(values[idx]);
+    if (Math.abs(idx - windowCenterRef.current) >= RECENTER_STEP) {
+      windowCenterRef.current = idx;
+      setWindowCenter(idx);
+    }
   };
 
   const scrollHandler = useAnimatedScrollHandler({
@@ -203,6 +227,12 @@ export default function WheelPicker({
 
   const totalHeight = ITEM_HEIGHT * visible;
   const railTop = ITEM_HEIGHT * paddingItems;
+  // Fenêtre des items montés autour du centre.
+  const windowHalf = paddingItems + WINDOW_BUFFER;
+  const firstMounted = Math.max(0, windowCenter - windowHalf);
+  const lastMounted = Math.min(values.length - 1, windowCenter + windowHalf);
+  const mounted = [];
+  for (let i = firstMounted; i <= lastMounted; i++) mounted.push(i);
 
   const railStyle = useAnimatedStyle(() => ({
     transform: [{ scale: railPulse.value }],
@@ -267,16 +297,21 @@ export default function WheelPicker({
         // Posée dans une feuille qui défile (mode clavier de BottomSheet) : sans
         // ça, Android donne le glissement vertical à la feuille, pas à la roue.
         nestedScrollEnabled
-        contentContainerStyle={{ paddingVertical: railTop }}
+        // La hauteur totale est posée à la main (les items sont en position
+        // absolue, seuls quelques-uns sont montés) : marge haute et basse de la
+        // zone visible, plus une ligne par valeur — même plage de défilement
+        // qu'avec tous les items.
+        contentContainerStyle={{ height: ITEM_HEIGHT * values.length + 2 * railTop }}
       >
-        {values.map((v, i) => (
+        {mounted.map((i) => (
           <WheelItem
             key={i}
-            value={v}
+            value={values[i]}
             type={type}
             index={i}
             scrollY={scrollY}
             accentColor={accentColor}
+            offsetTop={railTop}
           />
         ))}
       </Animated.ScrollView>
@@ -337,9 +372,11 @@ const styles = StyleSheet.create({
     borderRightWidth: 7,
   },
   item: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
     alignItems: 'center',
     justifyContent: 'center',
-    width: '100%',
   },
   itemRow: {
     flexDirection: 'row',

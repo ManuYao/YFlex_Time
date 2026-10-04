@@ -79,9 +79,11 @@ export default function History() {
     setRootH(height);
   };
 
-  const goToPage = (index) => {
+  // Identité stable : HistoryPage est mémoïsée, une fonction recréée à chaque
+  // rendu lui ferait refaire tout son contenu pour rien.
+  const goToPage = useCallback((index) => {
     listRef.current?.scrollToIndex({ index, animated: true });
-  };
+  }, []);
 
   const handleMomentumEnd = (e) => {
     if (!rootW) return;

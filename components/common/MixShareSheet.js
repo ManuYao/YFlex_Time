@@ -515,8 +515,10 @@ function ShareContent({ mix: mixProp, close, scrollToEnd, onImported, goLogin, o
   const [pickerOpen, setPickerOpen] = useState(false);
   const mix = picked ?? mixProp;
   const publishedLink = mix?.id === mixProp?.id ? linkProp : null;
+  // Un mix en aperçu (venu du fil, pas encore enregistré) ne m'appartient pas :
+  // il n'est jamais proposé au partage (voir `notOwned` plus bas).
   const options = [
-    ...(mixProp && !library.some((m) => m.id === mixProp.id) ? [mixProp] : []),
+    ...(mixProp && !mixProp.isPreview && !library.some((m) => m.id === mixProp.id) ? [mixProp] : []),
     ...library,
   ];
   const pickMix = (m) => {
@@ -558,6 +560,10 @@ function ShareContent({ mix: mixProp, close, scrollToEnd, onImported, goLogin, o
   }, [preview, error]);
 
   const hasBlocks = !!mix?.blocks?.length;
+  // Un mix qui ne m'appartient pas (aperçu d'un mix du fil, pas encore enregistré
+  // dans Mes mix) ne s'envoie ni ne se publie : on ne peut que le lancer ou
+  // l'enregistrer. Il devient le mien à l'enregistrement.
+  const notOwned = !!mix?.isPreview;
   const totalSec = hasBlocks ? getMixTotalDuration(mix.blocks) : 0;
 
   // Copie seulement le lien (demande utilisateur) : la personne choisit elle-
@@ -702,7 +708,14 @@ function ShareContent({ mix: mixProp, close, scrollToEnd, onImported, goLogin, o
             <Text style={styles.emptyText}>Ajoute au moins un bloc pour pouvoir partager ce mix.</Text>
           )}
 
-          {hasBlocks && (
+          {notOwned && (
+            <Text style={styles.emptyText}>
+              Ce mix ne t'appartient pas encore : tu ne peux pas le partager. Enregistre-le dans Mes mix, il sera à
+              toi.
+            </Text>
+          )}
+
+          {hasBlocks && !notOwned && (
             <>
               <OptionCard
                 icon="link"

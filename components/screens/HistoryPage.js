@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useRef } from 'react';
+import { memo, useCallback, useEffect, useState, useRef } from 'react';
 import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -96,7 +96,11 @@ const SCOPE_CAPTION = {
 // dérivés à chaque rendu tant que rien n'est chargé.
 const EMPTY_SESSIONS = [];
 
-export default function HistoryPage({
+// `memo` : le pager (app/history.js) se re-rend à chaque ouverture/fermeture d'une
+// feuille du Planning (`onSheetChange`). Sans lui, cette page — hors de l'écran,
+// mais montée — recalculait tout son historique et refaisait toutes ses lignes à
+// chaque fois, ce qui alourdissait le gel déjà ressenti sur le Planning.
+function HistoryPage({
   width,
   height,
   pageIndex,
@@ -1265,3 +1269,5 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 });
+
+export default memo(HistoryPage);

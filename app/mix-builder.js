@@ -138,7 +138,13 @@ export default function MixBuilder() {
   // Aperçu (« Tester » sur un mix publié) : on voit ce qu'on va lancer, sans
   // rien pouvoir modifier ni réordonner. Maintenir Enregistrer l'ajoute à Mes
   // mix, et il devient alors modifiable comme les autres.
-  const [preview, setPreview] = useState(() => params.preview === '1');
+  // Un mix qui ne m'appartient pas (venu du fil public, pas encore enregistré) :
+  // lecture seule — on peut le lancer ou l'enregistrer, rien d'autre (ni
+  // modifier, ni partager, ni publier). Il l'est aussi quand l'écran s'ouvre sur
+  // un MIX courant resté en aperçu après un lancement (`isPreview`) : sans ça,
+  // « Modifier » l'ouvrait comme si c'était le mien, partage compris.
+  // Il m'appartient dès qu'il est enregistré dans Mes mix.
+  const [preview, setPreview] = useState(() => params.preview === '1' || !!currentMix?.isPreview);
   // Verrou anti double-tap : le lancement est asynchrone (écriture du MIX
   // courant avant de partir), un second appui ne doit pas consommer deux
   // places du quota.
@@ -322,11 +328,9 @@ export default function MixBuilder() {
   // « Enregistré », petit message.
   const handleSave = async () => {
     if (draft.blocks.length === 0) return;
-    if (preview) {
-      haptic.warning();
-      showToast({ text: 'Maintiens Enregistrer 2 s pour l\'ajouter à Mes mix.', icon: 'lock' });
-      return;
-    }
+    // Mix qui ne m'appartient pas : un simple appui l'enregistre dans Mes mix
+    // (il devient alors le mien) — plus besoin de maintenir 2 s.
+    if (preview) return handleSavePreview();
     if (inLibrary && nameTaken()) return refuseTakenName();
     haptic.success();
     await persistDraft();
@@ -596,6 +600,11 @@ export default function MixBuilder() {
   // lien reçu (retour utilisateur v14.3.0 : beaucoup d'apps de messagerie ne
   // rendent pas cliquable un scheme personnalisé).
   const openShare = (mix, { isDraft = false } = {}) => {
+    // Un mix qui ne m'appartient pas ne se partage pas (voir `preview`).
+    if (preview) {
+      haptic.warning();
+      return;
+    }
     haptic.light();
     setShareMix(withLatestPublishedId(mix));
     setShareIsDraft(isDraft);
@@ -648,7 +657,7 @@ export default function MixBuilder() {
             <Text style={styles.pubBannerKicker}>APERÇU</Text>
           </View>
           <Text style={styles.pubBannerText}>
-            Tu vois ce que tu vas lancer. Maintiens Enregistrer pour l'ajouter à Mes mix et le modifier.
+            Ce mix ne t'appartient pas encore : tu peux le lancer ou l'enregistrer. Une fois enregistré dans Mes mix, il est à toi : tu peux le modifier et le partager.
           </Text>
         </View>
       )}
@@ -845,6 +854,7 @@ export default function MixBuilder() {
           <View style={styles.bottomActions}>
             <SaveButton
               disabled={draft.blocks.length === 0}
+              oneTap={preview}
               onTap={handleSave}
               onLongComplete={handleSaveAsNew}
               status={saveStatus}
@@ -1168,7 +1178,7 @@ function RoleChip({ role, selected, onPress, onLayout }) {
 // Garde sa propre mécanique d'appui (la barre qui se remplit, que Button ne
 // sait pas faire) mais porte le rendu de la recette 'accent' de
 // lib/buttonTokens.js : même capsule que tous les autres boutons.
-function SaveButton({ disabled, onTap, onLongComplete, status = null, flashTick = 0 }) {
+function SaveButton({ disabled, onTap, onLongComplete, oneTap = false, status = null, flashTick = 0 }) {
   const haptic = useHaptic();
   const progress = useSharedValue(0);
   const scale = useSharedValue(1);
@@ -1201,7 +1211,8 @@ function SaveButton({ disabled, onTap, onLongComplete, status = null, flashTick 
         if (disabled) return;
         longFiredRef.current = false;
         scale.value = withSpring(TAP_SCALE.lg, springEnergetic);
-        progress.value = withTiming(1, { duration: SAVE_HOLD_MS });
+        // `oneTap` (mix qui n'est pas à moi) : un appui suffit, pas de barre de maintien.
+        if (!oneTap) progress.value = withTiming(1, { duration: SAVE_HOLD_MS });
       }}
       onPressOut={() => {
         scale.value = withSpring(1, springEnergetic);
@@ -1212,7 +1223,9 @@ function SaveButton({ disabled, onTap, onLongComplete, status = null, flashTick 
         longFiredRef.current = true;
         // Pas de vibration ici : c'est le gestionnaire qui vibre, une fois sûr
         // que l'enregistrement a lieu (sinon un refus vibrait comme un succès).
-        onLongComplete?.();
+        // En `oneTap`, un appui prolongé vaut un appui simple.
+        if (oneTap) onTap?.();
+        else onLongComplete?.();
       }}
       onPress={() => {
         if (disabled) return;
@@ -1261,7 +1274,7 @@ function SaveButton({ disabled, onTap, onLongComplete, status = null, flashTick 
           >
             {status === 'added' ? 'Ajouté' : status === 'saved' ? 'Enregistré' : refused ? 'Nom déjà pris' : 'Enregistrer'}
           </Text>
-          {!confirmed && (
+          {!confirmed && !oneTap && (
             <Text style={[styles.btnPrimaryHint, refused && { color: '#FF5454' }]} numberOfLines={1}>
               {refused ? 'Change le nom du mix' : 'Maintiens 2s = nouveau'}
             </Text>

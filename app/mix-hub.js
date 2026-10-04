@@ -24,6 +24,7 @@ import { D, slideInY } from '../lib/animations';
 import { getBlockType, getBlockDuration, getMixTotalDuration, hasEstimatedDuration } from '../lib/mix-blocks';
 import { formatMixClock } from '../lib/formatters';
 import { isDefaultMix } from '../lib/mixes';
+import { findLibraryMatch } from '../lib/mixIdentity';
 
 const FALLBACK_MIX_BG = ['#9575FF', '#4B2FC9', '#1A0D52'];
 
@@ -51,6 +52,7 @@ export default function MixHub() {
     library,
     saveCurrentMix,
     saveAsLibraryEntry,
+    receiveMix,
     loadFromLibrary,
     removeFromLibrary,
   } = useTimers();
@@ -83,7 +85,39 @@ export default function MixHub() {
     }
   };
 
+  // MIX courant resté en aperçu (venu du fil, lancé sans être enregistré) : il ne
+  // m'appartient pas. On ne peut que le lancer ou l'enregistrer — ni le modifier,
+  // ni l'envoyer, ni le publier. Il devient le mien à l'enregistrement.
+  const notOwned = !!currentMix?.isPreview;
+  const ownedCopy = (() => {
+    if (!notOwned) return null;
+    const { isPreview: _p, own: _o, publishedId: _pid, ...rest } = currentMix;
+    return rest;
+  })();
+  // Déjà dans Mes mix (même clé unique) ? Jamais une deuxième copie : on ouvre
+  // l'exemplaire existant, ou on propose UNIQUEMENT de le mettre à jour.
+  const saveMatch = ownedCopy ? findLibraryMatch(library, ownedCopy) : null;
+  const saveLabel =
+    saveMatch?.status === 'same' ? 'Ouvrir le mien' : saveMatch?.status === 'update' ? 'Mettre à jour' : 'Enregistrer';
+
+  const handleSaveCurrent = async () => {
+    if (!ownedCopy) return;
+    haptic.success();
+    if (saveMatch?.status === 'same') {
+      await saveCurrentMix(saveMatch.entry);
+      return;
+    }
+    const res = await receiveMix(ownedCopy, { update: true });
+    await saveCurrentMix(res.entry);
+  };
+
   const openShare = (tab, mix) => {
+    // L'onglet « Envoyer » d'un mix qui n'est pas à moi n'existe pas ; « Recevoir »
+    // reste ouvert (on y colle un lien, ça ne partage rien).
+    if (tab === 'send' && mix?.isPreview) {
+      haptic.warning();
+      return;
+    }
     haptic.light();
     setSheet({ type: 'share', tab, mix });
   };
@@ -144,7 +178,7 @@ export default function MixHub() {
               end={{ x: 0.8, y: 1 }}
               style={StyleSheet.absoluteFill}
             />
-            <Text style={styles.currentKicker}>TON MIX</Text>
+            <Text style={styles.currentKicker}>{notOwned ? 'APERÇU · PAS ENCORE À TOI' : 'TON MIX'}</Text>
             <Text style={styles.currentName} numberOfLines={2}>
               {hasMix ? currentMix?.name || 'Mon mix' : 'Pas encore de mix'}
             </Text>
@@ -178,12 +212,16 @@ export default function MixHub() {
 
             {hasMix ? (
               <View style={styles.currentActions}>
-                <Button
-                  variant="glass"
-                  label="Modifier"
-                  haptic={haptic.light}
-                  onPress={() => router.push('/mix-builder')}
-                />
+                {notOwned ? (
+                  <Button variant="glass" icon="plus" label={saveLabel} onPress={handleSaveCurrent} />
+                ) : (
+                  <Button
+                    variant="glass"
+                    label="Modifier"
+                    haptic={haptic.light}
+                    onPress={() => router.push('/mix-builder')}
+                  />
+                )}
                 <Button
                   variant={locked ? 'glass' : 'accent'}
                   color={MIX_COLOR}
@@ -251,7 +289,10 @@ export default function MixHub() {
               delay={230}
               icon="share"
               title="Envoyer mon mix"
-              summary="Par lien, ou dans le fil public"
+              summary={
+                notOwned ? "Enregistre d'abord ce mix : il sera à toi" : 'Par lien, ou dans le fil public'
+              }
+              muted={notOwned}
               onPress={() => openShare('send', currentMix)}
             />
             {/* Ce que j'ai publié : modifier, tester, retirer — sans passer par
@@ -348,9 +389,9 @@ export default function MixHub() {
   );
 }
 
-function Tile({ icon, title, summary, onPress, delay }) {
+function Tile({ icon, title, summary, onPress, delay, muted = false }) {
   return (
-    <Animated.View entering={slideInY(24, D.big, delay)} style={styles.tileWrap}>
+    <Animated.View entering={slideInY(24, D.big, delay)} style={[styles.tileWrap, muted && styles.tileMuted]}>
       <PressTap
         onPress={onPress}
         tapScale={0.97}
@@ -374,6 +415,8 @@ function Tile({ icon, title, summary, onPress, delay }) {
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
+  // Tuile pas disponible pour l'instant (mix qui n'est pas encore à moi).
+  tileMuted: { opacity: 0.45 },
   statusBar: {
     paddingHorizontal: 24,
     paddingTop: 4,
