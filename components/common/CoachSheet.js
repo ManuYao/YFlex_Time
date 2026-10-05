@@ -3,6 +3,7 @@ import { View, Text, Pressable, StyleSheet } from 'react-native';
 
 import BottomSheet from './BottomSheet';
 import Button from './Button';
+import AppIcon from './AppIcon';
 import { fonts } from '../../lib/fonts';
 import { haptic } from '../../hooks/useHaptic';
 import { previewVoice } from '../../lib/voiceCoach';
@@ -32,6 +33,24 @@ export const COACH_STYLES = [
   },
 ];
 
+// Niveau d'annonces : Discret = le comportement d'avant la V1.2 (par défaut,
+// pour qui écoute de la musique), Détaillé = en plus la durée de l'effort et
+// du repos, dite une fois puis quand elle change.
+export const COACH_DETAILS = [
+  {
+    value: 'discreet',
+    label: 'Discret',
+    desc: 'Parle peu : le tour et le repos.',
+    sample: '« Tour 3 sur 8. »',
+  },
+  {
+    value: 'detailed',
+    label: 'Détaillé',
+    desc: "Ajoute la durée de l'effort et du repos.",
+    sample: '« Travail, 20 secondes. »',
+  },
+];
+
 const GENDERS = [
   { value: 'female', label: 'FEMME' },
   { value: 'male', label: 'HOMME' },
@@ -41,8 +60,10 @@ export default function CoachSheet({
   screenH,
   style,
   gender,
+  detail = 'discreet',
   maleVoiceAvailable,
   onChangeStyle,
+  onChangeDetail,
   onChangeGender,
   onClose,
 }) {
@@ -62,7 +83,7 @@ export default function CoachSheet({
                 onPress={() => {
                   haptic.selection();
                   onChangeStyle(opt.value);
-                  previewVoice({ style: opt.value, gender });
+                  previewVoice({ style: opt.value, gender, detail });
                 }}
                 style={({ pressed }) => [
                   styles.card,
@@ -82,6 +103,38 @@ export default function CoachSheet({
             );
           })}
 
+          <Text style={[styles.sectionLabel, { marginTop: 8 }]}>NIVEAU D'ANNONCES</Text>
+          <View style={styles.detailRow}>
+            {COACH_DETAILS.map((opt) => {
+              const active = opt.value === detail;
+              return (
+                <Pressable
+                  key={opt.value}
+                  onPress={() => {
+                    haptic.selection();
+                    onChangeDetail?.(opt.value);
+                    previewVoice({ style, gender, detail: opt.value });
+                  }}
+                  style={({ pressed }) => [
+                    styles.detailCard,
+                    active && styles.cardActive,
+                    pressed && { opacity: 0.7 },
+                  ]}
+                >
+                  <AppIcon
+                    name="bulb"
+                    size={22}
+                    color="#FFFFFF"
+                    opacity={active ? 1 : 0.4}
+                  />
+                  <Text style={[styles.cardLabel, !active && styles.dim]}>{opt.label}</Text>
+                  <Text style={[styles.detailDesc, !active && styles.dim]}>{opt.desc}</Text>
+                  <Text style={[styles.cardSample, !active && styles.dim]}>{opt.sample}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
           {/* Proposé seulement si le téléphone a une vraie voix d'homme en
               français — sinon on reste en voix femme, sans option. */}
           {maleVoiceAvailable && (
@@ -96,7 +149,7 @@ export default function CoachSheet({
                       onPress={() => {
                         haptic.selection();
                         onChangeGender(opt.value);
-                        previewVoice({ style, gender: opt.value });
+                        previewVoice({ style, gender: opt.value, detail });
                       }}
                       style={[styles.genderChip, active && styles.genderChipActive]}
                       hitSlop={4}
@@ -155,8 +208,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
     backgroundColor: 'rgba(255,255,255,0.03)',
-    borderRadius: 16,
-    padding: 14,
+    borderRadius: 20,
+    padding: 16,
     marginBottom: 10,
   },
   cardActive: {
@@ -208,6 +261,26 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     backgroundColor: '#FFFFFF',
+  },
+  detailRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 6,
+  },
+  detailCard: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 20,
+    padding: 16,
+    gap: 6,
+  },
+  detailDesc: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
+    lineHeight: 16,
+    color: 'rgba(255,255,255,0.75)',
   },
   genderRow: {
     flexDirection: 'row',

@@ -124,7 +124,7 @@ export const ICON_NAMES = [
   'user', 'bar', 'swim', 'run',
   'star', 'star-fill', 'globe', 'flag',
   'hub', 'expand', 'history', 'calendar', 'chat',
-  'edit', 'move',
+  'edit', 'move', 'bulb',
 ];
 
 export default function AppIcon({ name, size = 20, color = '#FFFFFF', opacity = 1, strokeWidth, style }) {
@@ -311,6 +311,15 @@ export default function AppIcon({ name, size = 20, color = '#FFFFFF', opacity = 
       break;
     case 'bolt':
       body = <Path {...line} {...tint} d="M13 2.5 5 13.5h6l-1 8 8-11h-6l1-8z" />;
+      break;
+    case 'bulb':
+      body = (
+        <>
+          <Path {...line} d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z" />
+          <Line {...line} x1={9.5} y1={19} x2={14.5} y2={19} />
+          <Line {...line} x1={10.5} y1={21.5} x2={13.5} y2={21.5} />
+        </>
+      );
       break;
     case 'link':
       body = (

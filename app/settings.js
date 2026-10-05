@@ -631,7 +631,9 @@ export default function Settings() {
             style={settings.voiceStyle}
             gender={settings.voiceGender}
             maleVoiceAvailable={maleVoiceAvailable}
+            detail={settings.voiceDetail}
             onChangeStyle={(v) => update('voiceStyle', v)}
+            onChangeDetail={(v) => update('voiceDetail', v)}
             onChangeGender={(v) => update('voiceGender', v)}
             onClose={() => setCoachSheet(false)}
           />
@@ -775,8 +777,9 @@ const STRENGTH_OPTIONS = [
 // Résumé affiché sous « Personnaliser le coach » : ce qu'on entendra.
 const coachSummary = (settings, maleVoiceAvailable) => {
   const style = COACH_STYLES.find((s) => s.value === settings.voiceStyle) ?? COACH_STYLES[0];
-  if (!maleVoiceAvailable) return style.label;
-  return `${style.label} · voix ${settings.voiceGender === 'male' ? 'homme' : 'femme'}`;
+  const level = settings.voiceDetail === 'detailed' ? 'détaillé' : 'discret';
+  if (!maleVoiceAvailable) return `${style.label} · ${level}`;
+  return `${style.label} · ${level} · voix ${settings.voiceGender === 'male' ? 'homme' : 'femme'}`;
 };
 
 /**

@@ -23,6 +23,9 @@ const DEFAULTS = {
   // 'motivating' (« Motivant », phrases de coach) est le choix perso.
   // Réglé dans la fenêtre « Ton coach » (components/common/CoachSheet.js).
   voiceStyle: 'essential',
+  // 'discreet' (par défaut : parle peu, pour qui écoute de la musique) ou
+  // 'detailed' (annonce chaque tour). Fenêtre « Ton coach ».
+  voiceDetail: 'discreet',
   // Mode pluie (lib/rainMode.js) : 'normal' (un appui) par défaut.
   rainMode: 'normal',
   autoStart: false,
@@ -65,8 +68,9 @@ export function SettingsProvider({ children }) {
       enabled: settings.voiceCoach,
       gender: settings.voiceGender,
       style: settings.voiceStyle,
+      detail: settings.voiceDetail,
     });
-  }, [settings.voiceCoach, settings.voiceGender, settings.voiceStyle]);
+  }, [settings.voiceCoach, settings.voiceGender, settings.voiceStyle, settings.voiceDetail]);
 
   const persist = useCallback(async (next) => {
     try {
