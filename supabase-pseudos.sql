@@ -61,23 +61,29 @@ security definer
 set search_path = public
 as $$
 begin
-  update public.shared_mixes
-     set author_name = btrim(new.pseudo)
-   where owner_id = new.user_id
-     and author_name is distinct from btrim(new.pseudo);
+  if to_regclass('public.shared_mixes') is not null then
+    update public.shared_mixes
+       set author_name = btrim(new.pseudo)
+     where owner_id = new.user_id
+       and author_name is distinct from btrim(new.pseudo);
+  end if;
 
-  update public.mix_comments
-     set author_name = btrim(new.pseudo)
-   where author_id = new.user_id
-     and not deleted
-     and author_name is distinct from btrim(new.pseudo);
-
-  -- « ↪ à Karim » : les réponses adressées à l'ancien nom suivent aussi.
-  if tg_op = 'UPDATE' and old.pseudo is distinct from new.pseudo then
+  -- Les commentaires peuvent ne pas être encore ouverts (supabase-commentaires.sql
+  -- pas lancé) : sans cette garde, la réservation du pseudo échouait en entier.
+  if to_regclass('public.mix_comments') is not null then
     update public.mix_comments
-       set reply_to_name = btrim(new.pseudo)
-     where reply_to_name = btrim(old.pseudo)
-       and not deleted;
+       set author_name = btrim(new.pseudo)
+     where author_id = new.user_id
+       and not deleted
+       and author_name is distinct from btrim(new.pseudo);
+
+    -- « ↪ à Karim » : les réponses adressées à l'ancien nom suivent aussi.
+    if tg_op = 'UPDATE' and old.pseudo is distinct from new.pseudo then
+      update public.mix_comments
+         set reply_to_name = btrim(new.pseudo)
+       where reply_to_name = btrim(old.pseudo)
+         and not deleted;
+    end if;
   end if;
 
   return new;
