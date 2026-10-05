@@ -852,7 +852,7 @@ function TopBar({ tokens, tone, name, tag, roundLabel, onReturn, progress, marke
           style={[
             styles.progressFill,
             {
-              backgroundColor: tokens.primary,
+              backgroundColor: tokens.secondary,
               width: `${Math.min(100, progress * 100)}%`,
             },
           ]}
@@ -1220,23 +1220,25 @@ const styles = StyleSheet.create({
     fontFamily: fonts.monoExtraBold,
     fontSize: 20,
   },
+  // Même langage que les capsules du déroulé : pleine largeur mais plus
+  // épaisse et arrondie, remplissage adouci (pas le blanc plein).
   progressTrack: {
-    height: 3,
-    borderRadius: 2,
+    height: 6,
+    borderRadius: 3,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    borderRadius: 2,
+    borderRadius: 3,
   },
   progressNotch: {
     position: 'absolute',
     top: 0,
     bottom: 0,
-    width: 2,
+    width: 3,
     // `left` est le pourcentage exact de la frontière : on recentre le trait
     // dessus au lieu de le faire démarrer après.
-    marginLeft: -1,
+    marginLeft: -1.5,
   },
 
   center: {
