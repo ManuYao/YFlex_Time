@@ -22,7 +22,7 @@ import { D, easeImpact, springSheet } from '../../lib/animations';
 // Même exception que la feuille "Nouvelle version" (UpdateGate) : rien ne
 // s'affiche par-dessus un chrono en cours, le compte à rebours, ou le
 // tutoriel. Le bandeau revient dès que l'utilisateur en sort.
-const HIDDEN_ROUTES = new Set(['/', '/index', '/onboarding', '/countdown', '/running']);
+const HIDDEN_ROUTES = new Set(['/', '/index', '/onboarding', '/tutorial', '/countdown', '/running']);
 
 const ACCENT = '#FFC933';
 

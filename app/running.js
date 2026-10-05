@@ -29,7 +29,9 @@ import LongPressButton from '../components/common/LongPressButton';
 import AppIcon from '../components/common/AppIcon';
 import IconButton from '../components/common/IconButton';
 import PulseGlow from '../components/common/PulseGlow';
+import TutorialCoach from '../components/common/TutorialCoach';
 import { useTimers } from '../contexts/TimersContext';
+import { buildTutorialTimer, coachStepFor } from '../lib/tutorialShape';
 import { computeState, skipToNextPhaseElapsed } from '../lib/timer-engine';
 import { getTokens } from '../lib/tokens';
 import { fonts } from '../lib/fonts';
@@ -60,12 +62,21 @@ const springEnergetic = { stiffness: 380, damping: 22, mass: 1 };
 
 export default function Running() {
   const router = useRouter();
-  const { timerId } = useLocalSearchParams();
+  const { timerId, tutorial } = useLocalSearchParams();
   const haptic = useHaptic();
   const sound = useSound();
   const { timers } = useTimers();
 
-  const timer = timers.find((t) => t.id === timerId) ?? timers[0];
+  // Chrono de TEST du tutoriel (lib/tutorialShape.js) : le vrai écran, avec un
+  // BASIC aux réglages du test. Il n'écrit rien (ni historique, ni quota) et ne
+  // démarre pas le service de notification ; la fin de séance renvoie au tour
+  // guidé au lieu de l'écran de fin.
+  const isTutorial = tutorial === '1';
+  const baseTimer = timers.find((t) => t.id === timerId) ?? timers[0];
+  const timer = useMemo(
+    () => (isTutorial ? buildTutorialTimer(baseTimer) : baseTimer),
+    [isTutorial, baseTimer]
+  );
   const t = getTokens(timer.textMode);
 
   // Vaut 1 sur un telephone normal : rien ne bouge. Ne se reduit qu'en
@@ -80,6 +91,7 @@ export default function Running() {
   const level = useLayoutLevel();
   const isMini = level === 'mini';
   const isReduced = isMini || level === 'compact';
+  const { height: winH } = useWindowSize();
   const ring = scaled(level === 'compact' ? 260 : 320, ui);
   const bigTimeSize = isMini ? scaled(64, ui) : scaled(level === 'compact' ? 62 : 76, ui);
 
@@ -153,6 +165,15 @@ export default function Running() {
     tickVoiceCoach(voicePrevRef, state, secondsElapsed, timer.id);
   }, [secondsElapsed, isPaused, state.isComplete]);
 
+  // Quitter le chrono de test : on retombe sur le bilan du tour guidé (qui
+  // propose de refaire le test ou de quitter le tuto), jamais sur l'accueil
+  // d'un coup — et surtout sans écran de fin ni historique.
+  const handleTutorialQuit = () => {
+    if (navigatedRef.current) return;
+    navigatedRef.current = true;
+    router.replace({ pathname: '/tutorial', params: { step: 'bilan', done: '0' } });
+  };
+
   useEffect(() => {
     if (state.isComplete && !navigatedRef.current) {
       navigatedRef.current = true;
@@ -161,6 +182,10 @@ export default function Running() {
       endSpokenRef.current = true;
       speakEnd();
       setTimeout(() => haptic.success(), 220);
+      if (isTutorial) {
+        router.replace({ pathname: '/tutorial', params: { step: 'bilan', done: '1' } });
+        return;
+      }
       const realElapsed = Math.max(
         0,
         Math.floor(state.totalSecondsTarget - skippedRef.current)
@@ -185,12 +210,22 @@ export default function Running() {
   }, [state.isComplete]);
 
   useEffect(() => {
-    const sub = BackHandler.addEventListener('hardwareBackPress', () => true);
+    // Pendant une séance le retour Android est avalé (on ne quitte pas un
+    // effort par accident) ; dans le tutoriel il QUITTE le test : un tutoriel
+    // ne doit jamais enfermer la personne.
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (isTutorial) handleTutorialQuit();
+      return true;
+    });
     return () => sub.remove();
   }, []);
 
   const handleReturn = () => {
     haptic.warning();
+    if (isTutorial) {
+      handleTutorialQuit();
+      return;
+    }
     // Explicitement le BASIC AUTONOME, pas isManualBasic (généralisé) : un
     // MIX doit toujours jeter la séance sur Retour, même si son bloc courant
     // est un BASIC en plein travail — comportement voulu, cf. plus bas.
@@ -358,9 +393,11 @@ export default function Running() {
   // lui — quitter Running, quelle qu'en soit la raison, retire la notif et
   // arrête le service de premier plan.
   useEffect(() => {
-    startTimerNotification();
+    // Pas de service de premier plan pour le chrono de test du tutoriel :
+    // quelques secondes à l'écran, rien à garder vivant en arrière-plan.
+    if (!isTutorial) startTimerNotification();
     return () => {
-      stopTimerNotification();
+      if (!isTutorial) stopTimerNotification();
       // Quitter Running en pleine phrase ne doit pas laisser le coach
       // continuer à parler par-dessus l'écran suivant (Home, fin de séance…).
       if (!endSpokenRef.current) stopVoiceCoach();
@@ -370,7 +407,7 @@ export default function Running() {
   // Une réécriture par seconde affichée (même valeur que le gros chiffre),
   // plus à chaque changement de phase / tour / pause.
   useEffect(() => {
-    if (state.isComplete) return;
+    if (state.isComplete || isTutorial) return;
     updateTimerNotification({
       timerName: timer.name,
       color: timer.color,
@@ -601,7 +638,18 @@ export default function Running() {
 
           {/* Le déroulé des phases est un repère de confort : premier bloc
               sacrifié quand la hauteur manque. */}
-          {!isReduced && <PhasesPills phases={state.phasesList} timer={timer} tokens={t} />}
+          {isTutorial ? (
+            // Chrono de test : la bulle de guidage prend la place du déroulé
+            // (même emplacement, même rôle — expliquer où on en est).
+            <TutorialCoach
+              step={coachStepFor(state)}
+              tokens={t}
+              compact={isMini || winH < 640}
+              onQuit={handleTutorialQuit}
+            />
+          ) : (
+            !isReduced && <PhasesPills phases={state.phasesList} timer={timer} tokens={t} />
+          )}
         </View>
 
         <BottomControls

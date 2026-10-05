@@ -154,6 +154,7 @@ export default function RootLayout() {
                   <Stack.Screen name="index" options={{ animation: 'fade' }} />
                   <Stack.Screen name="home" options={{ animation: 'fade' }} />
                   <Stack.Screen name="onboarding" options={{ animation: 'fade' }} />
+                  <Stack.Screen name="tutorial" options={{ animation: 'fade' }} />
                   <Stack.Screen
                     name="countdown"
                     options={{ animation: 'fade', animationDuration: 300 }}

@@ -256,6 +256,9 @@ export default function Settings() {
         // Popup de découverte du coach vocal (lib/coachNudge.js) : redevient
         // proposable après un reset, comme les autres rappels ci-dessus.
         'flexTimer_coachNudge',
+        // Tutoriel de démarrage (lib/tutorial.js) : après un reset la personne
+        // repart de zéro, le pop-up qui le propose peut revenir.
+        'flexTimer_tutorial',
         // Compteur et date de lancement (lib/splash.js) : après un reset
         // l'app redevient une première ouverture, donc la cinématique est
         // rejouée et le cycle de 8 repart de zéro.
@@ -524,6 +527,14 @@ export default function Settings() {
               sub={pending ? 'Mise à jour prête à installer' : `Flex Timer ${APP_VERSION} · build 42`}
               subPrefix={pending ? <ModeDots /> : null}
               onPress={() => setUpdateSheet(updateCandidate?.mode || 'info')}
+            />
+            <LinkRow
+              label="Revoir le tutoriel"
+              sub="Le tour guidé, en 2 minutes"
+              onPress={() => {
+                haptic.light();
+                router.push({ pathname: '/tutorial', params: { step: 'menu' } });
+              }}
             />
             <LinkRow label="Conditions d'utilisation" onPress={() => router.push('/terms')} />
             <LinkRow label="Politique de confidentialité" onPress={() => router.push('/privacy')} />

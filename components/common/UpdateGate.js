@@ -14,7 +14,7 @@ import { markUpdateGateSettled } from '../../lib/updateGateSignal';
 // l'onboarding. Dès que l'utilisateur quitte une de ces routes, la feuille
 // apparaît (l'effet dépend de `pathname`, donc il se redéclenche à la sortie
 // de l'onboarding).
-const HIDDEN_ROUTES = new Set(['/', '/index', '/onboarding', '/countdown', '/running']);
+const HIDDEN_ROUTES = new Set(['/', '/index', '/onboarding', '/tutorial', '/countdown', '/running']);
 
 /**
  * Monté une fois dans le layout racine. Affiche la feuille "Nouvelle version"

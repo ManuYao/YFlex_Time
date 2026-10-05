@@ -37,7 +37,7 @@ const GLOW_WIDTH = 7;
 // Même exception que UpdateGate/MaintenanceBanner : jamais par-dessus le
 // tutoriel (ni le chrono/countdown, au cas où le message arriverait pendant
 // une séance déjà en cours au moment du montage).
-const HIDDEN_ROUTES = new Set(['/', '/index', '/onboarding', '/countdown', '/running']);
+const HIDDEN_ROUTES = new Set(['/', '/index', '/onboarding', '/tutorial', '/countdown', '/running']);
 
 /**
  * Le halo est un CONTOUR fin arc-en-ciel qui épouse le bord de la carte, avec

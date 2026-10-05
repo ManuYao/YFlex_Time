@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import Animated, {
@@ -13,6 +13,7 @@ import Animated, {
 
 import GradientBackground from '../components/common/GradientBackground';
 import { useTimers } from '../contexts/TimersContext';
+import { buildTutorialTimer } from '../lib/tutorialShape';
 import { fonts } from '../lib/fonts';
 import { useUiScale, scaled, useLayoutLevel } from '../lib/responsive';
 import { useHaptic } from '../hooks/useHaptic';
@@ -23,12 +24,19 @@ const easeOvershoot = Easing.bezier(0.22, 1.5, 0.36, 1);
 
 export default function Countdown() {
   const router = useRouter();
-  const { timerId } = useLocalSearchParams();
+  const { timerId, tutorial } = useLocalSearchParams();
   const haptic = useHaptic();
   const sound = useSound();
   const { timers } = useTimers();
 
-  const timer = timers.find((t) => t.id === timerId) ?? timers[0];
+  // Chrono de test du tutoriel (lib/tutorialShape.js) : le vrai décompte, mais
+  // sur un BASIC aux réglages du test. Rien n'est enregistré nulle part.
+  const isTutorial = tutorial === '1';
+  const baseTimer = timers.find((t) => t.id === timerId) ?? timers[0];
+  const timer = useMemo(
+    () => (isTutorial ? buildTutorialTimer(baseTimer) : baseTimer),
+    [isTutorial, baseTimer]
+  );
 
   useEffect(() => {
     ['countdown1', 'countdown2', 'countdown3', 'go'].forEach(sound.preload);
@@ -60,7 +68,10 @@ export default function Countdown() {
     // réel du chrono (app/running.js).
     // 850ms : laisse l'overshoot du GO se terminer (400+400ms) puis Stack fade prend le relais
     const id = setTimeout(() => {
-      router.replace({ pathname: '/running', params: { timerId: timer.id } });
+      router.replace({
+        pathname: '/running',
+        params: { timerId: timer.id, ...(isTutorial ? { tutorial: '1' } : {}) },
+      });
     }, 850);
     return () => clearTimeout(id);
   }, [isGo]);
@@ -68,6 +79,11 @@ export default function Countdown() {
   const handleCancel = () => {
     if (isGo) return;
     haptic.warning();
+    if (isTutorial) {
+      // Annuler le décompte du test ramène au tour, pas à l'accueil.
+      router.replace({ pathname: '/tutorial', params: { step: 'menu' } });
+      return;
+    }
     if (router.canGoBack()) {
       router.back();
     } else {
@@ -134,7 +150,7 @@ export default function Countdown() {
         <View style={styles.bottomLabel} pointerEvents="none">
           <View style={[styles.bar, { backgroundColor: dimColor }]} />
           <Text style={[styles.timerHint, { color: dimColor }]}>
-            {timer.name} · {heroDuration}
+            {isTutorial ? 'TEST · ' : ''}{timer.name} · {heroDuration}
           </Text>
           <Text style={[styles.cancelHint, { color: mutedColor }]}>
             Appuie pour annuler

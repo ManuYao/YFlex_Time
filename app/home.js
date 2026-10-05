@@ -41,6 +41,7 @@ import { playSound } from '../lib/sounds';
 import ProgressionSheet from '../components/common/ProgressionSheet';
 import BadgeUnlockSheet from '../components/common/BadgeUnlockSheet';
 import CoachNudgeSheet from '../components/common/CoachNudgeSheet';
+import TutorialInviteSheet from '../components/common/TutorialInviteSheet';
 import ModePickerSheet from '../components/common/ModePickerSheet';
 import ConfirmSheet from '../components/common/ConfirmSheet';
 import PermissionPrimer from '../components/common/PermissionPrimer';
@@ -61,6 +62,12 @@ import {
   markCoachNudgeShown,
   dismissCoachNudgeForever,
 } from '../lib/coachNudge';
+import {
+  loadTutorialState,
+  markTutorialInviteShown,
+  markTutorialOutcome,
+  shouldInviteTutorial,
+} from '../lib/tutorial';
 import { onSplashCleared } from '../lib/splash';
 import { waitForUpdateGateSettled } from '../lib/updateGateSignal';
 import { formatValue } from '../lib/formatters';
@@ -241,6 +248,9 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   useEffect(() => {
     showCoachNudgeRef.current = showCoachNudge;
   }, [showCoachNudge]);
+  // Pop-up qui PROPOSE le tutoriel (lib/tutorial.js) — jamais imposé, voir
+  // components/common/TutorialInviteSheet.js. Première de la file de démarrage.
+  const [showTutorialInvite, setShowTutorialInvite] = useState(false);
   // Page "chrono fiable" avant le 3-2-1 (lib/permissionPrimer.js, moment
   // 'firstSession'). Calculée d'avance pour ne pas retarder le tap Lancer.
   const [primerLaunch, setPrimerLaunch] = useState(null);
@@ -275,7 +285,7 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   const overlayBusyRef = useRef(false);
   overlayBusyRef.current =
     isLaunching || statsOpen || !!picker || badgeQueue.length > 0 || !!primerLaunch ||
-    showCoachNudge || modePickerOpen;
+    showCoachNudge || showTutorialInvite || modePickerOpen;
 
   useEffect(() => {
     shouldShowPermissionPrimer('firstSession').then((due) => {
@@ -307,6 +317,20 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
         // gratifiant, le conseil de charge peut attendre le lancement
         // suivant — et surtout on n'empile jamais deux feuilles.
         const countsByTimer = countSessionsByTimer(await loadHistory());
+        const totalRuns = Object.values(countsByTimer).reduce((a, b) => a + b, 0);
+
+        // Tutoriel de démarrage : proposé en PREMIER, mais seulement à un
+        // nouvel utilisateur (aucune séance lancée), au plus deux fois, et
+        // jamais imposé (lib/tutorial.js). Rien d'autre n'a de raison de
+        // s'ouvrir avant : un nouvel utilisateur n'a ni trophée ni conseil.
+        const tutorialState = await loadTutorialState();
+        if (cancelled || overlayBusyRef.current) return;
+        if (shouldInviteTutorial({ state: tutorialState, totalRuns })) {
+          markTutorialInviteShown();
+          setShowTutorialInvite(true);
+          return;
+        }
+
         const fresh = await pendingBadges(countsByTimer);
         if (cancelled || overlayBusyRef.current) return;
         if (fresh.length) {
@@ -332,7 +356,6 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
         // la proposer dès le tout premier lancement, déjà chargé en popups.
         const coachSeen = await loadCoachNudgeState();
         if (cancelled || overlayBusyRef.current) return;
-        const totalRuns = Object.values(countsByTimer).reduce((a, b) => a + b, 0);
         if (shouldShowCoachNudge({ seen: coachSeen, voiceCoachEnabled: settings.voiceCoach, totalRuns })) {
           setShowCoachNudge(true);
         }
@@ -362,6 +385,20 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
     const target = locateExerciseInPlanning(planning, progression);
     router.push({ pathname: '/history', params: { page: 'planning', ...(target || {}) } });
   }, [progression, router]);
+
+  // Fin de l'animation de fermeture du pop-up du tutoriel (voir
+  // TutorialInviteSheet) : « C'est parti » lance le tour (replace, comme le
+  // lancement d'un chrono : l'accueil n'a pas à rester dans la pile),
+  // « ne plus me le proposer » clôt la proposition pour de bon, tout autre
+  // chemin (Plus tard, voile, retour Android) laisse la relance de 24 h.
+  const handleTutorialInviteClose = useCallback((choice) => {
+    setShowTutorialInvite(false);
+    if (choice === 'never') {
+      markTutorialOutcome('declined');
+    } else if (choice === 'accept') {
+      router.replace({ pathname: '/tutorial', params: { step: 'menu' } });
+    }
+  }, [router]);
 
   // onClose couvre tout chemin de fermeture de CoachNudgeSheet (voile, retour
   // Android, "Plus tard", "Activer" — close() le déclenche toujours, voir le
@@ -742,6 +779,11 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
           onAdjust={handleProgressionAdjust}
           onClose={handleProgressionClose}
         />
+      )}
+
+      {/* (U ter) Proposition du tutoriel — voir lib/tutorial.js. */}
+      {showTutorialInvite && (
+        <TutorialInviteSheet screenH={rootH} onClose={handleTutorialInviteClose} />
       )}
 
       {/* (U bis) Découverte du coach vocal — voir lib/coachNudge.js. Même
