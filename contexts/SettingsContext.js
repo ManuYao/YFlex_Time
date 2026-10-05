@@ -23,6 +23,8 @@ const DEFAULTS = {
   // 'motivating' (« Motivant », phrases de coach) est le choix perso.
   // Réglé dans la fenêtre « Ton coach » (components/common/CoachSheet.js).
   voiceStyle: 'essential',
+  // Mode pluie (lib/rainMode.js) : 'normal' (un appui) par défaut.
+  rainMode: 'normal',
   autoStart: false,
   keepScreenOn: true,
   notifications: true,

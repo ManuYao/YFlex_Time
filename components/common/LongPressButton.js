@@ -28,7 +28,9 @@ export default function LongPressButton({
   labelColor = 'rgba(255,255,255,0.60)',
   children,
 }) {
-  const { isPressing, progress, start, cancel } = useLongPress(onComplete, duration);
+  // duration <= 0 : bouton direct (mode pluie « normal »), un appui = l'action.
+  const direct = duration <= 0;
+  const { isPressing, progress, start, cancel } = useLongPress(onComplete, direct ? 3000 : duration);
   const r = buttonRecipe({ variant: 'glass', tone });
 
   const radius = size / 2 - 3;
@@ -51,8 +53,9 @@ export default function LongPressButton({
         ]}
       >
         <Pressable
-          onPressIn={start}
-          onPressOut={cancel}
+          onPressIn={direct ? undefined : start}
+          onPressOut={direct ? undefined : cancel}
+          onPress={direct ? onComplete : undefined}
           style={[
             styles.btn,
             {

@@ -152,6 +152,8 @@ export default function EndSession() {
           completedRounds: stats.completedRounds,
           totalRounds: stats.totalRounds,
           workTotal: stats.workTotal,
+          ...(stats.blockBreakdown ? { blockBreakdown: stats.blockBreakdown } : {}),
+          ...(Number.isFinite(stats.exerciseCount) ? { exerciseCount: stats.exerciseCount } : {}),
           restTotal: stats.restTotal,
           date: new Date().toISOString(),
           ...(isEarlyQuit(elapsedNum, computeExpectedDuration(timer)) ? { pendingDelete: true } : {}),

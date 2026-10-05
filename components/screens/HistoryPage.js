@@ -22,6 +22,7 @@ import Button from '../common/Button';
 import IconButton from '../common/IconButton';
 import MixPill from '../common/MixPill';
 import { TIMERS } from '../../lib/timers-config';
+import MixCompositionBar from '../common/MixCompositionBar';
 import {
   loadHistory,
   removeSession,
@@ -32,6 +33,7 @@ import {
   computeTypeBreakdown,
   defaultTimeScope,
   formatSessionTime,
+  formatMixBreakdown,
 } from '../../lib/history';
 import { loadScrollHintNextCard, saveScrollHintNextCard } from '../../lib/scrollHint';
 import { formatDuration } from '../../lib/formatters';
@@ -737,6 +739,7 @@ function SessionRow({ session, hinting = false, onPress, onDelete, onKeep }) {
   const pending = !!session.pendingDelete;
   const color = session.color || '#FFFFFF';
   const tag = session.intensity || '—';
+  const hasComposition = !!formatMixBreakdown(session);
   const roundsLabel =
     session.totalRounds && session.completedRounds != null
       ? `${session.completedRounds} tours`
@@ -860,7 +863,11 @@ function SessionRow({ session, hinting = false, onPress, onDelete, onKeep }) {
           <View style={styles.rowMeta}>
             <Text style={styles.rowMetaText}>{formatSessionTime(session.date)}</Text>
             <Dot />
-            <Text style={styles.rowMetaText}>{roundsLabel}</Text>
+            {hasComposition ? (
+              <MixCompositionBar session={session} width={44} height={5} />
+            ) : (
+              <Text style={styles.rowMetaText}>{roundsLabel}</Text>
+            )}
             <Dot />
             <Text style={styles.rowMetaText}>{tag}</Text>
           </View>

@@ -48,7 +48,8 @@ import PermissionPrimer from '../components/common/PermissionPrimer';
 import { shouldShowPermissionPrimer } from '../lib/permissionPrimer';
 import { pendingBadges, markBadgeSeen } from '../lib/badgeCelebration';
 import { loadHistory, countSessionsByTimer } from '../lib/history';
-import { getTimerHero, getTimerDescription, getTimerPhases } from '../lib/timers-config';
+import { getTimerHero, getTimerDescription, getTimerBar } from '../lib/timers-config';
+import PhaseBar from '../components/common/PhaseBar';
 import { loadArchives, loadPlanning } from '../lib/planning';
 import {
   findProgressionSuggestion,
@@ -78,6 +79,8 @@ import { BOTTOM_GAP, BUTTON_HEIGHT, INK_TEXT, accentTextOn, buttonRecipe } from 
 import { useUiScale, scaled, useLayoutLevel, useWindowSize } from '../lib/responsive';
 import { useTimers } from '../contexts/TimersContext';
 import { useSettings } from '../contexts/SettingsContext';
+import HoldOverlay from '../components/common/HoldOverlay';
+import { holdDurations } from '../lib/rainMode';
 import { useHaptic } from '../hooks/useHaptic';
 import { useTimerHeat } from '../hooks/useTimerHeat';
 import { useScreenReady } from '../hooks/useScreenReady';
@@ -1066,7 +1069,7 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
   const t = getTokens(timer.textMode);
   const hero = getTimerHero(timer);
   const description = getTimerDescription(timer);
-  const phases = getTimerPhases(timer);
+  const phaseBar = getTimerBar(timer);
   // ui vaut 1 sur un telephone normal : les tailles ci-dessous restent celles
   // du design. Ne se reduit qu'en fenetre flottante (voir lib/responsive.js).
   const ui = useUiScale();
@@ -1093,6 +1096,8 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
   // en liste verticale pleine largeur, un réglage par ligne. Forcé en mini,
   // où la largeur est de toute façon trop juste pour deux colonnes.
   const statsUsableWidth = cardWidth - 48; // paddingHorizontal 24*2 de .card
+  const { settings: rainSettings2 } = useSettings();
+  const statHold = holdDurations(rainSettings2.rainMode).select;
   const statsCompact =
     isMini ||
     (timer.stats.length > 0 && statsUsableWidth / timer.stats.length < MIN_STAT_CHIP_W);
@@ -1329,12 +1334,15 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
               >
                 <PressTap
                   disabled={!onPress}
-                  onPress={onPress}
+                  onPress={statHold > 0 ? undefined : onPress}
                   tapScale={0.94}
                   onHapticIn={tappable || isMix ? onStatHaptic : undefined}
                   style={[chipStyle, { backgroundColor: t.chipBg, borderColor: t.chipBorder }]}
                 >
                   <StatChipContent stat={stat} t={t} editable={editable || isMix} compact={statsCompact} />
+                  {statHold > 0 && !!onPress && (
+                    <HoldOverlay color={t.primary} radius={14} duration={statHold} onComplete={onPress} />
+                  )}
                 </PressTap>
               </Animated.View>
             );
@@ -1371,40 +1379,20 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
           >
             Déroulé
           </Animated.Text>
-          <View style={styles.phasesRow}>
-            {phases.map((phase, k) => (
-              <Animated.View
-                key={`phase-${timer.id}-${k}`}
-                entering={slideInX(-20, D.big, 650 + k * 60)}
-                exiting={FadeOut.duration(D.fast)}
-              >
-                <View
-                  style={[
-                    styles.phaseChip,
-                    { backgroundColor: t.chipBg, borderColor: t.chipBorder },
-                  ]}
-                >
-                  <Text style={[styles.phaseText, { color: t.chipText }]}>{phase}</Text>
-                </View>
-              </Animated.View>
-            ))}
-          </View>
+          <Animated.View
+            key={`phases-bar-${timer.id}`}
+            entering={FadeIn.delay(650).duration(D.base)}
+            exiting={FadeOut.duration(D.fast)}
+            style={styles.phasesBarWrap}
+          >
+            <PhaseBar segments={phaseBar} active={t.ringActive} inactive={t.ringInactive} />
+          </Animated.View>
         </>
       ) : (
         <>
           <Text style={[styles.phasesLabel, { color: t.muted }]}>Déroulé</Text>
-          <View style={styles.phasesRow}>
-            {phases.map((phase, k) => (
-              <View
-                key={k}
-                style={[
-                  styles.phaseChip,
-                  { backgroundColor: t.chipBg, borderColor: t.chipBorder },
-                ]}
-              >
-                <Text style={[styles.phaseText, { color: t.chipText }]}>{phase}</Text>
-              </View>
-            ))}
+          <View style={styles.phasesBarWrap}>
+            <PhaseBar segments={phaseBar} active={t.ringActive} inactive={t.ringInactive} />
           </View>
         </>
       )}
@@ -1640,6 +1628,10 @@ function BreathingRing({ isActive, t, timerId, size = 320, gap = 24, children })
    (M+N+O) Bottom bar — indicators + CTA + hint
    ────────────────────────────────────────────────────────────────*/
 function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onOpenModePicker, onLaunch, isLaunching }) {
+  // Mode pluie « orage » : maintenir le bouton Lancer au lieu de le toucher.
+  const { settings: rainSettings } = useSettings();
+  const launchHold = holdDurations(rainSettings.rainMode).launch;
+  const [ctaSize, setCtaSize] = useState({ w: 0, h: 0 });
   const isLocked = !!cooldown?.isLocked;
   // (V) En fenêtre courte, chaque bloc compte : le rappel de swipe part en
   // premier (le geste s'apprend au premier essai, les points restent) et le
@@ -1713,14 +1705,18 @@ function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onOp
           La View mesurée (ctaRef) sert à LaunchMorph, qui part de la
           position exacte du bouton : collapsable={false} pour qu'Android ne
           l'aplatisse pas (measureInWindow échouerait). */}
-      <View ref={ctaRef} collapsable={false}>
+      <View
+        ref={ctaRef}
+        collapsable={false}
+        onLayout={(e) => setCtaSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
+      >
         <Button
           variant={ctaVariant}
           tone={ctaTone}
           color={active.color}
           size={isReduced ? 'md' : 'lg'}
           fullWidth
-          onPress={onLaunch}
+          onPress={launchHold > 0 ? () => {} : onLaunch}
           accessibilityLabel={`Lancer ${active.name}`}
           icon={
             isLocked ? (
@@ -1741,6 +1737,16 @@ function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onOp
             Lancer {active.name}
           </Animated.Text>
         </Button>
+        {launchHold > 0 && (
+          <HoldOverlay
+            width={ctaSize.w}
+            height={ctaSize.h}
+            radius={ctaSize.h / 2}
+            color={ctaTextColor}
+            duration={launchHold}
+            onComplete={() => onLaunch()}
+          />
+        )}
       </View>
 
       {!isMini && (
@@ -2517,25 +2523,11 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     textAlign: 'center',
   },
-  phasesRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: 6,
+  phasesBarWrap: {
     width: '100%',
     maxWidth: 320,
-  },
-  phaseChip: {
-    paddingHorizontal: 12,
+    alignItems: 'center',
     paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1,
-  },
-  phaseText: {
-    fontFamily: fonts.sansSemibold,
-    fontSize: 10,
-    letterSpacing: 1.5,
-    textTransform: 'uppercase',
   },
 
   // Bottom bar

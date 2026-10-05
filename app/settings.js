@@ -437,7 +437,9 @@ export default function Settings() {
               label="Vibrations"
               sub="Retour haptique sur les actions"
               control={<Toggle value={settings.vibrate} onChange={(v) => update('vibrate', v)} />}
+              isLast={!settings.vibrate}
             />
+            {settings.vibrate && (
             <Row
               label="Intensité"
               sub="Touche un niveau pour le sentir"
@@ -448,14 +450,26 @@ export default function Settings() {
                   onChange={(v) => update('vibrateStrength', v)}
                   onSelect={setHapticStrength}
                   color="#9575FF"
-                  disabled={!settings.vibrate}
                 />
               }
               isLast
             />
+            )}
           </Section>
 
           <Section title="Timers">
+            <Row
+              label="Mode pluie"
+              sub={RAIN_SUBS[settings.rainMode] || RAIN_SUBS.normal}
+              control={
+                <Choice
+                  value={settings.rainMode || 'normal'}
+                  options={RAIN_OPTIONS}
+                  onChange={(v) => update('rainMode', v)}
+                  color="#4A90FF"
+                />
+              }
+            />
             <Row
               label="Écran toujours allumé"
               sub="Garde ton téléphone éveillé pendant la séance"
@@ -742,6 +756,16 @@ function DiagLine({ label, value, isError }) {
   );
 }
 
+const RAIN_OPTIONS = [
+  { value: 'normal', label: 'Normal' },
+  { value: 'soft', label: 'Pluie' },
+  { value: 'storm', label: 'Orage' },
+];
+const RAIN_SUBS = {
+  normal: 'Mains sèches : un appui suffit partout dans les chronos',
+  soft: 'Quitter, reset et passer se maintiennent (2 s) : pas de faux appui',
+  storm: 'Tout se maintient dans les chronos, lancement et pause compris',
+};
 const STRENGTH_OPTIONS = [
   { value: 'light', label: 'LÉGER' },
   { value: 'medium', label: 'MOYEN' },

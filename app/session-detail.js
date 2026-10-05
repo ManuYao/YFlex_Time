@@ -7,7 +7,8 @@ import GradientBackground from '../components/common/GradientBackground';
 import TickRing from '../components/common/TickRing';
 import Button from '../components/common/Button';
 import IconButton from '../components/common/IconButton';
-import { loadHistory } from '../lib/history';
+import MixCompositionBar from '../components/common/MixCompositionBar';
+import { loadHistory, formatMixBreakdown } from '../lib/history';
 import { sessionWorkSeconds } from '../lib/profileStats';
 import { formatDuration } from '../lib/formatters';
 import { fonts } from '../lib/fonts';
@@ -141,6 +142,11 @@ export default function SessionDetail() {
             <StatCell label="TRAVAIL" value={workValue} color="#1FC777" />
             <StatCell label="REPOS" value={restValue} color="#4A90FF" />
           </View>
+          {!!formatMixBreakdown(session) && (
+            <View style={{ marginTop: 16, paddingHorizontal: 12 }}>
+              <MixCompositionBar session={session} height={8} detail />
+            </View>
+          )}
         </View>
 
         {/* Même rangée que la fin de séance. Couleur du texte réglée par la

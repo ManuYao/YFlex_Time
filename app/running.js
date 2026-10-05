@@ -5,6 +5,12 @@ import {
   StyleSheet,
   BackHandler,
 } from 'react-native';
+import PressTap from '../components/common/PressTap';
+import HoldOverlay from '../components/common/HoldOverlay';
+import QuickWeightSheet from '../components/common/QuickWeightSheet';
+import { setTagWeightByRef } from '../lib/planning';
+import { useSettings } from '../contexts/SettingsContext';
+import { holdDurations } from '../lib/rainMode';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { BlurView } from 'expo-blur';
@@ -36,7 +42,8 @@ import { computeState, skipToNextPhaseElapsed } from '../lib/timer-engine';
 import { getTokens } from '../lib/tokens';
 import { fonts } from '../lib/fonts';
 import { formatDuration } from '../lib/formatters';
-import { restGradient } from '../lib/phase-colors';
+import { restGradient, blendGradients, shiftLightness } from '../lib/phase-colors';
+import { TIMERS } from '../lib/timers-config';
 import { useTimer } from '../hooks/useTimer';
 import { useUiScale, scaled, useLayoutLevel, useWindowSize } from '../lib/responsive';
 import { useHaptic } from '../hooks/useHaptic';
@@ -139,6 +146,11 @@ export default function Running() {
   // (simple tap, comme "Fin du travail"), au lieu d'un appui long isolé.
   const isLastEmomRound =
     isEmom && state.totalRounds > 0 && state.currentRound === state.totalRounds;
+  // Dernier tour d'un bloc EMOM DANS un MIX : même bouton « FINI » au centre,
+  // mais il passe au bloc suivant (pas à l'écran de fin de séance).
+  const isLastMixEmomRound =
+    isMix && state.blockType === 'emom' && state.subTotalRounds > 0 &&
+    state.subRound === state.subTotalRounds;
   const lastPhaseRef = useRef(state.phaseLabel);
   const navigatedRef = useRef(false);
   const skippedRef = useRef(0);
@@ -256,6 +268,26 @@ export default function Running() {
     })();
   }, [secondsElapsed >= QUOTA_VALIDATE_AFTER_S]);
 
+  // Charge saisie en séance : MIX lancé depuis le Planning (blocs portant
+  // `planRef`). Pendant un repos, la bulle vise l'exercice qui vient de finir.
+  const [savedWeights, setSavedWeights] = useState({});
+  const [weightSheet, setWeightSheet] = useState(false);
+  const mixBlocks = isMix ? timer._mix?.blocks || [] : [];
+  const curBlockIdx = mixBlocks.findIndex((b) => b.id === state.blockId);
+  const weightBlock = (() => {
+    let b = mixBlocks[curBlockIdx];
+    if (b?.type === 'rest') b = curBlockIdx > 0 ? mixBlocks[curBlockIdx - 1] : null;
+    return b && b.type !== 'rest' && b.planRef ? b : null;
+  })();
+  const weightValue = weightBlock
+    ? savedWeights[weightBlock.planRef.tagId] ?? weightBlock.weight ?? null
+    : null;
+  const handleSaveWeight = async (kg) => {
+    if (!weightBlock) return;
+    setSavedWeights((prev) => ({ ...prev, [weightBlock.planRef.tagId]: kg }));
+    await setTagWeightByRef(weightBlock.planRef, kg);
+  };
+
   const handleReset = () => {
     haptic.warning();
     navigatedRef.current = false;
@@ -269,9 +301,13 @@ export default function Running() {
   };
 
   const handlePauseToggle = () => {
+    // Pause = double vibration, reprise = simple.
     haptic.medium();
     if (isPaused) resume();
-    else pause();
+    else {
+      pause();
+      setTimeout(() => haptic.medium(), 130);
+    }
   };
 
   const handleSkip = () => {
@@ -516,6 +552,31 @@ export default function Running() {
 
   // Le fondu est lent (700 ms) : une bascule instantanée se lirait comme un
   // bug d'affichage, alors qu'un fondu se lit comme "on redescend".
+  // MIX : le fond prend la couleur du timer du bloc en cours, avec un soupçon
+  // du violet du MIX. Bloc REPOS = violet pur (c'est la transition).
+  const isMixTimer = timer.id === 'mix';
+  const mixBlockTimer =
+    isMixTimer && state.blockType && state.blockType !== 'rest'
+      ? TIMERS.find((x) => x.id === state.blockType)
+      : null;
+  const mixBlockColors = useMemo(() => {
+    if (!mixBlockTimer) return null;
+    // Texte clair sur le MIX : un timer à texte noir (TABATA) est assombri.
+    const base =
+      mixBlockTimer.textMode === 'dark'
+        ? mixBlockTimer.bgColors.map((c) => shiftLightness(c, -0.25))
+        : mixBlockTimer.bgColors;
+    const blended = blendGradients(base, timer.bgColors, 0.22);
+    return state.isRest ? restGradient(blended, { textMode: 'light' }) : blended;
+  }, [mixBlockTimer, timer.bgColors, state.isRest]);
+  const mixKey = mixBlockColors ? mixBlockColors[0] : 'none';
+  const mixVeil = useSharedValue(mixBlockColors ? 1 : 0);
+  useEffect(() => {
+    // Fondu depuis le fond précédent à chaque changement de bloc.
+    mixVeil.value = mixBlockColors ? 0 : mixVeil.value;
+    mixVeil.value = withTiming(mixBlockColors ? 1 : 0, { duration: 600, easing: easeImpact });
+  }, [mixKey]);
+
   const restVeil = useSharedValue(state.isRest ? 1 : 0);
   useEffect(() => {
     restVeil.value = withTiming(state.isRest ? 1 : 0, {
@@ -533,8 +594,8 @@ export default function Running() {
     <GradientBackground
       colors={timer.bgColors}
       textMode={timer.textMode}
-      overlayColors={restColors}
-      overlayOpacity={restVeil}
+      overlayColors={isMixTimer ? mixBlockColors || restColors : restColors}
+      overlayOpacity={isMixTimer ? mixVeil : restVeil}
     >
       {/* Pulse ambiant — suit la phase, sinon il repeindrait la couleur
           pleine par-dessus le repos toutes les deux secondes. */}
@@ -543,7 +604,7 @@ export default function Running() {
         style={[StyleSheet.absoluteFill, pulseStyle]}
       >
         <LinearGradient
-          colors={state.isRest ? restColors : timer.bgColors}
+          colors={isMixTimer ? mixBlockColors || timer.bgColors : state.isRest ? restColors : timer.bgColors}
           locations={[0, 0.45, 1]}
           start={{ x: 0.5, y: 0 }}
           end={{ x: 0.5, y: 1 }}
@@ -661,14 +722,36 @@ export default function Running() {
           onPauseToggle={handlePauseToggle}
           onSkip={handleSkip}
           skipLabel={isEmom ? 'Next' : 'Skip'}
-          showEndWork={(isManualBasic && isWorkInfinite) || isLastEmomRound}
-          endWorkLabel={isLastBasicWork || isLastEmomRound ? 'FINI' : 'REPOS'}
-          onEndWork={isLastEmomRound ? handleFinish : handleEndWork}
-          hideSkip={(isManualBasic && isWorkInfinite) || isLastEmomRound}
+          showEndWork={(isManualBasic && isWorkInfinite) || isLastEmomRound || isLastMixEmomRound}
+          endWorkLabel={isLastBasicWork || isLastEmomRound || isLastMixEmomRound ? 'FINI' : 'REPOS'}
+          onEndWork={isLastEmomRound ? handleFinish : isLastMixEmomRound ? handleSkip : handleEndWork}
+          hideSkip={(isManualBasic && isWorkInfinite) || isLastEmomRound || isLastMixEmomRound}
           showFinish={false}
           onFinish={handleFinish}
         />
       </SafeAreaView>
+
+      {weightBlock && !isMini && (
+        <WeightBubble
+          tokens={t}
+          value={weightValue}
+          strong={state.blockType === 'rest' && weightValue == null}
+          onPress={() => {
+            haptic.light();
+            setWeightSheet(true);
+          }}
+        />
+      )}
+      {weightSheet && weightBlock && (
+        <QuickWeightSheet
+          screenH={winH}
+          label={weightBlock.label || 'Exercice'}
+          initial={weightValue}
+          color={timer.color}
+          onSave={handleSaveWeight}
+          onClose={() => setWeightSheet(false)}
+        />
+      )}
 
       {isPaused && (
         <Animated.View
@@ -726,13 +809,15 @@ function TopBar({ tokens, tone, name, tag, roundLabel, onReturn, progress, marke
     opacity: dotOpacity.value,
   }));
 
+  const { settings } = useSettings();
+  const holds = holdDurations(settings.rainMode);
   return (
     <View style={styles.topBar}>
       <View style={styles.topRow}>
         <LongPressButton
           label="Retour"
           size={44}
-          duration={1500}
+          duration={holds.quit}
           tone={tone}
           ringColor={tokens.primary}
           labelColor={tokens.muted}
@@ -925,12 +1010,15 @@ function BottomControls({
   const sideSize = Math.round(64 * k);
   const centerSize = Math.round(92 * k);
   const rowGap = Math.round(28 * k);
+  const { settings } = useSettings();
+  const holds = holdDurations(settings.rainMode);
   return (
     <View style={[styles.bottom, isReduced && styles.bottomReduced]}>
       <View style={[styles.bottomRow, { gap: rowGap }]}>
         <LongPressButton
           label="Reset"
           size={sideSize}
+          duration={holds.reset}
           tone={tone}
           ringColor={tokens.primary}
           labelColor={tokens.muted}
@@ -953,7 +1041,7 @@ function BottomControls({
               variant="solid"
               tone={tone}
               flat
-              onPress={onEndWork}
+              onPress={holds.endWork > 0 ? () => {} : onEndWork}
               accessibilityLabel={endWorkLabel}
               icon={
                 <Text
@@ -977,7 +1065,7 @@ function BottomControls({
               variant="solid"
               tone={tone}
               flat
-              onPress={onPauseToggle}
+              onPress={holds.pause > 0 ? () => {} : onPauseToggle}
               accessibilityLabel={isPaused ? 'Reprendre' : 'Pause'}
               icon={
                 <AppIcon
@@ -988,6 +1076,13 @@ function BottomControls({
               }
             />
           )}
+          {showEndWork
+            ? holds.endWork > 0 && (
+                <HoldOverlay size={centerSize} color={tokens.ctaText} duration={holds.endWork} onComplete={onEndWork} />
+              )
+            : holds.pause > 0 && (
+                <HoldOverlay size={centerSize} color={tokens.ctaText} duration={holds.pause} onComplete={onPauseToggle} />
+              )}
         </View>
 
         {showFinish ? (
@@ -997,7 +1092,7 @@ function BottomControls({
           <LongPressButton
             label="Fin"
             size={sideSize}
-            duration={1000}
+            duration={holds.finish}
             tone={tone}
             ringColor={tokens.primary}
             labelColor={tokens.muted}
@@ -1011,7 +1106,7 @@ function BottomControls({
           <LongPressButton
             label={skipLabel}
             size={sideSize}
-            duration={1000}
+            duration={holds.skip}
             tone={tone}
             ringColor={tokens.primary}
             labelColor={tokens.muted}
@@ -1021,6 +1116,35 @@ function BottomControls({
           </LongPressButton>
         )}
       </View>
+    </View>
+  );
+}
+
+// Petite bulle à droite : « + kg » tant qu'aucune charge n'est renseignée, la
+// charge sinon. Discrète en effort, bien visible en repos (c'est le moment où
+// les mains sont libres).
+function WeightBubble({ tokens, value, strong, onPress }) {
+  const filled = value != null;
+  return (
+    <View pointerEvents="box-none" style={styles.weightWrap}>
+      <PressTap
+        onPress={onPress}
+        tapScale={0.92}
+        accessibilityLabel={filled ? `Charge ${value} kilos, modifier` : 'Renseigner la charge'}
+        style={[
+          styles.weightBubble,
+          {
+            backgroundColor: tokens.chipBg,
+            borderColor: strong ? tokens.primary : tokens.chipBorder,
+            opacity: strong ? 1 : 0.55,
+          },
+        ]}
+      >
+        <Text style={[styles.weightMain, { color: tokens.primary }]}>
+          {filled ? String(value).replace('.', ',') : '+'}
+        </Text>
+        <Text style={[styles.weightUnit, { color: tokens.tertiary }]}>kg</Text>
+      </PressTap>
     </View>
   );
 }
@@ -1043,6 +1167,18 @@ const fallbackState = () => ({
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
+
+  weightWrap: { position: 'absolute', right: 14, top: '42%' },
+  weightBubble: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  weightMain: { fontFamily: fonts.monoExtraBold, fontSize: 16, lineHeight: 20 },
+  weightUnit: { fontFamily: fonts.sansBold, fontSize: 9, letterSpacing: 1 },
 
   topBar: {
     paddingHorizontal: 20,

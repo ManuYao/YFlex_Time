@@ -439,7 +439,7 @@ export default function PlanningPage({
                   setPlanning(await removeBlock(planning, dayKey, block.id));
                 }}
                 onLaunch={async () => {
-                  const mix = buildMixFromBlock(block);
+                  const mix = buildMixFromBlock(block, dayKey);
                   if (!mix) return;
                   await saveCurrentMix(mix);
                   router.push('/mix-builder');

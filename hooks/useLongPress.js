@@ -3,7 +3,7 @@ import { haptic } from './useHaptic';
 
 const TICK_MS = 50;
 
-export function useLongPress(onComplete, duration = 3000) {
+export function useLongPress(onComplete, duration = 3000, { silent = false } = {}) {
   const [isPressing, setIsPressing] = useState(false);
   const [progress, setProgress] = useState(0);
   const intervalRef = useRef(null);
@@ -34,13 +34,13 @@ export function useLongPress(onComplete, duration = 3000) {
       const currSecond = Math.floor(elapsed / 1000);
       if (currSecond > lastSecondRef.current && currSecond < duration / 1000) {
         lastSecondRef.current = currSecond;
-        haptic.light();
+        if (!silent) haptic.light();
       }
 
       if (p >= 1 && !completedRef.current) {
         completedRef.current = true;
         stopInterval();
-        haptic.success();
+        if (!silent) haptic.success();
         setTimeout(() => {
           setIsPressing(false);
           setProgress(0);

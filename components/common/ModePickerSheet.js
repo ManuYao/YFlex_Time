@@ -8,6 +8,9 @@ import { getTimerDescription } from '../../lib/timers-config';
 import { fonts } from '../../lib/fonts';
 import { ROUND_SIZE } from '../../lib/buttonTokens';
 import { useHaptic } from '../../hooks/useHaptic';
+import HoldOverlay from './HoldOverlay';
+import { useSettings } from '../../contexts/SettingsContext';
+import { holdDurations } from '../../lib/rainMode';
 
 /**
  * Aperçu rapide des 5 formats, ouvert en tapant les points de pagination de
@@ -20,10 +23,19 @@ import { useHaptic } from '../../hooks/useHaptic';
  */
 export default function ModePickerSheet({ screenH, timers, activeIndex, onPick, onClose }) {
   const haptic = useHaptic();
+  const { settings } = useSettings();
+  // Mode pluie « orage » : choisir un timer demande de le maintenir 1 s.
+  const selectHold = holdDurations(settings.rainMode).select;
 
   return (
     <BottomSheet screenH={screenH} onClose={onClose} zIndex={120}>
-      {({ close }) => (
+      {({ close }) => {
+        const pick = (i) => {
+          haptic.medium();
+          onPick(i);
+          close();
+        };
+        return (
         <View>
           <View style={styles.headerRow}>
             <View style={{ flex: 1 }}>
@@ -43,11 +55,7 @@ export default function ModePickerSheet({ screenH, timers, activeIndex, onPick, 
             {timers.map((timer, i) => (
               <Pressable
                 key={timer.id}
-                onPress={() => {
-                  haptic.medium();
-                  onPick(i);
-                  close();
-                }}
+                onPress={selectHold > 0 ? undefined : () => pick(i)}
                 style={({ pressed }) => [
                   styles.row,
                   i === activeIndex && styles.rowActive,
@@ -68,11 +76,15 @@ export default function ModePickerSheet({ screenH, timers, activeIndex, onPick, 
                     {getTimerDescription(timer)}
                   </Text>
                 </View>
+                {selectHold > 0 && (
+                  <HoldOverlay color="#FFFFFF" radius={16} duration={selectHold} onComplete={() => pick(i)} />
+                )}
               </Pressable>
             ))}
           </View>
         </View>
-      )}
+        );
+      }}
     </BottomSheet>
   );
 }
