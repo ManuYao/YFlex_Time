@@ -9,6 +9,8 @@ import MiniToast from './MiniToast';
 import PressTap from './PressTap';
 import AppIcon from './AppIcon';
 import MixCommentsView from './MixCommentsView';
+import TouchShield from './TouchShield';
+import { useSubmitGuard } from '../../hooks/useSubmitGuard';
 import StarRating, { STAR_ON } from './StarRating';
 import { haptic } from '../../hooks/useHaptic';
 import { useAuth } from '../../contexts/AuthContext';
@@ -83,6 +85,7 @@ function FeedCard({
   reported,
   reporting,
   removing,
+  testing,
   commentCount,
   onOpenComments,
   onRate,
@@ -173,6 +176,7 @@ function FeedCard({
               size="sm"
               icon="play"
               label="Tester"
+              loading={testing}
               onPress={onTest}
               style={styles.actionBtn}
             />
@@ -225,6 +229,7 @@ function FeedCard({
               size="sm"
               icon="play"
               label="Tester"
+              loading={testing}
               onPress={onTest}
               style={styles.actionBtn}
             />
@@ -282,6 +287,8 @@ function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine, launc
   const router = useRouter();
   const openPreview = () => router.push({ pathname: '/mix-builder', params: { preview: '1' } });
   const { user } = useAuth();
+  // Ouvrir l'aperçu monte tout le constructeur : les points montrent que ça charge.
+  const guard = useSubmitGuard({ settleMs: 900 });
   const { library, currentMix, saveAsLibraryEntry, receiveMix, saveCurrentMix, clearPublication } = useTimers();
 
   const [category, setCategory] = useState(null);
@@ -539,15 +546,21 @@ function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine, launc
       const r = await onTest(mix);
       if (r === false) return;
       // Hors constructeur (page Mix et Partage) : « Tester » ouvre l'aperçu.
-      if (launchOnTest) afterClose(() => openPreview());
+      if (launchOnTest) {
+        openPreview();
+        setTimeout(close, 450);
+        return;
+      }
       close();
       return;
     }
     // « Tester » = ouvrir l'APERÇU du mix dans le constructeur (lecture seule) :
     // on voit ce qu'on va lancer, on peut le lancer, ou l'enregistrer (maintien)
     // pour le modifier ensuite. Rien n'est enregistré tant qu'on ne le demande pas.
-    afterClose(() => openPreview());
-    close();
+    // La feuille reste visible (avec les points de « Tester ») pendant que
+    // l'aperçu se monte, puis se ferme dessous : plus de trou muet entre les deux.
+    openPreview();
+    setTimeout(close, 450);
   };
 
   if (commentsItem) {
@@ -712,7 +725,8 @@ function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine, launc
               }}
               onRate={(n) => handleRate(item, n)}
               onSave={() => handleSave(item)}
-              onTest={() => handleTest(item)}
+              testing={guard.busyKey === `test:${item.id}`}
+              onTest={() => guard.run(`test:${item.id}`, () => handleTest(item))}
               onEdit={() => handleEdit(item)}
               onAskRemove={() => setRemovingId(item.id)}
               onCancelRemove={() => setRemovingId(null)}
@@ -733,6 +747,7 @@ function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine, launc
           onAction={toast.onAction}
         />
       )}
+      {guard.locked && <TouchShield />}
     </View>
   );
 }
