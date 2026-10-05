@@ -196,18 +196,18 @@ export default function Hub() {
           <View style={styles.tiles}>
             <Animated.View entering={slideInY(24, D.big, 90)} style={styles.tileWrap}>
               <HubTile
-                icon="calendar"
-                title="Mon planning"
-                summary={planningSummary}
-                onPress={() => go({ pathname: '/history', params: { page: 'planning' } })}
-              />
-            </Animated.View>
-            <Animated.View entering={slideInY(24, D.big, 170)} style={styles.tileWrap}>
-              <HubTile
                 icon="history"
                 title="Mon historique"
                 summary={historySummary}
                 onPress={() => go('/history')}
+              />
+            </Animated.View>
+            <Animated.View entering={slideInY(24, D.big, 170)} style={styles.tileWrap}>
+              <HubTile
+                icon="calendar"
+                title="Mon planning"
+                summary={planningSummary}
+                onPress={() => go({ pathname: '/history', params: { page: 'planning' } })}
               />
             </Animated.View>
           </View>

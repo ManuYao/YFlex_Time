@@ -59,7 +59,7 @@ export default function TutorialBilan({ success, onContinue, onFinish, onRetry }
         fullWidth
         icon="arrow"
         iconPosition="right"
-        label="Continuer le tour · 30 s"
+        label="Continuer vers l'étape 2"
         haptic={haptic.medium}
         onPress={onContinue}
       />
@@ -124,7 +124,7 @@ export default function TutorialBilan({ success, onContinue, onFinish, onRetry }
         <Text style={styles.title}>{success ? 'BIEN JOUÉ' : 'PAS DE SOUCI'}</Text>
         <Text style={styles.sub}>
           {success
-            ? "Tu viens de faire un vrai chrono. Voilà ce qu'il faut retenir :"
+            ? "Étape 1 terminée : tu viens de faire un vrai chrono. Voilà ce qu'il faut retenir. L'étape 2 (30 s, sans chrono) te montre où trouver le reste de l'app."
             : "Tu as quitté le test. Tu peux le refaire, ou t'arrêter ici : le tour reste dans les Paramètres."}
         </Text>
 

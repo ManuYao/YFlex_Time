@@ -293,6 +293,37 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
     });
   }, []);
 
+  // Invitation au tutoriel : vérifiée à CHAQUE arrivée sur l'accueil (pas
+  // seulement au premier lancement de l'app, comme la file ci-dessous) — après
+  // un reset complet l'app ne redémarre pas, et un drapeau « une fois par
+  // lancement » empêcherait l'invitation de revenir. Les garde-fous
+  // (nouvel utilisateur, 2 fois max, 24 h entre deux) sont dans
+  // shouldInviteTutorial, donc la revérifier est sans risque.
+  useEffect(() => {
+    if (!hydrated) return undefined;
+    let cancelled = false;
+    let timer = null;
+    const unsubscribe = onSplashCleared(() => {
+      timer = setTimeout(async () => {
+        if (cancelled || overlayBusyRef.current) return;
+        await waitForUpdateGateSettled();
+        if (cancelled || overlayBusyRef.current) return;
+        const totalRuns = Object.values(countSessionsByTimer(await loadHistory())).reduce((a, b) => a + b, 0);
+        const tutorialState = await loadTutorialState();
+        if (cancelled || overlayBusyRef.current) return;
+        if (shouldInviteTutorial({ state: tutorialState, totalRuns })) {
+          markTutorialInviteShown();
+          setShowTutorialInvite(true);
+        }
+      }, PROGRESSION_DELAY_MS);
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+      if (timer) clearTimeout(timer);
+    };
+  }, [hydrated]);
+
   useEffect(() => {
     if (!hydrated || progressionCheckedThisLaunch) return;
     let cancelled = false;
@@ -318,18 +349,6 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
         // suivant — et surtout on n'empile jamais deux feuilles.
         const countsByTimer = countSessionsByTimer(await loadHistory());
         const totalRuns = Object.values(countsByTimer).reduce((a, b) => a + b, 0);
-
-        // Tutoriel de démarrage : proposé en PREMIER, mais seulement à un
-        // nouvel utilisateur (aucune séance lancée), au plus deux fois, et
-        // jamais imposé (lib/tutorial.js). Rien d'autre n'a de raison de
-        // s'ouvrir avant : un nouvel utilisateur n'a ni trophée ni conseil.
-        const tutorialState = await loadTutorialState();
-        if (cancelled || overlayBusyRef.current) return;
-        if (shouldInviteTutorial({ state: tutorialState, totalRuns })) {
-          markTutorialInviteShown();
-          setShowTutorialInvite(true);
-          return;
-        }
 
         const fresh = await pendingBadges(countsByTimer);
         if (cancelled || overlayBusyRef.current) return;
