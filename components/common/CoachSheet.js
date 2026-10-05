@@ -1,12 +1,13 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 
 import BottomSheet from './BottomSheet';
 import Button from './Button';
 import AppIcon from './AppIcon';
+import DotsLoader from './DotsLoader';
 import { fonts } from '../../lib/fonts';
 import { haptic } from '../../hooks/useHaptic';
-import { previewVoice } from '../../lib/voiceCoach';
+import { previewVoice, STYLE_SAMPLES } from '../../lib/voiceCoach';
 
 // Fenêtre « Ton coach » (Paramètres > Audio et haptique > Personnaliser le
 // coach). Regroupe TOUS les réglages de la voix du coach, pour que les
@@ -23,13 +24,11 @@ export const COACH_STYLES = [
     value: 'essential',
     label: 'Essentiel',
     desc: "Juste l'info, tranchée, en une ou deux secondes.",
-    sample: '« 3 sur 8. »  « Repos. 30 secondes. »',
   },
   {
     value: 'motivating',
     label: 'Motivant',
     desc: "Des phrases de coach qui t'encouragent et te disent où tu en es.",
-    sample: '« Moitié du repos, respire profondément. »',
   },
 ];
 
@@ -41,13 +40,11 @@ export const COACH_DETAILS = [
     value: 'discreet',
     label: 'Discret',
     desc: 'Parle peu : le tour et le repos.',
-    sample: '« Tour 3 sur 8. »',
   },
   {
     value: 'detailed',
     label: 'Détaillé',
     desc: "Ajoute la durée de l'effort et du repos.",
-    sample: '« Travail, 20 secondes. »',
   },
 ];
 
@@ -55,6 +52,12 @@ const GENDERS = [
   { value: 'female', label: 'FEMME' },
   { value: 'male', label: 'HOMME' },
 ];
+
+// Ce que la carte affiche = ce que la voix dit à l'aperçu (même source).
+const sampleText = (style, detail) => {
+  const s = STYLE_SAMPLES[style] || STYLE_SAMPLES.essential;
+  return `« ${s[detail] || s.discreet} »`;
+};
 
 export default function CoachSheet({
   screenH,
@@ -67,6 +70,13 @@ export default function CoachSheet({
   onChangeGender,
   onClose,
 }) {
+  // Aperçu en cours (la voix met un moment à démarrer) : { 'style:essential' }
+  const [loadingKey, setLoadingKey] = useState(null);
+  const play = (key, params) => {
+    setLoadingKey(key);
+    previewVoice(params).finally(() => setLoadingKey((k) => (k === key ? null : k)));
+  };
+
   return (
     <BottomSheet screenH={screenH} onClose={onClose} zIndex={95}>
       {({ close }) => (
@@ -83,7 +93,7 @@ export default function CoachSheet({
                 onPress={() => {
                   haptic.selection();
                   onChangeStyle(opt.value);
-                  previewVoice({ style: opt.value, gender, detail });
+                  play(`style:${opt.value}`, { style: opt.value, gender, detail });
                 }}
                 style={({ pressed }) => [
                   styles.card,
@@ -93,12 +103,18 @@ export default function CoachSheet({
               >
                 <View style={styles.cardHead}>
                   <Text style={[styles.cardLabel, !active && styles.dim]}>{opt.label}</Text>
-                  <View style={[styles.radio, active && styles.radioActive]}>
-                    {active && <View style={styles.radioDot} />}
-                  </View>
+                  {loadingKey === `style:${opt.value}` ? (
+                    <DotsLoader size={4} />
+                  ) : (
+                    <View style={[styles.radio, active && styles.radioActive]}>
+                      {active && <View style={styles.radioDot} />}
+                    </View>
+                  )}
                 </View>
                 <Text style={[styles.cardDesc, !active && styles.dim]}>{opt.desc}</Text>
-                <Text style={[styles.cardSample, !active && styles.dim]}>{opt.sample}</Text>
+                <Text style={[styles.cardSample, !active && styles.dim]}>
+                  {sampleText(opt.value, detail)}
+                </Text>
               </Pressable>
             );
           })}
@@ -113,7 +129,7 @@ export default function CoachSheet({
                   onPress={() => {
                     haptic.selection();
                     onChangeDetail?.(opt.value);
-                    previewVoice({ style, gender, detail: opt.value });
+                    play(`detail:${opt.value}`, { style, gender, detail: opt.value });
                   }}
                   style={({ pressed }) => [
                     styles.detailCard,
@@ -121,15 +137,20 @@ export default function CoachSheet({
                     pressed && { opacity: 0.7 },
                   ]}
                 >
-                  <AppIcon
-                    name="bulb"
-                    size={22}
-                    color="#FFFFFF"
-                    opacity={active ? 1 : 0.4}
-                  />
+                  <View style={styles.detailHead}>
+                    <AppIcon
+                      name="bulb"
+                      size={22}
+                      color="#FFFFFF"
+                      opacity={active ? 1 : 0.4}
+                    />
+                    {loadingKey === `detail:${opt.value}` && <DotsLoader size={4} />}
+                  </View>
                   <Text style={[styles.cardLabel, !active && styles.dim]}>{opt.label}</Text>
                   <Text style={[styles.detailDesc, !active && styles.dim]}>{opt.desc}</Text>
-                  <Text style={[styles.cardSample, !active && styles.dim]}>{opt.sample}</Text>
+                  <Text style={[styles.cardSample, !active && styles.dim]}>
+                    {sampleText(style, opt.value)}
+                  </Text>
                 </Pressable>
               );
             })}
@@ -149,14 +170,18 @@ export default function CoachSheet({
                       onPress={() => {
                         haptic.selection();
                         onChangeGender(opt.value);
-                        previewVoice({ style, gender: opt.value, detail });
+                        play(`gender:${opt.value}`, { style, gender: opt.value, detail });
                       }}
                       style={[styles.genderChip, active && styles.genderChipActive]}
                       hitSlop={4}
                     >
-                      <Text style={[styles.genderLabel, active && styles.genderLabelActive]}>
-                        {opt.label}
-                      </Text>
+                      {loadingKey === `gender:${opt.value}` ? (
+                        <DotsLoader size={4} color={active ? '#0A0A0A' : '#FFFFFF'} />
+                      ) : (
+                        <Text style={[styles.genderLabel, active && styles.genderLabelActive]}>
+                          {opt.label}
+                        </Text>
+                      )}
                     </Pressable>
                   );
                 })}
@@ -275,6 +300,12 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 16,
     gap: 6,
+  },
+  detailHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    height: 22,
   },
   detailDesc: {
     fontFamily: fonts.sansMedium,
