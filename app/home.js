@@ -1111,23 +1111,31 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
           ligne : sans ça la hauteur qui manque la coupait en plein mot
           ("EN 1 MINUTE" tronqué à "MINU"), sans ellipse ni moyen de lire
           la suite. */}
-      {isMini ? null : isActive ? (
-        <Animated.Text
-          key={`full-${timer.id}`}
-          entering={slideInY(10, D.big, 100)}
-          exiting={slideOutY(-10, D.base)}
-          numberOfLines={isReduced ? 1 : undefined}
-          style={[styles.description, isReduced && styles.descriptionReduced, { color: t.tertiary }]}
-        >
-          {description}
-        </Animated.Text>
-      ) : (
-        <Text
-          numberOfLines={isReduced ? 1 : undefined}
-          style={[styles.description, isReduced && styles.descriptionReduced, { color: t.tertiary }]}
-        >
-          {description}
-        </Text>
+      {/* Mise en page complète : la description occupe TOUJOURS la hauteur de
+          deux lignes, centrée, pour que l'anneau ne bouge pas d'un timer à
+          l'autre (certaines descriptions tiennent sur une ligne, d'autres sur
+          deux). */}
+      {isMini ? null : (
+        <View style={isReduced ? null : styles.descriptionSlot}>
+          {isActive ? (
+            <Animated.Text
+              key={`full-${timer.id}`}
+              entering={slideInY(10, D.big, 100)}
+              exiting={slideOutY(-10, D.base)}
+              numberOfLines={isReduced ? 1 : 2}
+              style={[styles.description, isReduced ? styles.descriptionReduced : styles.descriptionFull, { color: t.tertiary }]}
+            >
+              {description}
+            </Animated.Text>
+          ) : (
+            <Text
+              numberOfLines={isReduced ? 1 : 2}
+              style={[styles.description, isReduced ? styles.descriptionReduced : styles.descriptionFull, { color: t.tertiary }]}
+            >
+              {description}
+            </Text>
+          )}
+        </View>
       )}
 
       {/* (V) Mini — plus d'anneau : il mangeait toute la hauteur pour une
@@ -1288,13 +1296,18 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
 
       {/* (U) Cooldown — pips = usages du jour restants + aperçu du verrou,
           ou bandeau "Premium requis" une fois verrouillé */}
-      <CooldownPips
-        cooldown={cooldown}
-        t={t}
-        tone={timer.textMode}
-        onGoPremium={onGoPremium}
-        hideLockedHint={isMini}
-      />
+      {/* Mise en page complète : emplacement de hauteur fixe, occupé ou non —
+          TABATA et MIX (places gratuites) ne décalent plus les autres. */}
+      <View style={isReduced ? null : styles.cooldownSlot}>
+        <CooldownPips
+          cooldown={cooldown}
+          t={t}
+          tone={timer.textMode}
+          onGoPremium={onGoPremium}
+          hideLockedHint={isMini}
+          flat={!isReduced}
+        />
+      </View>
 
       {/* (K) Stats chips avec stagger. En mini (fenêtre minuscule) : retirées —
           le nom et la valeur sont déjà dans la ligne du haut, et chaque ligne
@@ -1385,14 +1398,14 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
             exiting={FadeOut.duration(D.fast)}
             style={styles.phasesBarWrap}
           >
-            <PhaseBar segments={phaseBar} active={t.ringActive} inactive={t.ringInactive} />
+            <PhaseBar segments={phaseBar} active={t.muted} inactive={t.ringInactive} />
           </Animated.View>
         </>
       ) : (
         <>
           <Text style={[styles.phasesLabel, { color: t.muted }]}>Déroulé</Text>
           <View style={styles.phasesBarWrap}>
-            <PhaseBar segments={phaseBar} active={t.ringActive} inactive={t.ringInactive} />
+            <PhaseBar segments={phaseBar} active={t.muted} inactive={t.ringInactive} />
           </View>
         </>
       )}
@@ -1429,7 +1442,7 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
    rangée de pastilles qui se remplissent, plus un cadenas simple une fois
    verrouillé (déjà affiché sur le cadran par lockOverlay).
    ────────────────────────────────────────────────────────────────*/
-function CooldownPips({ cooldown, t, tone, onGoPremium, hideLockedHint = false }) {
+function CooldownPips({ cooldown, t, tone, onGoPremium, hideLockedHint = false, flat = false }) {
   if (!cooldown?.limited) return null;
 
   if (cooldown.isLocked) {
@@ -1446,13 +1459,13 @@ function CooldownPips({ cooldown, t, tone, onGoPremium, hideLockedHint = false }
         label="DÉBLOQUE AVEC PREMIUM"
         labelStyle={styles.premiumHintText}
         onPress={onGoPremium}
-        style={styles.premiumHint}
+        style={[styles.premiumHint, flat && styles.flatMargin]}
       />
     );
   }
 
   return (
-    <View style={styles.cooldownRow}>
+    <View style={[styles.cooldownRow, flat && styles.flatMargin]}>
       {/* cooldown.quota, pas une constante fixe : varie par mode (TABATA 6,
           MIX 4) et se réduit d'une place le cycle qui suit un "cramé"
           (lib/cooldown.js, malus). */}
@@ -2274,6 +2287,26 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 16,
   },
+  // Emplacement fixe des places gratuites (bouton « Débloque » = 36 dp).
+  cooldownSlot: {
+    height: 44,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  flatMargin: {
+    marginBottom: 0,
+  },
+  descriptionSlot: {
+    height: 32,
+    width: '100%',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  descriptionFull: {
+    marginBottom: 0,
+    lineHeight: 16,
+  },
   cooldownPip: {
     width: 8,
     height: 8,
@@ -2527,7 +2560,8 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 320,
     alignItems: 'center',
-    paddingVertical: 6,
+    justifyContent: 'center',
+    height: 40,
   },
 
   // Bottom bar

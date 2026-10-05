@@ -8,6 +8,7 @@ import {
 import PressTap from '../components/common/PressTap';
 import HoldOverlay from '../components/common/HoldOverlay';
 import QuickWeightSheet from '../components/common/QuickWeightSheet';
+import PhaseBar from '../components/common/PhaseBar';
 import { setTagWeightByRef } from '../lib/planning';
 import { useSettings } from '../contexts/SettingsContext';
 import { holdDurations } from '../lib/rainMode';
@@ -873,33 +874,21 @@ function TopBar({ tokens, tone, name, tag, roundLabel, onReturn, progress, marke
 
 function PhasesPills({ phases, timer, tokens }) {
   if (!phases || phases.length === 0) return null;
-  const isDark = timer.textMode === 'dark';
-  const currentTextColor = isDark ? '#FFFFFF' : '#0A0A0A';
-
+  // Même capsules que le déroulé de l'accueil : la phase en cours est pleine
+  // et un peu plus haute, les phases faites en retrait, les suivantes éteintes.
+  const segments = phases.map((p) => {
+    const rest = p.type === 'rest';
+    return { kind: rest ? 'rest' : 'work', weight: rest ? 1 : 2, status: p.status };
+  });
   return (
     <View style={styles.phasesWrap}>
       <Text style={[styles.derouleLabel, { color: tokens.muted }]}>Déroulé</Text>
-      <View style={styles.phasesRow}>
-        {phases.map((p, i) => {
-          const isCurrent = p.status === 'current';
-          const isDone = p.status === 'done';
-          const bg = isCurrent ? tokens.primary : isDone ? 'transparent' : tokens.chipBg;
-          const border = isCurrent ? tokens.primary : isDone ? tokens.chipDone : tokens.chipBorder;
-          const color = isCurrent ? currentTextColor : isDone ? tokens.chipDone : tokens.chipText;
-          return (
-            <PhaseChip
-              key={i}
-              index={i}
-              isCurrent={isCurrent}
-              bg={bg}
-              border={border}
-              color={color}
-              label={p.label}
-              tokens={tokens}
-            />
-          );
-        })}
-      </View>
+      <PhaseBar
+        segments={segments}
+        active={tokens.ringActive}
+        inactive={tokens.ringInactive}
+        done={tokens.chipDone}
+      />
     </View>
   );
 }
