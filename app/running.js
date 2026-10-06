@@ -169,10 +169,14 @@ export default function Running() {
   // ── Brouillon de séance (lib/sessionDraft.js) ──
   // La séance est sauvegardée au fil de l'eau : si le téléphone s'éteint ou si
   // l'app plante, elle est récupérée au prochain démarrage au lieu d'être
-  // perdue. Écriture à chaque changement de phase, toutes les 10 s, à chaque
-  // « Fin du travail » validé (restTriggers / mixBasicTriggers) et quand l'app
-  // passe en arrière-plan. Même durée que celle envoyée à l'écran de fin
-  // quand on arrête (voir handleStop).
+  // perdue. UNE écriture par série terminée (jamais de minuterie qui écrit en
+  // continu : demande de l'utilisateur, par souci de batterie) : à la fin d'un
+  // effort (on entre en repos), à chaque série validée (« Fin du travail »),
+  // à chaque changement de tour sans repos (EMOM) — plus une fois par minute
+  // pour un AMRAP, qui n'a pas de série, toutes les 5 minutes — et quand l'app
+  // passe en arrière-plan.
+  // Une série entamée mais pas finie n'est pas gardée : c'est voulu. Même
+  // durée que celle envoyée à l'écran de fin quand on arrête (voir handleStop).
   const startedAtRef = useRef(Date.now());
   const draftRef = useRef(null);
   const wholeElapsed = Math.floor(secondsElapsed);
@@ -187,10 +191,30 @@ export default function Running() {
   useEffect(() => {
     if (!isTutorial) beginSessionDraft();
   }, []);
+  // Nombre de « Fin du travail » validés (BASIC autonome ou blocs BASIC du MIX).
+  const validatedCount =
+    restTriggers.length +
+    Object.values(mixBasicTriggers).reduce((n, list) => n + list.length, 0);
+  // AMRAP (autonome ou bloc de MIX) : une seule longue phase, donc pas de fin
+  // de série à attendre — un repère toutes les 5 minutes, jamais plus (batterie).
+  const isSinglePhase = timer.id === 'amrap' || (isMix && state.blockType === 'amrap');
+  const minuteTick = isSinglePhase ? Math.floor(secondsElapsed / 300) : 0;
+  const seriesRef = useRef(null);
   useEffect(() => {
-    if (isTutorial || navigatedRef.current || state.isComplete) return;
-    saveSessionDraft(draftRef.current, startedAtRef.current);
-  }, [Math.floor(secondsElapsed / 10), state.phaseLabel, restTriggers, mixBasicTriggers]);
+    const key = `${state.blockId ?? ''}|${state.currentRound ?? ''}|${state.subRound ?? ''}`;
+    const prev = seriesRef.current;
+    seriesRef.current = { key, rest: !!state.isRest, validated: validatedCount, minute: minuteTick };
+    if (!prev || isTutorial || navigatedRef.current || state.isComplete) return;
+    const endedEffort = !!state.isRest && !prev.rest; // on entre en repos
+    const validated = validatedCount !== prev.validated; // série BASIC validée
+    // Nouveau tour / nouveau bloc sans repos entre les deux (EMOM…). Quand le
+    // tour change APRÈS un repos, la série était déjà gardée à son entrée.
+    const nextSeriesNoRest = key !== prev.key && !prev.rest && !state.isRest;
+    const minute = isSinglePhase && minuteTick !== prev.minute && minuteTick > 0;
+    if (endedEffort || validated || nextSeriesNoRest || minute) {
+      saveSessionDraft(draftRef.current, startedAtRef.current);
+    }
+  }, [state.isRest, state.blockId, state.currentRound, state.subRound, validatedCount, minuteTick]);
   useEffect(() => {
     if (isTutorial) return undefined;
     const sub = AppState.addEventListener('change', (next) => {
