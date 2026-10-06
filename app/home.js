@@ -15,9 +15,12 @@ import Svg, { Path, Circle, Defs, RadialGradient, Stop } from 'react-native-svg'
 import Animated, {
   FadeIn,
   FadeOut,
+  Easing,
   cancelAnimation,
   interpolate,
   runOnJS,
+  useAnimatedReaction,
+  useAnimatedScrollHandler,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
@@ -196,6 +199,28 @@ export default function Home() {
   );
 }
 
+// Durée de la révélation du chrome une fois la page posée (voir HomeScreen).
+const REVEAL_MS = 950;
+
+// Style d'un élément du chrome : opacité = (creux guidé par le doigt) ×
+// (révélation dans le temps, fenêtre [start, end] de 0 à 1, sortie douce).
+// `rise` = petit glissement vertical, `shrink` = départ légèrement rétréci.
+function useChromeReveal(scrollX, pageW, appear, start, end, rise, shrink) {
+  return useAnimatedStyle(() => {
+    const p = scrollX.value / pageW.value;
+    const d = Math.abs(p - Math.round(p));
+    const x = Math.min(1, Math.max(0, (0.34 - d) / 0.2));
+    const gate = x * x * (3 - 2 * x);
+    const a = Math.min(1, Math.max(0, (appear.value - start) / (end - start)));
+    const e = 1 - (1 - a) * (1 - a) * (1 - a);
+    if (rise === 0 && shrink === 0) return { opacity: gate * e };
+    return {
+      opacity: gate * e,
+      transform: [{ translateY: (1 - e) * rise }, { scale: 1 - (1 - e) * shrink }],
+    };
+  });
+}
+
 function HomeScreen({ initialIndex, heatMap, statsMap }) {
   // Taille reelle de la racine : SCREEN_W/H (Dimensions window) ne correspond
   // pas forcement a la zone qu'occupe l'app (barres systeme, overlay Expo Go,
@@ -232,7 +257,58 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
     },
     [isPremium, getCooldownStatusRaw]
   );
+  // activeIndex = page « visible » : bascule dès la mi-course du glissement
+  // (fond, bouton Lancer, points et couleurs suivent ensemble). settledIndex =
+  // page posée : ne change qu'à la fin du geste, il sert aux cartes (anneau
+  // qui respire…) pour ne pas les re-rendre en plein milieu du doigt.
   const [activeIndex, setActiveIndex] = useState(initialIndex);
+  const [settledIndex, setSettledIndex] = useState(initialIndex);
+  // Position horizontale du carrousel, lue sur le fil d'interface : sert à
+  // piloter le fond (ScrollInkBackground) sans passer par le JavaScript.
+  const scrollX = useSharedValue(initialIndex * SCREEN_W);
+  const scrollHandler = useAnimatedScrollHandler({
+    onScroll: (e) => {
+      scrollX.value = e.contentOffset.x;
+    },
+  });
+  // Largeur d'une page, côté fil d'interface.
+  const pageW = useSharedValue(rootW || 1);
+  // « Chrome » = tout ce qui dépend du timer affiché (étiquette du haut,
+  // points, bouton Lancer, braises). DISPARITION : guidée par le doigt, il
+  // s'éteint quand on s'éloigne d'une page (c'est là que son contenu change).
+  // RÉAPPARITION : une vraie animation dans le temps, lancée seulement quand
+  // la page est posée, élément par élément (le haut, puis les points, puis le
+  // gros bouton en dernier, plus lentement). Un glissé rapide ne le rallume
+  // donc jamais à moitié : il attend l'arrêt, puis revient calmement.
+  const appear = useSharedValue(1);
+  const appearing = useSharedValue(0);
+  useAnimatedReaction(
+    () => {
+      const p = scrollX.value / pageW.value;
+      return Math.abs(p - Math.round(p));
+    },
+    (d) => {
+      if (d >= 0.34) {
+        // Zone cachée : on remet la révélation à zéro (invisible à cet instant).
+        if (appear.value !== 0 || appearing.value !== 0) {
+          cancelAnimation(appear);
+          appear.value = 0;
+          appearing.value = 0;
+        }
+      } else if (d < 0.01 && appear.value < 1 && appearing.value === 0) {
+        appearing.value = 1;
+        appear.value = withDelay(
+          90,
+          withTiming(1, { duration: REVEAL_MS, easing: Easing.linear })
+        );
+      }
+    }
+  );
+  const topReveal = useChromeReveal(scrollX, pageW, appear, 0, 0.55, -6, 0, 1);
+  const dotsReveal = useChromeReveal(scrollX, pageW, appear, 0.12, 0.62, 8, 0, 1);
+  const ctaReveal = useChromeReveal(scrollX, pageW, appear, 0.32, 1, 16, 0.06, 1);
+  const hintReveal = useChromeReveal(scrollX, pageW, appear, 0.55, 1, 0, 0, 1);
+  const emberReveal = useChromeReveal(scrollX, pageW, appear, 0.3, 1, 0, 0, 0);
   const [picker, setPicker] = useState(null);
   const [statsOpen, setStatsOpen] = useState(false);
   // Aperçu rapide des 5 formats (components/common/ModePickerSheet.js) —
@@ -459,6 +535,9 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   // (une View simple sans handler de tap, cf TimerCard). On n'accepte donc un
   // changement d'index que s'il suit un vrai geste de l'utilisateur.
   const draggingRef = useRef(false);
+  // Saut demandé par un point / l'aperçu des formats (pas un geste du doigt).
+  const programmaticRef = useRef(false);
+  const hapticIndexRef = useRef(initialIndex);
   const handleScrollBeginDrag = useCallback(() => {
     draggingRef.current = true;
     // Swiper le carrousel pendant que CoachNudgeSheet est ouverte compte
@@ -474,11 +553,38 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
     if (!draggingRef.current) return;
     draggingRef.current = false;
     const index = Math.round(e.nativeEvent.contentOffset.x / rootW);
+    setSettledIndex(index);
+    if (index !== hapticIndexRef.current) {
+      hapticIndexRef.current = index;
+      haptic.selection();
+    }
     if (index === activeIndexRef.current) return;
     activeIndexRef.current = index;
-    haptic.selection();
     setActiveIndex(index);
   }, [haptic, rootW]);
+
+  // Bascule à mi-course : dès que la page la plus proche change pendant un
+  // glissement, tout ce qui dépend du timer (bouton Lancer, points, couleurs
+  // du texte) bascule EN MÊME TEMPS que le fond, au lieu d'attendre la fin.
+  useEffect(() => {
+    pageW.value = rootW || 1;
+    scrollX.value = activeIndexRef.current * (rootW || 1);
+  }, [rootW]);
+  const commitNearest = useCallback((index) => {
+    // Seulement pour un vrai geste ou un saut demandé : un saut parasite du
+    // FlatList au démarrage ne doit jamais changer l'index.
+    if (!draggingRef.current && !programmaticRef.current) return;
+    const clamped = Math.min(timers.length - 1, Math.max(0, index));
+    if (clamped === activeIndexRef.current) return;
+    activeIndexRef.current = clamped;
+    setActiveIndex(clamped);
+  }, [timers.length]);
+  useAnimatedReaction(
+    () => Math.round(scrollX.value / pageW.value),
+    (next, prev) => {
+      if (prev != null && next !== prev) runOnJS(commitNearest)(next);
+    }
+  );
 
   // getItemLayout doit annoncer au FlatList la meme largeur que celle
   // reellement rendue par chaque carte (styles.card, override par rootW plus
@@ -568,12 +674,22 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   // (draggingRef, v14.9.0) — un scrollToIndex() ne déclenche jamais
   // onScrollBeginDrag, donc handleMomentumEnd l'aurait ignoré.
   const handleDotPress = useCallback((index) => {
-    if (index !== activeIndexRef.current) {
-      activeIndexRef.current = index;
+    if (index !== hapticIndexRef.current) {
+      hapticIndexRef.current = index;
       haptic.selection();
-      setActiveIndex(index);
     }
+    setSettledIndex(index);
+    // Le contenu change à mi-course, comme pour un glissement ; filet de
+    // sécurité : à l'arrivée, l'index est de toute façon le bon.
+    programmaticRef.current = true;
     flatListRef.current?.scrollToIndex({ index, animated: true });
+    setTimeout(() => {
+      programmaticRef.current = false;
+      if (activeIndexRef.current !== index) {
+        activeIndexRef.current = index;
+        setActiveIndex(index);
+      }
+    }, 700);
   }, [haptic]);
 
   // Tap sur les points de pagination : ouvre l'aperçu des 5 formats au lieu
@@ -621,7 +737,7 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
     ({ item, index }) => (
       <TimerCard
         timer={item}
-        isActive={index === activeIndex}
+        isActive={index === settledIndex}
         cardWidth={rootW}
         heatCount={heatMap[item.id] || 0}
         cooldown={getCooldownStatus(item.id)}
@@ -632,7 +748,7 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
         onGoPremium={handleGoPremium}
       />
     ),
-    [activeIndex, rootW, heatMap, getCooldownStatus, handleStatPress, handleMixEdit, haptic, handleOpenStats, handleGoPremium]
+    [settledIndex, rootW, heatMap, getCooldownStatus, handleStatPress, handleMixEdit, haptic, handleOpenStats, handleGoPremium]
   );
 
   if (!hydrated) {
@@ -651,33 +767,35 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
       {/* (A) Fond + contenu — regroupés dans une BlurTargetView pour que le
           BlurView Android (dimezisBlurView) ait quelque chose à flouter */}
       <BlurTargetView ref={blurTargetRef} style={styles.root}>
-        <CrossfadeBackground
-          colors={active.bgColors}
-          textMode={active.textMode}
-          timerId={active.id}
-        />
+        <ScrollInkBackground timers={timers} scrollX={scrollX} width={rootW} />
 
         {activeHeat >= STREAK_THRESHOLD && (
-          <EmberField key={active.id} color={active.color} heatCount={activeHeat} />
+          <Animated.View style={[StyleSheet.absoluteFill, emberReveal]} pointerEvents="none">
+            <EmberField key={active.id} color={active.color} heatCount={activeHeat} />
+          </Animated.View>
         )}
 
         <SafeAreaView style={styles.safe} edges={['top', 'bottom']} pointerEvents={hideChrome ? 'none' : 'auto'}>
-          <TopBar
-            tag={active.tag}
-            tokens={t}
-            tone={active.textMode}
-            onProfile={() => router.push('/profile')}
-            onHub={() => router.push('/hub')}
-            onTapHaptic={haptic.light}
-            isLaunching={hideChrome}
-          />
+          <Animated.View style={topReveal}>
+            <TopBar
+              tag={active.tag}
+              tokens={t}
+              tone={active.textMode}
+              onProfile={() => router.push('/profile')}
+              onHub={() => router.push('/hub')}
+              onTapHaptic={haptic.light}
+              isLaunching={hideChrome}
+            />
+          </Animated.View>
 
-          <FlatList
+          <Animated.FlatList
             ref={flatListRef}
             data={timers}
             horizontal
             pagingEnabled
             showsHorizontalScrollIndicator={false}
+            onScroll={scrollHandler}
+            scrollEventThrottle={16}
             onScrollBeginDrag={handleScrollBeginDrag}
             onMomentumScrollEnd={handleMomentumEnd}
             keyExtractor={keyExtractor}
@@ -698,6 +816,9 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
             onOpenModePicker={handleOpenModePicker}
             onLaunch={handleLaunch}
             isLaunching={hideChrome}
+            dotsReveal={dotsReveal}
+            ctaReveal={ctaReveal}
+            hintReveal={hintReveal}
           />
         </SafeAreaView>
       </BlurTargetView>
@@ -834,21 +955,44 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
 }
 
 /* ─────────────────────────────────────────────────────────────────
-   (A) CrossfadeBackground — change de gradient en 0.7s easeImpact
+   (A) ScrollInkBackground — fond continu, tenu par le doigt.
+   Les 5 fonds sont montés UNE fois et empilés dans l'ordre des pages. Le
+   fond de la page i apparaît en fondu quand on glisse de i-1 vers i, puis
+   recouvre les précédents ; seule son opacité bouge, calculée sur le fil
+   d'interface à partir de la position du doigt. Aucun état JavaScript, rien
+   ne se monte ni ne se démonte pendant le geste : pas de couche en retard,
+   pas d'écran noir, pas de couleur parasite. Au plus deux couches visibles
+   à la fois (les autres sont à 0 ou entièrement recouvertes).
    ────────────────────────────────────────────────────────────────*/
-function CrossfadeBackground({ colors, textMode, timerId }) {
+function ScrollInkBackground({ timers, scrollX, width }) {
+  const widthSV = useSharedValue(width || 1);
+  useEffect(() => {
+    widthSV.value = width || 1;
+  }, [width]);
+
   return (
-    <View style={StyleSheet.absoluteFill}>
-      <Animated.View
-        key={timerId}
-        entering={FadeIn.duration(D.loop).easing(easeImpact)}
-        style={StyleSheet.absoluteFill}
-      >
-        <GradientBackground colors={colors} textMode={textMode} grain>
-          <View style={{ flex: 1 }} />
-        </GradientBackground>
-      </Animated.View>
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
+      {timers.map((timer, i) => (
+        <FadeLayer key={timer.id} timer={timer} index={i} scrollX={scrollX} widthSV={widthSV} />
+      ))}
     </View>
+  );
+}
+
+function FadeLayer({ timer, index, scrollX, widthSV }) {
+  const style = useAnimatedStyle(() => {
+    const p = scrollX.value / widthSV.value;
+    // Recouverte par la page suivante, devenue pleine : inutile de la peindre.
+    if (p >= index + 1) return { opacity: 0 };
+    // La première page est le socle : toujours pleine tant qu'elle n'est pas recouverte.
+    if (index === 0) return { opacity: 1 };
+    const f = Math.min(1, Math.max(0, p - (index - 1)));
+    return { opacity: f * f * (3 - 2 * f) };
+  });
+  return (
+    <Animated.View style={[StyleSheet.absoluteFill, style]}>
+      <GradientBackground colors={timer.bgColors} textMode={timer.textMode} grain={false} inherit={false} />
+    </Animated.View>
   );
 }
 
@@ -1640,7 +1784,7 @@ function BreathingRing({ isActive, t, timerId, size = 320, gap = 24, children })
 /* ─────────────────────────────────────────────────────────────────
    (M+N+O) Bottom bar — indicators + CTA + hint
    ────────────────────────────────────────────────────────────────*/
-function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onOpenModePicker, onLaunch, isLaunching }) {
+function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onOpenModePicker, onLaunch, isLaunching, dotsReveal, ctaReveal, hintReveal }) {
   // Mode pluie « orage » : maintenir le bouton Lancer au lieu de le toucher.
   const { settings: rainSettings } = useSettings();
   const launchHold = holdDurations(rainSettings.rainMode).launch;
@@ -1700,7 +1844,7 @@ function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onOp
           (demande utilisateur, v14.15.0) : glisser le carrousel reste le
           moyen le plus rapide pour qui connaît déjà les formats. */}
       {!isTiny && (
-        <View style={[styles.indicatorRow, isReduced && styles.indicatorRowReduced]}>
+        <Animated.View style={[styles.indicatorRow, isReduced && styles.indicatorRowReduced, dotsReveal]}>
           {timers.map((timer, i) => (
             <IndicatorDot
               key={timer.id}
@@ -1710,7 +1854,7 @@ function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onOp
               onPress={onOpenModePicker}
             />
           ))}
-        </View>
+        </Animated.View>
       )}
 
       {/* (O) CTA Lancer — capsule de lib/buttonTokens.js (couleur du mode en
@@ -1718,6 +1862,7 @@ function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onOp
           La View mesurée (ctaRef) sert à LaunchMorph, qui part de la
           position exacte du bouton : collapsable={false} pour qu'Android ne
           l'aplatisse pas (measureInWindow échouerait). */}
+      <Animated.View style={ctaReveal}>
       <View
         ref={ctaRef}
         collapsable={false}
@@ -1761,11 +1906,12 @@ function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onOp
           />
         )}
       </View>
+      </Animated.View>
 
       {!isMini && (
-        <Text style={[styles.hint, isReduced && styles.hintReduced, { color: tokens.muted }]}>
+        <Animated.Text style={[styles.hint, isReduced && styles.hintReduced, { color: tokens.muted }, hintReveal]}>
           ← Glisse ou tape pour explorer →
-        </Text>
+        </Animated.Text>
       )}
       </Animated.View>
     </Animated.View>
