@@ -10,7 +10,15 @@ import { useAuth } from '../../contexts/AuthContext';
 import { fonts } from '../../lib/fonts';
 import { ROUND_SIZE } from '../../lib/buttonTokens';
 import { loadProfile } from '../../lib/profile';
-import { addComment, deleteComment, editComment, fetchComments } from '../../lib/mixComments';
+import {
+  addComment,
+  deleteComment,
+  editComment,
+  fetchComments,
+  fetchMyCommentReports,
+  reportComment,
+} from '../../lib/mixComments';
+import { REPORT_REASONS } from '../../lib/publicMixShape';
 import {
   MAX_COMMENT_LENGTH,
   MAX_ROOT_COMMENTS,
@@ -58,6 +66,10 @@ export default function MixCommentsView({ item, screenH, onBack, goLogin }) {
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState(null); // { ok, text }
   const [deletingId, setDeletingId] = useState(null);
+  // Signalement : le commentaire dont on choisit le motif, et ceux que j'ai
+  // déjà signalés (« Signalé, merci »).
+  const [reportingId, setReportingId] = useState(null);
+  const [reportedIds, setReportedIds] = useState([]);
   const listRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -73,6 +85,11 @@ export default function MixCommentsView({ item, screenH, onBack, goLogin }) {
       }
       setComments(res.comments);
       setStatus('ok');
+      // Mes signalements : jamais bloquant (table pas encore ouverte, réseau…).
+      if (userId) {
+        const mine = await fetchMyCommentReports(res.comments.map((c) => c.id));
+        if (!cancelled && mine.ok) setReportedIds(mine.reported);
+      }
     })();
     return () => {
       cancelled = true;
@@ -99,6 +116,7 @@ export default function MixCommentsView({ item, screenH, onBack, goLogin }) {
     haptic.light();
     setFeedback(null);
     setDeletingId(null);
+    setReportingId(null);
     setMode({ type: 'reply', rootId: threadRootIdOf(comment), to: comment.author });
     setText('');
     setTimeout(() => inputRef.current?.focus(), 60);
@@ -108,6 +126,7 @@ export default function MixCommentsView({ item, screenH, onBack, goLogin }) {
     haptic.light();
     setFeedback(null);
     setDeletingId(null);
+    setReportingId(null);
     setMode({ type: 'edit', comment });
     setText(comment.body);
     setTimeout(() => inputRef.current?.focus(), 60);
@@ -173,21 +192,56 @@ export default function MixCommentsView({ item, screenH, onBack, goLogin }) {
     if (mode.type === 'edit' && mode.comment.id === comment.id) resetComposer();
   };
 
+  const handleReport = async (comment, reason) => {
+    setReportingId(null);
+    const res = await reportComment(comment.id, userId, reason);
+    if (!res.ok) {
+      haptic.error();
+      setFeedback({
+        ok: false,
+        text:
+          res.reason === 'unavailable'
+            ? "Le signalement n'est pas encore ouvert."
+            : res.reason === 'invalid'
+              ? 'Signalement impossible.'
+              : "Impossible de signaler, vérifie ta connexion.",
+      });
+      return;
+    }
+    haptic.success();
+    setReportedIds((ids) => (ids.includes(comment.id) ? ids : [...ids, comment.id]));
+    setFeedback({ ok: true, text: 'Merci, ton signalement est bien reçu.' });
+  };
+
   const bubbleProps = (c) => ({
     comment: c,
     isAuthorOfMix: c.authorId === item.ownerId,
     mine: !!userId && c.authorId === userId,
     canReply: !!userId,
+    // On ne signale ni son propre commentaire ni un commentaire déjà supprimé,
+    // et il faut un compte (comme pour signaler un mix).
+    canReport: !!userId && c.authorId !== userId && !c.deleted,
+    reported: reportedIds.includes(c.id),
+    reporting: reportingId === c.id,
     deleting: deletingId === c.id,
     willSoftDelete: !c.parentId && hasReplies(comments, c.id),
     onReply: () => startReply(c),
     onEdit: () => startEdit(c),
     onAskDelete: () => {
       haptic.light();
+      setReportingId(null);
       setDeletingId(c.id);
     },
     onCancelDelete: () => setDeletingId(null),
     onConfirmDelete: () => handleDelete(c),
+    onAskReport: () => {
+      haptic.light();
+      setDeletingId(null);
+      setFeedback(null);
+      setReportingId(c.id);
+    },
+    onCancelReport: () => setReportingId(null),
+    onReport: (reason) => handleReport(c, reason),
   });
 
   const composerLabel =
@@ -364,6 +418,9 @@ function Bubble({
   isAuthorOfMix,
   mine,
   canReply,
+  canReport,
+  reported,
+  reporting,
   deleting,
   willSoftDelete,
   onReply,
@@ -371,6 +428,9 @@ function Bubble({
   onAskDelete,
   onCancelDelete,
   onConfirmDelete,
+  onAskReport,
+  onCancelReport,
+  onReport,
 }) {
   return (
     <View style={[styles.bubble, isReply && styles.bubbleReply, mine && styles.bubbleMine]}>
@@ -409,6 +469,26 @@ function Bubble({
             <Button variant="danger" size="sm" label="Supprimer" onPress={onConfirmDelete} style={styles.confirmBtn} />
           </View>
         </View>
+      ) : reporting ? (
+        <View style={styles.confirmBox}>
+          <Text style={styles.reportTitle}>Pourquoi signaler ce commentaire ?</Text>
+          <View style={styles.reportChips}>
+            {REPORT_REASONS.map((r) => (
+              <PressTap
+                key={r.id}
+                tapScale={0.94}
+                onHapticIn={haptic.selection}
+                onPress={() => onReport(r.id)}
+                style={styles.reportChip}
+              >
+                <Text style={styles.reportChipText}>{r.label}</Text>
+              </PressTap>
+            ))}
+          </View>
+          <PressTap tapScale={0.96} hitSlop={8} onPress={onCancelReport} containerStyle={styles.reportCancel}>
+            <Text style={styles.action}>Annuler</Text>
+          </PressTap>
+        </View>
       ) : (
         <View style={styles.actions}>
           {canReply && (
@@ -426,6 +506,24 @@ function Bubble({
               </PressTap>
             </>
           )}
+          {canReport &&
+            (reported ? (
+              <View style={styles.reportDoneRow}>
+                <AppIcon name="check" size={11} color="rgba(255,255,255,0.45)" />
+                <Text style={styles.reportDone}>Signalé, merci</Text>
+              </View>
+            ) : (
+              <PressTap
+                tapScale={0.95}
+                hitSlop={8}
+                onPress={onAskReport}
+                containerStyle={styles.reportAsk}
+                accessibilityLabel="Signaler ce commentaire"
+              >
+                <AppIcon name="flag" size={11} color="rgba(255,255,255,0.45)" />
+                <Text style={styles.action}>Signaler</Text>
+              </PressTap>
+            ))}
         </View>
       )}
     </View>
@@ -597,6 +695,52 @@ const styles = StyleSheet.create({
   },
   confirmBtn: {
     flex: 1,
+  },
+
+  reportAsk: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginLeft: 'auto',
+  },
+  reportDoneRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginLeft: 'auto',
+  },
+  reportDone: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 10.5,
+    color: 'rgba(255,255,255,0.45)',
+  },
+  reportTitle: {
+    fontFamily: fonts.sansBold,
+    fontSize: 12,
+    color: '#FFFFFF',
+    marginBottom: 10,
+  },
+  reportChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  reportChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  reportChipText: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 11.5,
+    color: 'rgba(255,255,255,0.85)',
+  },
+  reportCancel: {
+    alignSelf: 'flex-end',
+    marginTop: 10,
   },
 
   loginBox: {
