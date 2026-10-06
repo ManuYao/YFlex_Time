@@ -577,13 +577,14 @@ export default function MixBuilder() {
       return;
     }
     haptic.success();
-    // La publication peut avoir changé d'id (remplacement) : on suit la nouvelle.
+    // L'id ne change que si la publication avait disparu et a été remise en
+    // ligne (jamais un remplacement : étoiles et commentaires sont gardés).
     setPublishedLink({ id: res.item.id, category: res.item.category });
     handlePublishedChange(draft.id, res.item.id, res.item.category);
     await markPublished(draft.id, res.item.id);
-    const text = res.reset
-      ? 'Mis à jour. Les étoiles ont repris à zéro.'
-      : 'À jour dans le fil public.';
+    const text = res.republished
+      ? "Remis en ligne : l'ancienne publication n'existait plus."
+      : 'À jour dans le fil public. Étoiles et commentaires gardés.';
     setPubState({ phase: 'ok', text });
     showToast({ text, icon: 'check' });
   };

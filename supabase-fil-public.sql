@@ -61,11 +61,18 @@ create policy "shared_mixes_delete_own"
   using (auth.uid() = owner_id);
 
 -- Droits au niveau des colonnes : on ne peut écrire que le contenu du mix,
--- jamais la note moyenne ni la date. Pas de modification : republier =
--- retirer puis publier à nouveau (la note repart de zéro).
+-- jamais la note moyenne ni la date.
+-- ⚠️ Ce « revoke all » efface TOUS les droits déjà donnés, y compris celui de
+-- MODIFIER un mix publié (supabase-mix-update.sql). Relancer ce fichier après
+-- l'autre retirait donc le droit, et l'app ne pouvait plus modifier un mix sur
+-- place. Le droit de modifier est donc redonné ici, juste en dessous : l'ordre
+-- des fichiers n'a plus d'importance. (La règle « seul le propriétaire modifie »
+-- reste dans supabase-mix-update.sql ; sans elle, ce droit ne sert à rien.)
 revoke all on public.shared_mixes from anon, authenticated;
 grant select on public.shared_mixes to anon, authenticated;
 grant insert (owner_id, author_name, name, category, payload, block_count, duration_seconds)
+  on public.shared_mixes to authenticated;
+grant update (author_name, name, category, payload, block_count, duration_seconds)
   on public.shared_mixes to authenticated;
 grant delete on public.shared_mixes to authenticated;
 

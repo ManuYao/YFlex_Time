@@ -71,6 +71,9 @@ export const publishErrorText = (res) => {
     return 'Ce mix est déjà publié dans le fil. Ouvre-le pour le mettre à jour.';
   }
   if (res.reason === 'unavailable') return "Le fil public n'est pas encore ouvert.";
+  if (res.reason === 'forbidden') {
+    return "Mise à jour impossible pour l'instant. Ton mix, ses étoiles et ses commentaires sont conservés.";
+  }
   return 'Impossible de publier, vérifie ta connexion.';
 };
 
@@ -222,9 +225,9 @@ function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
     setPhase('busy');
     setFeedback(null);
     // Déjà publié (retrouvé par lien ou par contenu) : modification SUR PLACE,
-    // qui garde les étoiles si la base le permet (supabase-mix-update.sql),
-    // sinon remplacement. Sinon, nouvelle publication (jamais en écrasant un
-    // autre mix).
+    // qui garde toujours les étoiles et les commentaires (si la base refuse,
+    // on le dit, on ne remplace jamais). Sinon, nouvelle publication (jamais en
+    // écrasant un autre mix).
     const res = published
       ? await updatePublishedMix(published.id, mix, { userId, authorName: pseudo, category })
       : await publishMix(mix, { userId, authorName: pseudo, category });
@@ -244,9 +247,9 @@ function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
       ok: true,
       text: !wasPublished
         ? 'Publié ! Visible dans le fil public.'
-        : res.reset
-          ? 'Mis à jour. Les étoiles repartent à zéro.'
-          : 'Mis à jour.',
+        : res.republished
+          ? "Remis en ligne : l'ancienne publication n'existait plus."
+          : 'Mis à jour. Tes étoiles et commentaires sont gardés.',
     });
   };
 

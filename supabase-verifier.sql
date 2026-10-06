@@ -21,6 +21,9 @@ from (
          exists (select 1 from pg_policies
                   where schemaname = 'public' and tablename = 'shared_mixes'
                     and policyname = 'shared_mixes_update_own')
+         -- La règle seule ne suffit pas : sans le DROIT de modifier (retiré si on
+         -- relance supabase-fil-public.sql), la base refuse et les étoiles sautaient.
+         and has_column_privilege('authenticated', 'public.shared_mixes', 'payload', 'update')
   union all
   select 4, 'supabase-mix-uid.sql',
          to_regclass('public.shared_mixes_owner_mix_uid') is not null
