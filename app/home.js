@@ -1711,7 +1711,7 @@ function CooldownPips({ cooldown, t, tone, onGoPremium, hideLockedHint = false, 
   return (
     <View style={[styles.cooldownRow, cooldown.quota > 8 && styles.cooldownRowDense, flat && styles.flatMargin]}>
       {/* cooldown.quota, pas une constante fixe : varie par mode (TABATA 15,
-          MIX 6, lib/cooldown.js). Les pastilles se remplissent une à une au fil
+          MIX 3, lib/cooldown.js). Les pastilles se remplissent une à une au fil
           des lancements de la semaine ; à partir de 9 places l'écart se resserre
           pour que la rangée (TABATA : 15) tienne même en fenêtre étroite. */}
       {Array.from({ length: cooldown.quota }).map((_, i) => (
