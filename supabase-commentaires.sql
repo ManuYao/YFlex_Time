@@ -172,3 +172,17 @@ drop trigger if exists mix_comments_update_guard on public.mix_comments;
 create trigger mix_comments_update_guard
   before update on public.mix_comments
   for each row execute function public.guard_comment_update();
+
+-- ---------------------------------------------------------------------------
+-- Fin : recharge l'API et PROUVE que tout a marché
+-- ---------------------------------------------------------------------------
+-- Sans cette ligne, une table toute neuve peut rester « introuvable » pour
+-- l'app pendant un moment.
+notify pgrst, 'reload schema';
+
+-- Le tableau « Results » en bas de l'écran doit afficher :
+--   table_commentaires = mix_comments   (si tu lis « null » : la table n'a pas été créée)
+--   mixes_publies      = le nombre de mix publiés (1 ou plus : tu es dans le bon projet)
+select
+  to_regclass('public.mix_comments')        as table_commentaires,
+  (select count(*) from public.shared_mixes) as mixes_publies;

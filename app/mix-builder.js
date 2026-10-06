@@ -279,24 +279,32 @@ export default function MixBuilder() {
     setDraft((d) => ({ ...d, blocks: data }));
   };
 
-  // Tout vider en un appui (plus de suppression bloc par bloc). Seuls les blocs
-  // du brouillon partent : le nom, « Mes mix » et les publications ne bougent
-  // pas. Un « Annuler » de quelques secondes rattrape une erreur de doigt.
+  // Tout vider en un appui (plus de suppression bloc par bloc). Les blocs ET le
+  // nom du brouillon partent (retour utilisateur 06/10/2026 : un builder vidé
+  // qui garde son ancien nom, c'est à moitié vidé) ; « Mes mix » et les
+  // publications ne bougent pas. Un « Annuler » de quelques secondes rattrape
+  // une erreur de doigt.
   const undoReset = () => {
-    const blocks = resetUndoRef.current;
-    if (!blocks) return;
+    const saved = resetUndoRef.current;
+    if (!saved) return;
     resetUndoRef.current = null;
     haptic.light();
     clearTimeout(toastTimer.current);
     setToast(null);
-    setDraft((d) => (d.blocks.length === 0 ? { ...d, blocks } : d));
+    // On ne restaure que si le brouillon est resté vide : un nom ou un bloc
+    // saisi entre-temps ne doit jamais être écrasé.
+    setDraft((d) =>
+      d.blocks.length === 0 && !(d.name || '').trim()
+        ? { ...d, name: saved.name, blocks: saved.blocks }
+        : d
+    );
   };
 
   const handleReset = () => {
     if (draft.blocks.length === 0) return;
     haptic.warning();
-    resetUndoRef.current = draft.blocks;
-    setDraft((d) => ({ ...d, blocks: [] }));
+    resetUndoRef.current = { name: draft.name || '', blocks: draft.blocks };
+    setDraft((d) => ({ ...d, name: '', blocks: [] }));
     showToast({ text: 'Builder vidé', icon: 'reset', actionLabel: 'Annuler', onAction: undoReset }, 6000);
   };
 
