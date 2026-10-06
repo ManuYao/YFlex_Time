@@ -46,5 +46,9 @@ from (
   select 9, 'supabase-commentaires-signalements.sql',
          to_regclass('public.comment_reports') is not null
          and to_regprocedure('public.auto_hide_reported_comment()') is not null
+  union all
+  select 10, 'supabase-moderation.sql',
+         to_regclass('public.user_blocks') is not null
+         and to_regprocedure('public.owner_remove_comment(uuid)') is not null
 ) t
 order by ordre;

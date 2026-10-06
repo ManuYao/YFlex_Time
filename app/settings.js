@@ -27,6 +27,8 @@ import ContactSheet from '../components/common/ContactSheet';
 import ConfirmSheet from '../components/common/ConfirmSheet';
 import LegalGate from '../components/common/LegalGate';
 import CoachSheet, { COACH_STYLES } from '../components/common/CoachSheet';
+import BlockedUsersSheet from '../components/common/BlockedUsersSheet';
+import { useBlockedUsers } from '../hooks/useBlockedUsers';
 import { loadContactNoticeHidden, setContactNoticeHidden } from '../lib/contactNotice';
 import {
   isBatteryOptimizationEnabled,
@@ -116,6 +118,8 @@ export default function Settings() {
   // n'y apparaît que si le téléphone a une vraie voix d'homme en français
   // (lib/voiceCoach.js, detectVoices) — sinon voix femme, sans option.
   const [coachSheet, setCoachSheet] = useState(false);
+  const [blockedSheet, setBlockedSheet] = useState(false);
+  const blockedUsers = useBlockedUsers();
   const [maleVoiceAvailable, setMaleVoiceAvailable] = useState(false);
   // Surbrillance brève de la ligne "Voix du coach" (app/home.js,
   // CoachNudgeSheet -> router.push avec ce param) — un seul passage par
@@ -516,6 +520,15 @@ export default function Settings() {
                 <>
                   <Row label="Connecté" sub={user.email} />
                   <LinkRow
+                    label="Personnes bloquées"
+                    sub={
+                      blockedUsers.list.length > 0
+                        ? `${blockedUsers.list.length} personne${blockedUsers.list.length > 1 ? 's' : ''} · mix et commentaires masqués`
+                        : 'Personne pour l\'instant'
+                    }
+                    onPress={() => setBlockedSheet(true)}
+                  />
+                  <LinkRow
                     label="Supprimer mon compte"
                     sub={accountError || 'Efface ton compte, ton historique en ligne et tes mixes publiés'}
                     subStyle={accountError ? styles.rowSubError : null}
@@ -624,6 +637,8 @@ export default function Settings() {
             onClose={() => setContactSheet(false)}
           />
         )}
+
+        {blockedSheet && <BlockedUsersSheet screenH={screenH} onClose={() => setBlockedSheet(false)} />}
 
         {coachSheet && (
           <CoachSheet
