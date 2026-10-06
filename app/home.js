@@ -298,7 +298,7 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
       } else if (d < 0.01 && appear.value < 1 && appearing.value === 0) {
         appearing.value = 1;
         appear.value = withDelay(
-          90,
+          180,
           withTiming(1, { duration: REVEAL_MS, easing: Easing.linear })
         );
       }
@@ -535,8 +535,9 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   // (une View simple sans handler de tap, cf TimerCard). On n'accepte donc un
   // changement d'index que s'il suit un vrai geste de l'utilisateur.
   const draggingRef = useRef(false);
-  // Saut demandé par un point / l'aperçu des formats (pas un geste du doigt).
-  const programmaticRef = useRef(false);
+  // Heure de montage : le FlatList fait un saut au démarrage (initialScrollIndex),
+  // on n'écoute pas la position avant qu'il soit posé.
+  const mountedAtRef = useRef(Date.now());
   const hapticIndexRef = useRef(initialIndex);
   const handleScrollBeginDrag = useCallback(() => {
     draggingRef.current = true;
@@ -571,9 +572,9 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
     scrollX.value = activeIndexRef.current * (rootW || 1);
   }, [rootW]);
   const commitNearest = useCallback((index) => {
-    // Seulement pour un vrai geste ou un saut demandé : un saut parasite du
-    // FlatList au démarrage ne doit jamais changer l'index.
-    if (!draggingRef.current && !programmaticRef.current) return;
+    // Suit TOUJOURS la page la plus proche (geste, saut, enchaînement rapide),
+    // sauf pendant le saut parasite du FlatList au démarrage.
+    if (Date.now() - mountedAtRef.current < 800) return;
     const clamped = Math.min(timers.length - 1, Math.max(0, index));
     if (clamped === activeIndexRef.current) return;
     activeIndexRef.current = clamped;
@@ -583,6 +584,45 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
     () => Math.round(scrollX.value / pageW.value),
     (next, prev) => {
       if (prev != null && next !== prev) runOnJS(commitNearest)(next);
+    }
+  );
+
+  // Filet de sécurité : dès que le carrousel est posé sur une page (et reste
+  // 150 ms immobile), on relit la position RÉELLE et on remet à l'heure tout
+  // ce qui en dépend (bouton Lancer, points, cartes). Un enchaînement
+  // gauche-droite très rapide peut faire rater ou réordonner des mises à jour :
+  // celle-ci les rattrape, quoi qu'il se soit passé avant.
+  const verifyTimerRef = useRef(null);
+  const verifyPage = useCallback(() => {
+    verifyTimerRef.current = null;
+    if (Date.now() - mountedAtRef.current < 800) return;
+    const p = scrollX.value / pageW.value;
+    const idx = Math.min(timers.length - 1, Math.max(0, Math.round(p)));
+    if (Math.abs(p - idx) > 0.02) return; // pas encore posé
+    if (idx !== activeIndexRef.current) {
+      activeIndexRef.current = idx;
+      setActiveIndex(idx);
+    }
+    setSettledIndex((prev) => (prev === idx ? prev : idx));
+    if (idx !== hapticIndexRef.current) {
+      hapticIndexRef.current = idx;
+      haptic.selection();
+    }
+  }, [timers.length, haptic]);
+  const scheduleVerify = useCallback(() => {
+    if (verifyTimerRef.current) clearTimeout(verifyTimerRef.current);
+    verifyTimerRef.current = setTimeout(verifyPage, 150);
+  }, [verifyPage]);
+  useEffect(() => () => {
+    if (verifyTimerRef.current) clearTimeout(verifyTimerRef.current);
+  }, []);
+  useAnimatedReaction(
+    () => {
+      const p = scrollX.value / pageW.value;
+      return Math.abs(p - Math.round(p)) < 0.01 ? Math.round(p) : -1;
+    },
+    (page) => {
+      if (page >= 0) runOnJS(scheduleVerify)();
     }
   );
 
@@ -626,6 +666,19 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   }, [active, haptic]);
 
   const handleLaunch = useCallback((sourceRect) => {
+    // Garde : le bouton touché doit correspondre à la page réellement posée.
+    // Carrousel encore en mouvement : on ignore l'appui. Page posée mais
+    // affichage en retard (enchaînement très rapide) : on remet à l'heure
+    // et on ne lance rien — jamais le mauvais timer.
+    const livePos = scrollX.value / pageW.value;
+    const livePage = Math.min(timers.length - 1, Math.max(0, Math.round(livePos)));
+    if (Math.abs(livePos - livePage) > 0.05) return;
+    if (livePage !== activeIndexRef.current) {
+      activeIndexRef.current = livePage;
+      setActiveIndex(livePage);
+      setSettledIndex(livePage);
+      return;
+    }
     // Éditer un mix vide n'est pas un "lancement" — toujours autorisé même
     // si MIX est en cooldown, sinon l'utilisateur ne pourrait plus du tout
     // construire son circuit pendant le verrou.
@@ -649,7 +702,7 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
       return;
     }
     proceedLaunch(sourceRect);
-  }, [active, haptic, router, getCooldownStatus, proceedLaunch]);
+  }, [active, haptic, router, getCooldownStatus, proceedLaunch, timers.length]);
 
   // Retour Android = on annule le lancement ; « Plus tard » ou « Activer »
   // enchaînent sur la séance demandée.
@@ -681,10 +734,8 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
     setSettledIndex(index);
     // Le contenu change à mi-course, comme pour un glissement ; filet de
     // sécurité : à l'arrivée, l'index est de toute façon le bon.
-    programmaticRef.current = true;
     flatListRef.current?.scrollToIndex({ index, animated: true });
     setTimeout(() => {
-      programmaticRef.current = false;
       if (activeIndexRef.current !== index) {
         activeIndexRef.current = index;
         setActiveIndex(index);
