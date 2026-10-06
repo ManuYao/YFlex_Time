@@ -26,6 +26,8 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import GradientBackground from '../components/common/GradientBackground';
+import MixBuilderSkeleton from '../components/screens/MixBuilderSkeleton';
+import { useScreenReady } from '../hooks/useScreenReady';
 import BottomSheet from '../components/common/BottomSheet';
 import WheelPicker from '../components/common/WheelPicker';
 import PressTap from '../components/common/PressTap';
@@ -180,10 +182,15 @@ export default function MixBuilder() {
     }
   }, [currentMix]);
 
+  // Le constructeur (liste déplaçable, feuilles) est lourd à monter : un
+  // squelette respire sur le fil d'interface pendant ce temps, au lieu de
+  // laisser l'écran vide et figé (hooks/useScreenReady.js).
+  const { ready, skeletonGone, skeletonStyle } = useScreenReady({ dataReady: !!draft });
+
   if (!draft) {
     return (
       <GradientBackground colors={[ACCENT, '#0A0A0A', '#000000']} ambient textMode="light">
-        <SafeAreaView style={styles.safe} />
+        <MixBuilderSkeleton />
       </GradientBackground>
     );
   }
@@ -776,6 +783,8 @@ export default function MixBuilder() {
 
   return (
     <GradientBackground colors={[ACCENT, '#0A0A0A', '#000000']} ambient textMode="light">
+      {ready && (
+      <>
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.statusBar}>
           <Text style={styles.statusText}>BUILDER MIX</Text>
@@ -975,6 +984,13 @@ export default function MixBuilder() {
           onDiscard={handleUnsavedDiscard}
           onClose={() => setUnsaved(null)}
         />
+      )}
+      </>
+      )}
+      {!skeletonGone && (
+        <Animated.View style={[StyleSheet.absoluteFill, skeletonStyle]} pointerEvents="none">
+          <MixBuilderSkeleton />
+        </Animated.View>
       )}
     </GradientBackground>
   );

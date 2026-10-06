@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo } from 'react';
 import Svg, { Line } from 'react-native-svg';
 import Animated, {
+  cancelAnimation,
   useSharedValue,
   useAnimatedProps,
   withDelay,
@@ -18,7 +19,10 @@ const easeImpact = Easing.bezier(0.22, 1, 0.36, 1);
  *
  * - animateIn : déclenche l'animation stagger au mount
  * - triggerKey : si fourni, re-fire l'animation à chaque changement de cette key
- *   (utilisé pour rejouer la séquence quand l'utilisateur swipe entre timers)
+ * - lit : si fourni (true/false), mode « allumage » : l'anneau est TOUJOURS
+ *   visible, graduations tamisées ; quand `lit` passe à true, les graduations
+ *   actives s'allument une à une dans le sens des aiguilles d'une montre.
+ *   Aucun trou ni clignotement : rien ne disparaît avant de se redessiner.
  */
 export default function TickRing({
   progress = 0.75,
@@ -27,7 +31,9 @@ export default function TickRing({
   colorInactive = 'rgba(255,255,255,0.22)',
   animateIn = false,
   triggerKey,
+  lit,
 }) {
+  const sweepMode = lit !== undefined;
   const activeTicks = Math.floor(TOTAL_TICKS * progress);
 
   // La géométrie (positions, longueurs) ne dépend que de `size` — inutile de
@@ -59,12 +65,29 @@ export default function TickRing({
           y1={g.y1}
           x2={g.x2}
           y2={g.y2}
-          stroke={i < activeTicks ? colorActive : colorInactive}
+          stroke={!sweepMode && i < activeTicks ? colorActive : colorInactive}
           strokeWidth={g.isMajor ? 2.5 : 1.5}
           animateIn={animateIn}
           triggerKey={triggerKey}
         />
       ))}
+      {sweepMode &&
+        geometry.map((g, i) =>
+          i < activeTicks ? (
+            <SweepTick
+              key={`s${i}`}
+              i={i}
+              count={activeTicks}
+              x1={g.x1}
+              y1={g.y1}
+              x2={g.x2}
+              y2={g.y2}
+              stroke={colorActive}
+              strokeWidth={g.isMajor ? 2.5 : 1.5}
+              lit={lit}
+            />
+          ) : null
+        )}
     </Svg>
   );
 }
@@ -96,6 +119,48 @@ const TickLine = React.memo(function TickLine({
     opacity.value = withDelay(delay, withTiming(1, { duration: 300, easing: easeImpact }));
     dashOffset.value = withDelay(delay, withTiming(0, { duration: 300, easing: easeImpact }));
   }, [triggerKey, animateIn]);
+
+  const animProps = useAnimatedProps(() => ({
+    opacity: opacity.value,
+    strokeDashoffset: dashOffset.value,
+  }));
+
+  return (
+    <AnimatedLine
+      x1={x1}
+      y1={y1}
+      x2={x2}
+      y2={y2}
+      stroke={stroke}
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+      strokeDasharray={`${lineLength} ${lineLength}`}
+      animatedProps={animProps}
+    />
+  );
+});
+
+// Graduation active en mode « allumage » : posée AU-DESSUS de sa version
+// tamisée, elle apparaît en fondu (et se « trace » vers l'extérieur) avec un
+// léger décalage selon sa position. Éteinte = remise à zéro immédiate (la
+// carte est alors hors de l'écran, rien ne se voit).
+const SweepTick = React.memo(function SweepTick({ i, count, x1, y1, x2, y2, stroke, strokeWidth, lit }) {
+  const lineLength = Math.hypot(x2 - x1, y2 - y1);
+  const opacity = useSharedValue(0);
+  const dashOffset = useSharedValue(lineLength);
+
+  useEffect(() => {
+    if (lit) {
+      const delay = 60 + (i / Math.max(1, count)) * 520;
+      opacity.value = withDelay(delay, withTiming(1, { duration: 280, easing: easeImpact }));
+      dashOffset.value = withDelay(delay, withTiming(0, { duration: 280, easing: easeImpact }));
+    } else {
+      cancelAnimation(opacity);
+      cancelAnimation(dashOffset);
+      opacity.value = 0;
+      dashOffset.value = lineLength;
+    }
+  }, [lit]);
 
   const animProps = useAnimatedProps(() => ({
     opacity: opacity.value,

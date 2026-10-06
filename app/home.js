@@ -1271,6 +1271,19 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
   const isMix = timer.id === 'mix';
   const { isPressing, progress, start, cancel } = useLongPress(onOpenStats, STATS_HOLD_MS);
 
+  // Entrées animées (chiffre, nom, réglages, déroulé…) : elles ne jouent que
+  // (a) au lancement de l'app pour la carte affichée, (b) quand une valeur
+  // change alors que la carte est déjà active (le chiffre « pop »). JAMAIS
+  // quand la page vient d'être posée : la carte a déjà glissé à l'écran avec
+  // son contenu, le rejouer faisait clignoter (deux phases).
+  const introRef = useRef(isActive);
+  const wasActiveRef = useRef(isActive);
+  const animateEnter = introRef.current || wasActiveRef.current;
+  useEffect(() => {
+    introRef.current = false;
+    wasActiveRef.current = isActive;
+  });
+
   // (V) Mise en page réduite — voir lib/responsive.js. En fenêtre courte,
   // rétrécir ne suffit pas : le bas de la carte (réglages, déroulé) sortait
   // de l'écran, donc on change la mise en page au lieu de l'échelle.
@@ -1315,7 +1328,7 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
           {isActive ? (
             <Animated.Text
               key={`full-${timer.id}`}
-              entering={slideInY(10, D.big, 100)}
+              entering={animateEnter ? slideInY(10, D.big, 100) : undefined}
               exiting={slideOutY(-10, D.base)}
               numberOfLines={isReduced ? 1 : 2}
               style={[styles.description, isReduced ? styles.descriptionReduced : styles.descriptionFull, { color: t.tertiary }]}
@@ -1394,7 +1407,7 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
           {isActive && (
             <Animated.Text
               key={`unit-${timer.id}-${hero.unit}`}
-              entering={slideInY(6, D.base, 200)}
+              entering={animateEnter ? slideInY(6, D.base, 200) : undefined}
               exiting={slideOutY(-6, 200)}
               style={[styles.heroUnit, { color: t.tertiary }]}
             >
@@ -1409,7 +1422,7 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
           {isActive && (
             <Animated.Text
               key={`big-${timer.id}-${hero.number}`}
-              entering={popIn(0.3, D.slow, 0)}
+              entering={animateEnter ? popIn(0.3, D.slow, 0) : undefined}
               exiting={popOut(1.4, D.base)}
               style={[
                 styles.heroNumber,
@@ -1434,7 +1447,7 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
           {isActive && (
             <Animated.Text
               key={`name-${timer.id}`}
-              entering={slideInY(12, D.big, 300)}
+              entering={animateEnter ? slideInY(12, D.big, 300) : undefined}
               exiting={slideOutY(-12, D.base)}
               style={[styles.timerName, { color: t.primary }]}
             >
@@ -1467,7 +1480,7 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
         </View>
       )}
       {heatCount >= STREAK_THRESHOLD && (
-        <StreakBadge heatCount={heatCount} isActive={isActive} t={t} timerId={timer.id} />
+        <StreakBadge heatCount={heatCount} isActive={isActive} animateEnter={animateEnter} t={t} timerId={timer.id} />
       )}
       {cooldown?.isLocked && (
         <View style={[styles.lockOverlay, { width: ring, height: ring }]} pointerEvents="none">
@@ -1530,7 +1543,7 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
             return (
               <Animated.View
                 key={`stat-${timer.id}-${stat.key}`}
-                entering={popIn(0.9, D.big, 400 + k * 80)}
+                entering={animateEnter ? popIn(0.9, D.big, 400 + k * 80) : undefined}
                 exiting={slideOutY(-12, D.base)}
                 style={
                   statsCompact
@@ -1581,7 +1594,7 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
         <>
           <Animated.Text
             key={`phases-label-${timer.id}`}
-            entering={FadeIn.delay(600).duration(D.base)}
+            entering={animateEnter ? FadeIn.delay(600).duration(D.base) : undefined}
             exiting={FadeOut.duration(D.fast)}
             style={[styles.phasesLabel, { color: t.muted }]}
           >
@@ -1589,7 +1602,7 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
           </Animated.Text>
           <Animated.View
             key={`phases-bar-${timer.id}`}
-            entering={FadeIn.delay(650).duration(D.base)}
+            entering={animateEnter ? FadeIn.delay(650).duration(D.base) : undefined}
             exiting={FadeOut.duration(D.fast)}
             style={styles.phasesBarWrap}
           >
@@ -1688,7 +1701,7 @@ function CooldownPips({ cooldown, t, tone, onGoPremium, hideLockedHint = false, 
    flamme se colore avec la série (StreakFlame, 4 paliers jusqu'à
    EMBER_MAX_HEAT, la même échelle que les braises du fond).
    ────────────────────────────────────────────────────────────────*/
-function StreakBadge({ heatCount, isActive, t, timerId }) {
+function StreakBadge({ heatCount, isActive, animateEnter, t, timerId }) {
   const content = (
     <>
       <StreakFlame
@@ -1706,7 +1719,7 @@ function StreakBadge({ heatCount, isActive, t, timerId }) {
     return (
       <Animated.View
         key={`streak-${timerId}`}
-        entering={popIn(0.3, D.slow, 500)}
+        entering={animateEnter ? popIn(0.3, D.slow, 500) : undefined}
         exiting={popOut(1.2, D.base)}
         style={[styles.streakBadge, { backgroundColor: t.chipBg, borderColor: t.chipBorder }]}
       >
@@ -1825,7 +1838,7 @@ function BreathingRing({ isActive, t, timerId, size = 320, gap = 24, children })
         size={size}
         colorActive={t.ringActive}
         colorInactive={t.ringInactive}
-        triggerKey={isActive ? timerId : undefined}
+        lit={isActive}
       />
       {children}
     </Animated.View>
