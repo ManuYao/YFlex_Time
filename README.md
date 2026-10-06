@@ -6,6 +6,16 @@ Site : [flextimer.netlify.app](https://flextimer.netlify.app/)
 
 > **Statut : bêta privée sur Android.** L'app n'est pas encore sur le Play Store. Les retours des testeurs façonnent chaque version.
 
+<p align="center">
+  <img src="docs/screenshots/amrap.jpg" width="18%" alt="AMRAP" />
+  <img src="docs/screenshots/basic.jpg" width="18%" alt="BASIC" />
+  <img src="docs/screenshots/emom.jpg" width="18%" alt="EMOM" />
+  <img src="docs/screenshots/tabata.jpg" width="18%" alt="TABATA" />
+  <img src="docs/screenshots/mix.jpg" width="18%" alt="MIX" />
+</p>
+
+Flex Timer est pensée pour ton plaisir personnel : tu choisis librement comment tu t'en sers, du simple chrono de série au MIX composé sur mesure.
+
 ## Les cinq façons de s'entraîner
 
 | Mode | Pour quoi faire |
