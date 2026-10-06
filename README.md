@@ -2,7 +2,7 @@
 
 Application mobile de chronométrage sportif, faite par un sportif pour les sportifs. Pas de pub, pas de revente de données, un compte facultatif.
 
-Site : [flextimer.netlify.app](https://flextimer.netlify.app/)
+Site : [flextimer.netlify.app](https://flextimer.fit/)
 
 > **Statut : bêta privée sur Android.** L'app n'est pas encore sur le Play Store. Les retours des testeurs façonnent chaque version.
 
