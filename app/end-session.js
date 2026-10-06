@@ -31,7 +31,8 @@ import {
   openNotificationSettings,
 } from '../lib/notificationPrompt';
 import { useTimers } from '../contexts/TimersContext';
-import { computeSessionStats, computeExpectedDuration } from '../lib/timer-engine';
+import { computeSessionStats } from '../lib/timer-engine';
+import { buildHistoryEntry, clearSessionDraft } from '../lib/sessionDraft';
 import { formatDuration } from '../lib/formatters';
 import { fonts } from '../lib/fonts';
 import { BOTTOM_GAP, PAIR_GAP, SIDE_GAP } from '../lib/buttonTokens';
@@ -41,7 +42,7 @@ import { loadCooldownMap, getCooldownStatus } from '../lib/cooldown';
 import { loadIsPremium } from '../lib/premium';
 import BadgeUnlockSheet from '../components/common/BadgeUnlockSheet';
 import { pendingBadges, markBadgeSeen } from '../lib/badgeCelebration';
-import { countSessionsByTimer, isEarlyQuit, notifyHistoryChanged } from '../lib/history';
+import { countSessionsByTimer, notifyHistoryChanged } from '../lib/history';
 
 const springEnergetic = { stiffness: 380, damping: 22, mass: 1 };
 
@@ -142,23 +143,13 @@ export default function EndSession() {
       try {
         const raw = await AsyncStorage.getItem(HISTORY_KEY);
         const list = raw ? JSON.parse(raw) : [];
-        list.push({
-          id: Date.now().toString(),
-          timerId: timer.id,
-          name: timer.name,
-          color: timer.color,
-          intensity: timer.tag,
-          durationSeconds: elapsedNum,
-          completedRounds: stats.completedRounds,
-          totalRounds: stats.totalRounds,
-          workTotal: stats.workTotal,
-          ...(stats.blockBreakdown ? { blockBreakdown: stats.blockBreakdown } : {}),
-          ...(Number.isFinite(stats.exerciseCount) ? { exerciseCount: stats.exerciseCount } : {}),
-          restTotal: stats.restTotal,
-          date: new Date().toISOString(),
-          ...(isEarlyQuit(elapsedNum, computeExpectedDuration(timer)) ? { pendingDelete: true } : {}),
-        });
+        // Même construction que la récupération d'une séance interrompue
+        // (lib/sessionDraft.js) : une seule définition de l'entrée d'historique.
+        list.push(buildHistoryEntry({ timer, elapsed: elapsedNum, ctx }));
         await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(list));
+        // La séance est enregistrée : le brouillon n'a plus lieu d'être (sinon
+        // elle serait récupérée une deuxième fois au prochain démarrage).
+        await clearSessionDraft();
         notifyHistoryChanged();
 
         // Paliers de badge franchis PAR cette séance : le comptage se fait

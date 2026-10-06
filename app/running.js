@@ -4,7 +4,9 @@ import {
   Text,
   StyleSheet,
   BackHandler,
+  AppState,
 } from 'react-native';
+import { beginSessionDraft, saveSessionDraft, clearSessionDraft } from '../lib/sessionDraft';
 import PressTap from '../components/common/PressTap';
 import HoldOverlay from '../components/common/HoldOverlay';
 import QuickWeightSheet from '../components/common/QuickWeightSheet';
@@ -164,6 +166,41 @@ export default function Running() {
   // le nettoyage au démontage ne doit pas la couper en plein milieu.
   const endSpokenRef = useRef(false);
 
+  // ── Brouillon de séance (lib/sessionDraft.js) ──
+  // La séance est sauvegardée au fil de l'eau : si le téléphone s'éteint ou si
+  // l'app plante, elle est récupérée au prochain démarrage au lieu d'être
+  // perdue. Écriture à chaque changement de phase, toutes les 10 s, à chaque
+  // « Fin du travail » validé (restTriggers / mixBasicTriggers) et quand l'app
+  // passe en arrière-plan. Même durée que celle envoyée à l'écran de fin
+  // quand on arrête (voir handleStop).
+  const startedAtRef = useRef(Date.now());
+  const draftRef = useRef(null);
+  const wholeElapsed = Math.floor(secondsElapsed);
+  draftRef.current = {
+    timer,
+    elapsed:
+      state.totalSecondsTarget > 0
+        ? Math.min(wholeElapsed, Math.floor(state.totalSecondsTarget))
+        : wholeElapsed,
+    ctx,
+  };
+  useEffect(() => {
+    if (!isTutorial) beginSessionDraft();
+  }, []);
+  useEffect(() => {
+    if (isTutorial || navigatedRef.current || state.isComplete) return;
+    saveSessionDraft(draftRef.current, startedAtRef.current);
+  }, [Math.floor(secondsElapsed / 10), state.phaseLabel, restTriggers, mixBasicTriggers]);
+  useEffect(() => {
+    if (isTutorial) return undefined;
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next !== 'active' && !navigatedRef.current) {
+        saveSessionDraft(draftRef.current, startedAtRef.current);
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
   useEffect(() => {
     if (state.phaseLabel !== lastPhaseRef.current) {
       lastPhaseRef.current = state.phaseLabel;
@@ -253,6 +290,9 @@ export default function Running() {
       });
       return;
     }
+    // Séance jetée volontairement : son brouillon aussi, sinon elle serait
+    // « récupérée » au prochain démarrage.
+    clearSessionDraft();
     router.replace({ pathname: '/home', params: { lastTimerId: timer.id } });
   };
 
@@ -297,6 +337,10 @@ export default function Running() {
     voicePrevRef.current = null;
     if (timer.id === 'basic') setRestTriggers([]);
     if (isMix) setMixBasicTriggers({});
+    // Reset = on recommence : l'ancien brouillon n'a plus de sens.
+    clearSessionDraft();
+    beginSessionDraft();
+    startedAtRef.current = Date.now();
     if (isPaused) resume();
     seek(0);
   };
@@ -414,6 +458,15 @@ export default function Running() {
     sound.playNextPhase(4 - displaySeconds);
   }, [displaySeconds, isPaused, isWorkInfinite, state.isComplete, state.currentRound, state.phaseLabel]);
   const ctaLabel = isPaused ? 'EN PAUSE' : 'EN COURS';
+
+  // Pendant un bloc REPOS d'un MIX : on écrit le prochain exercice (NextUp).
+  const showNextUp =
+    isMix &&
+    !isTutorial &&
+    state.blockType === 'rest' &&
+    !state.isComplete &&
+    !!state.nextBlock &&
+    state.nextBlock.type !== 'rest';
 
   // Libellé du 3ᵉ bouton de la notification : "Passer" partout, sauf BASIC en
   // travail libre où il joue le rôle du bouton central (REPOS / FINI), et
@@ -661,7 +714,7 @@ export default function Running() {
             <Animated.View
               style={[
                 styles.ringWrap,
-                { width: ring, height: ring, marginBottom: scaled(isReduced ? 14 : 32, ui) },
+                { width: ring, height: ring, marginBottom: scaled(isReduced ? 14 : showNextUp ? 18 : 32, ui) },
                 ringStyle,
               ]}
             >
@@ -710,7 +763,16 @@ export default function Running() {
               onQuit={handleTutorialQuit}
             />
           ) : (
-            !isReduced && <PhasesPills phases={state.phasesList} timer={timer} tokens={t} />
+            <>
+              {showNextUp && (
+                <NextUp next={state.nextBlock} tokens={t} compact={isReduced} mini={isMini} />
+              )}
+              {/* Pendant un repos annoncé, le déroulé cède la place sur les
+                  écrans un peu courts : « ENSUITE » est ce qu'on veut lire. */}
+              {!isReduced && !(showNextUp && winH < 860) && (
+                <PhasesPills phases={state.phasesList} timer={timer} tokens={t} />
+              )}
+            </>
           )}
         </View>
 
@@ -729,20 +791,22 @@ export default function Running() {
           hideSkip={(isManualBasic && isWorkInfinite) || isLastEmomRound || isLastMixEmomRound}
           showFinish={false}
           onFinish={handleFinish}
+          accessory={
+            weightBlock && !isMini ? (
+              <WeightBubble
+                tokens={t}
+                value={weightValue}
+                strong={state.blockType === 'rest' && weightValue == null}
+                onPress={() => {
+                  haptic.light();
+                  setWeightSheet(true);
+                }}
+              />
+            ) : null
+          }
         />
       </SafeAreaView>
 
-      {weightBlock && !isMini && (
-        <WeightBubble
-          tokens={t}
-          value={weightValue}
-          strong={state.blockType === 'rest' && weightValue == null}
-          onPress={() => {
-            haptic.light();
-            setWeightSheet(true);
-          }}
-        />
-      )}
       {weightSheet && weightBlock && (
         <QuickWeightSheet
           screenH={winH}
@@ -872,6 +936,54 @@ function TopBar({ tokens, tone, name, tag, roundLabel, onReturn, progress, marke
   );
 }
 
+const NEXT_MODE_NAMES = { amrap: 'AMRAP', emom: 'EMOM', tabata: 'TABATA', basic: 'BASIC' };
+
+// « ENSUITE » — pendant un bloc REPOS d'un MIX, le prochain exercice écrit
+// noir sur blanc (nom, format, tours, charge). La voix le dit déjà, mais
+// quand on ne retient pas ce qu'on vient d'entendre il faut pouvoir le lire.
+// Rien si le bloc suivant est lui-même un repos, ou s'il n'y en a plus.
+function NextUp({ next, tokens, compact, mini }) {
+  const typed = (next.label || '').trim();
+  const mode = NEXT_MODE_NAMES[next.type];
+  const name = typed || mode || 'Exercice';
+  const parts = [];
+  if (typed && mode) parts.push(mode);
+  if (next.type === 'amrap' && next.seconds > 0) parts.push(`${Math.max(1, Math.round(next.seconds / 60))} MIN`);
+  else if (next.rounds > 1) parts.push(`${next.rounds} TOURS`);
+  if (next.weight > 0) parts.push(`${String(next.weight).replace('.', ',')} KG`);
+
+  if (mini) {
+    return (
+      <Text style={[styles.nextMini, { color: tokens.secondary }]} numberOfLines={1}>
+        ENSUITE · {name}
+      </Text>
+    );
+  }
+  return (
+    <Animated.View
+      entering={FadeIn.duration(260)}
+      style={[
+        styles.nextCard,
+        compact && styles.nextCardCompact,
+        { backgroundColor: tokens.chipBg, borderColor: tokens.chipBorder },
+      ]}
+    >
+      <Text style={[styles.nextLabel, { color: tokens.muted }]}>Ensuite</Text>
+      <Text
+        style={[styles.nextName, { color: tokens.primary, fontSize: compact ? 20 : 24 }]}
+        numberOfLines={2}
+      >
+        {name}
+      </Text>
+      {parts.length > 0 && (
+        <Text style={[styles.nextMeta, { color: tokens.tertiary }]} numberOfLines={1}>
+          {parts.join(' · ')}
+        </Text>
+      )}
+    </Animated.View>
+  );
+}
+
 function PhasesPills({ phases, timer, tokens }) {
   if (!phases || phases.length === 0) return null;
   // Même capsules que le déroulé de l'accueil : la phase en cours est pleine
@@ -968,6 +1080,20 @@ function PhaseChip({ index, isCurrent, bg, border, color, label, tokens }) {
 // Largeur naturelle de la rangée des commandes : 64 + 28 + 92 + 28 + 64.
 const CONTROLS_NATURAL_W = 276;
 
+// Bulle de charge (« + kg ») : elle a une place FIXE, tout au bout de la
+// rangée des commandes, après le bouton Skip. Jamais dans l'emplacement de
+// Skip : celui-ci apparaît et disparaît selon la phase (REPOS, bloc BASIC en
+// travail…), la bulle sauterait à chaque changement. Pour lui faire de la
+// place sans la coller à Skip, la rangée rétrécit un peu quand elle est là :
+// marge du bord (8) + bulle (48) + respiration (6), de chaque côté pour que
+// la rangée reste centrée.
+const WEIGHT_BUBBLE_SIZE = 48;
+const WEIGHT_BUBBLE_EDGE = 8;
+const CONTROLS_ACCESSORY_RESERVE = 2 * (WEIGHT_BUBBLE_EDGE + WEIGHT_BUBBLE_SIZE + 6);
+// Marge basse des commandes (styles.bottom / styles.bottomReduced).
+const BOTTOM_PAD = 56;
+const BOTTOM_PAD_REDUCED = 12;
+
 function BottomControls({
   tokens,
   tone,
@@ -983,6 +1109,7 @@ function BottomControls({
   hideSkip,
   showFinish,
   onFinish,
+  accessory = null,
 }) {
   // (V) Les commandes gardent leur taille de cible (on les vise en plein
   // effort, parfois en sueur) : seule la marge autour se resserre.
@@ -995,7 +1122,10 @@ function BottomControls({
   // proportionnellement pour que la rangée tienne ; k vaut 1 dès que la place
   // suffit, donc rien ne change sur un téléphone normal.
   const { width: windowW } = useWindowSize();
-  const k = Math.min(1, Math.max(0.55, (windowW - 24) / CONTROLS_NATURAL_W));
+  const k = Math.min(
+    1,
+    Math.max(0.55, (windowW - (accessory ? CONTROLS_ACCESSORY_RESERVE : 24)) / CONTROLS_NATURAL_W)
+  );
   const sideSize = Math.round(64 * k);
   const centerSize = Math.round(92 * k);
   const rowGap = Math.round(28 * k);
@@ -1105,6 +1235,23 @@ function BottomControls({
           </LongPressButton>
         )}
       </View>
+
+      {accessory ? (
+        // Posée dans le conteneur plein écran (pas dans la rangée) : une vue
+        // enfant qui déborde de son parent ne reçoit pas les appuis sur Android.
+        <View
+          pointerEvents="box-none"
+          style={{
+            position: 'absolute',
+            right: WEIGHT_BUBBLE_EDGE,
+            bottom:
+              (isReduced ? BOTTOM_PAD_REDUCED : BOTTOM_PAD) +
+              Math.round((centerSize - WEIGHT_BUBBLE_SIZE) / 2),
+          }}
+        >
+          {accessory}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -1115,7 +1262,7 @@ function BottomControls({
 function WeightBubble({ tokens, value, strong, onPress }) {
   const filled = value != null;
   return (
-    <View pointerEvents="box-none" style={styles.weightWrap}>
+    <View pointerEvents="box-none">
       <PressTap
         onPress={onPress}
         tapScale={0.92}
@@ -1157,11 +1304,10 @@ const fallbackState = () => ({
 const styles = StyleSheet.create({
   safe: { flex: 1 },
 
-  weightWrap: { position: 'absolute', right: 14, top: '42%' },
   weightBubble: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: WEIGHT_BUBBLE_SIZE,
+    height: WEIGHT_BUBBLE_SIZE,
+    borderRadius: WEIGHT_BUBBLE_SIZE / 2,
     borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
@@ -1283,6 +1429,41 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 360,
     alignItems: 'center',
+  },
+  nextCard: {
+    width: '100%',
+    maxWidth: 360,
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    borderRadius: 20,
+    borderWidth: 1,
+    marginBottom: 16,
+  },
+  nextCardCompact: { paddingVertical: 8, marginBottom: 10 },
+  nextLabel: {
+    fontFamily: fonts.sansBold,
+    fontSize: 9,
+    letterSpacing: 2.7,
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
+  nextName: {
+    fontFamily: fonts.sansExtraBold,
+    textAlign: 'center',
+  },
+  nextMeta: {
+    fontFamily: fonts.sansBold,
+    fontSize: 10,
+    letterSpacing: 1.8,
+    marginTop: 4,
+  },
+  nextMini: {
+    fontFamily: fonts.sansBold,
+    fontSize: 10,
+    letterSpacing: 2,
+    marginTop: 6,
+    textAlign: 'center',
   },
   derouleLabel: {
     fontFamily: fonts.sansBold,

@@ -33,6 +33,7 @@ import { useOtaUpdate } from '../hooks/useOtaUpdate';
 import { shouldShowSplash, markSplashShown, markSplashCleared, onSplashRequest } from '../lib/splash';
 import { loadCustomCategories } from '../lib/exercises';
 import { registerTimerNotification } from '../lib/timerNotification';
+import { ensureSessionRecovered } from '../lib/sessionDraft';
 import { TimersProvider } from '../contexts/TimersContext';
 import { SettingsProvider } from '../contexts/SettingsContext';
 import { AuthProvider } from '../contexts/AuthContext';
@@ -111,6 +112,13 @@ export default function RootLayout() {
       cancelled = true;
       unsubscribe();
     };
+  }, []);
+
+  // Une séance interrompue (batterie vide, plantage) est récupérée dès le
+  // démarrage, avant les rattrapages de trophées de l'accueil (qui attendent
+  // la même promesse) — voir lib/sessionDraft.js.
+  useEffect(() => {
+    ensureSessionRecovered();
   }, []);
 
   // Refetch du Gist quand un nouvel OTA arrive (une nouvelle version a été

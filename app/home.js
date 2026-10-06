@@ -51,6 +51,9 @@ import PermissionPrimer from '../components/common/PermissionPrimer';
 import { shouldShowPermissionPrimer } from '../lib/permissionPrimer';
 import { pendingBadges, markBadgeSeen } from '../lib/badgeCelebration';
 import { loadHistory, countSessionsByTimer } from '../lib/history';
+import { ensureSessionRecovered } from '../lib/sessionDraft';
+import MiniToast from '../components/common/MiniToast';
+import { formatDuration } from '../lib/formatters';
 import { getTimerHero, getTimerDescription, getTimerBar } from '../lib/timers-config';
 import PhaseBar from '../components/common/PhaseBar';
 import { loadArchives, loadPlanning } from '../lib/planning';
@@ -330,6 +333,26 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   // Pop-up qui PROPOSE le tutoriel (lib/tutorial.js) — jamais imposé, voir
   // components/common/TutorialInviteSheet.js. Première de la file de démarrage.
   const [showTutorialInvite, setShowTutorialInvite] = useState(false);
+
+  // Séance interrompue au dernier lancement (batterie vide, plantage) :
+  // récupérée depuis le brouillon (lib/sessionDraft.js), annoncée par un petit
+  // message qui disparaît tout seul. La promesse est mémorisée : la même pour
+  // _layout.js et pour les rattrapages de trophées plus bas.
+  const [recoveredSession, setRecoveredSession] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    let hideTimer = null;
+    ensureSessionRecovered().then((entry) => {
+      if (cancelled || !entry) return;
+      setRecoveredSession(entry);
+      // Assez long pour passer le splash éventuel (il recouvre l'accueil).
+      hideTimer = setTimeout(() => setRecoveredSession(null), 8000);
+    });
+    return () => {
+      cancelled = true;
+      if (hideTimer) clearTimeout(hideTimer);
+    };
+  }, []);
   // Page "chrono fiable" avant le 3-2-1 (lib/permissionPrimer.js, moment
   // 'firstSession'). Calculée d'avance pour ne pas retarder le tap Lancer.
   const [primerLaunch, setPrimerLaunch] = useState(null);
@@ -387,6 +410,7 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
         if (cancelled || overlayBusyRef.current) return;
         await waitForUpdateGateSettled();
         if (cancelled || overlayBusyRef.current) return;
+        await ensureSessionRecovered(); // une séance interrompue compte dans l'historique lu ici
         const totalRuns = Object.values(countSessionsByTimer(await loadHistory())).reduce((a, b) => a + b, 0);
         const tutorialState = await loadTutorialState();
         if (cancelled || overlayBusyRef.current) return;
@@ -426,6 +450,9 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
         // passent AVANT le conseil de surcharge. Une médaille est un moment
         // gratifiant, le conseil de charge peut attendre le lancement
         // suivant — et surtout on n'empile jamais deux feuilles.
+        // Une séance interrompue (batterie vide, plantage) est d'abord
+        // récupérée : elle compte pour les trophées comme n'importe quelle autre.
+        await ensureSessionRecovered();
         const countsByTimer = countSessionsByTimer(await loadHistory());
         const totalRuns = Object.values(countsByTimer).reduce((a, b) => a + b, 0);
 
@@ -989,6 +1016,15 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
           onNeverShow={handleCoachNudgeNeverShow}
           onClose={handleCoachNudgeClose}
         />
+      )}
+
+      {recoveredSession && (
+        <View pointerEvents="box-none" style={styles.recoveredToastWrap}>
+          <MiniToast
+            icon="check"
+            text={`Séance ${recoveredSession.name} récupérée (${formatDuration(recoveredSession.durationSeconds)})`}
+          />
+        </View>
       )}
 
       {/* (N bis) Aperçu des 5 formats — tap sur un point de pagination. */}
@@ -2398,6 +2434,8 @@ function PickerSheet({ stat, accentColor, textMode, onClose, onValidate, screenH
    ────────────────────────────────────────────────────────────────*/
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  // Message « séance récupérée » : au-dessus du bouton Lancer, jamais dessus.
+  recoveredToastWrap: { position: 'absolute', left: 16, right: 16, bottom: 132, height: 56 },
   safe: { flex: 1 },
   list: { flex: 1 },
 
