@@ -21,7 +21,7 @@ const SECTIONS = [
       "Ton pseudo, si tu en choisis un.",
       "Ton historique de séances (type de chrono, durée, tours, date), synchronisé pour que tu le retrouves sur un autre téléphone. Ton planning, tes réglages et tes timers personnalisés ne sont pas envoyés.",
       "Si tu publies un MIX dans le fil public : son nom, son contenu (blocs et notes de blocs), sa catégorie et ton pseudo comme auteur. Les notes (étoiles) et les signalements que tu donnes aux MIX des autres sont aussi enregistrés avec ton compte.",
-      "Si tu commentes un MIX publié : le texte de ton commentaire, ton pseudo et la date. Les signalements que tu fais (sur un MIX ou un commentaire) et la liste des personnes que tu bloques sont aussi enregistrés avec ton compte.",
+      "Si tu commentes un MIX publié : le texte de ton commentaire, ton pseudo et la date. Les signalements que tu fais (sur un MIX ou un commentaire), les commentaires que tu aimes et la liste des personnes que tu bloques sont aussi enregistrés avec ton compte.",
       "Ces données sont conservées tant que ton compte existe.",
     ],
   },
@@ -30,7 +30,7 @@ const SECTIONS = [
     paragraphs: [
       "Un MIX publié dans le fil public est visible par tout le monde, même sans compte : son contenu, son pseudo d'auteur et sa note moyenne. Ton adresse email n'est jamais montrée aux autres, et ton historique n'est visible par aucun autre utilisateur.",
       "Un commentaire que tu écris sous un MIX publié est visible par tout le monde, même sans compte, avec ton pseudo. L'auteur d'un MIX peut retirer un commentaire sur son MIX : le texte disparaît et l'écran indique « Retiré par l'auteur du mix ».",
-      "Les autres utilisateurs ne voient jamais tes notes, tes signalements ni la liste des personnes que tu bloques (elles ne savent pas que tu les as bloquées) : seule la moyenne des notes apparaît sur un MIX.",
+      "Le nombre de likes d'un commentaire est visible par tous, mais jamais QUI a aimé. Les autres utilisateurs ne voient jamais tes notes, tes signalements ni la liste des personnes que tu bloques (elles ne savent pas que tu les as bloquées) : seule la moyenne des notes apparaît sur un MIX.",
     ],
   },
   {
@@ -49,7 +49,7 @@ const SECTIONS = [
   {
     heading: 'Tes droits et la suppression',
     paragraphs: [
-      "Tu peux supprimer ton compte à tout moment : Paramètres › Compte › Supprimer mon compte. Cela efface définitivement ton compte, ton historique synchronisé, tes MIX publiés (avec les commentaires qu'ils ont reçus), tes commentaires, tes notes, tes signalements et ta liste de personnes bloquées.",
+      "Tu peux supprimer ton compte à tout moment : Paramètres › Compte › Supprimer mon compte. Cela efface définitivement ton compte, ton historique synchronisé, tes MIX publiés (avec les commentaires qu'ils ont reçus), tes commentaires, tes likes, tes notes, tes signalements et ta liste de personnes bloquées.",
       "Tu peux aussi retirer un de tes MIX du fil public quand tu veux. Les copies déjà enregistrées par d'autres personnes restent sur leur téléphone.",
       "Sur ton téléphone, le bouton « Réinitialiser l'application » (Paramètres) efface les données locales, tout comme désinstaller l'application. La réinitialisation ne supprime pas ton compte en ligne : utilise pour cela « Supprimer mon compte ».",
       "Pour accéder à tes données, les corriger ou poser une question, écris à yaomanuit@gmail.com.",

@@ -24,6 +24,12 @@
 alter table public.mix_comments
   add column if not exists removed boolean not null default false;
 
+-- Nombre de likes (tenu à jour par supabase-commentaires-likes.sql). La colonne est
+-- créée ICI aussi, pour que la fonction ci-dessous marche quel que soit l'ordre
+-- dans lequel les fichiers sont lancés.
+alter table public.mix_comments
+  add column if not exists like_count integer not null default 0;
+
 create or replace function public.owner_remove_comment(target uuid)
 returns void
 language plpgsql
@@ -32,18 +38,25 @@ set search_path = public
 as $$
 declare
   v_owner uuid;
+  v_likes integer;
 begin
   if auth.uid() is null then
     raise exception 'Connecte-toi';
   end if;
 
-  select m.owner_id into v_owner
+  select m.owner_id, c.like_count into v_owner, v_likes
     from public.mix_comments c
     join public.shared_mixes m on m.id = c.mix_id
    where c.id = target;
 
   if v_owner is null or v_owner <> auth.uid() then
     raise exception 'Non autorisé';
+  end if;
+
+  -- 3 likes ou plus : le commentaire est approuvé par la communauté, l'auteur
+  -- du mix ne peut plus le retirer (les signalements, eux, restent possibles).
+  if v_likes >= 3 then
+    raise exception 'Approuvé par la communauté';
   end if;
 
   -- Un commentaire déjà supprimé n'est pas touché.

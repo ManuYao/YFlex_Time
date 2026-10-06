@@ -15,9 +15,12 @@ import {
   deleteComment,
   editComment,
   fetchComments,
+  fetchMyCommentLikes,
   fetchMyCommentReports,
+  likeComment,
   removeCommentAsOwner,
   reportComment,
+  unlikeComment,
 } from '../../lib/mixComments';
 import { useBlockedUsers } from '../../hooks/useBlockedUsers';
 import { REPORT_REASONS } from '../../lib/publicMixShape';
@@ -28,6 +31,7 @@ import {
   buildThreads,
   formatAgo,
   hasReplies,
+  isApproved,
   rootQuota,
   threadRootIdOf,
   validateBody,
@@ -75,6 +79,9 @@ export default function MixCommentsView({ item, screenH, onBack, goLogin }) {
   // Modération : retirer un commentaire sur MON mix, bloquer un auteur.
   const [ownerRemovingId, setOwnerRemovingId] = useState(null);
   const [blockingId, setBlockingId] = useState(null);
+  // Mes likes (cœur plein) ; `likeBusy` évite qu'un double appui envoie deux fois.
+  const [likedIds, setLikedIds] = useState([]);
+  const likeBusy = useRef(new Set());
   const blocks = useBlockedUsers();
   const listRef = useRef(null);
   const inputRef = useRef(null);
@@ -93,8 +100,11 @@ export default function MixCommentsView({ item, screenH, onBack, goLogin }) {
       setStatus('ok');
       // Mes signalements : jamais bloquant (table pas encore ouverte, réseau…).
       if (userId) {
-        const mine = await fetchMyCommentReports(res.comments.map((c) => c.id));
-        if (!cancelled && mine.ok) setReportedIds(mine.reported);
+        const ids = res.comments.map((c) => c.id);
+        const [mine, likes] = await Promise.all([fetchMyCommentReports(ids), fetchMyCommentLikes(ids)]);
+        if (cancelled) return;
+        if (mine.ok) setReportedIds(mine.reported);
+        if (likes.ok) setLikedIds(likes.liked);
       }
     })();
     return () => {
@@ -237,10 +247,14 @@ export default function MixCommentsView({ item, screenH, onBack, goLogin }) {
         text:
           res.reason === 'unavailable'
             ? "Retirer un commentaire n'est pas encore ouvert."
-            : res.reason === 'forbidden'
-              ? 'Tu ne peux retirer que les commentaires de tes propres mix.'
-              : 'Impossible de retirer, vérifie ta connexion.',
+            : res.reason === 'approved'
+              ? 'Ce commentaire est approuvé par la communauté (3 likes ou plus) : tu ne peux plus le retirer.'
+              : res.reason === 'forbidden'
+                ? 'Tu ne peux retirer que les commentaires de tes propres mix.'
+                : 'Impossible de retirer, vérifie ta connexion.',
       });
+      // Les likes ont pu changer depuis le chargement : on relit pour que l'écran dise vrai.
+      if (res.reason === 'approved') setReloadKey((k) => k + 1);
       return;
     }
     haptic.warning();
@@ -271,6 +285,37 @@ export default function MixCommentsView({ item, screenH, onBack, goLogin }) {
     });
   };
 
+  // Aimer / ne plus aimer : le cœur et le compteur bougent tout de suite, et
+  // reviennent en arrière si la base refuse.
+  const handleToggleLike = async (comment) => {
+    if (!userId || likeBusy.current.has(comment.id)) return;
+    const wasLiked = likedIds.includes(comment.id);
+    const apply = (liked) => {
+      setLikedIds((ids) => (liked ? [...ids.filter((i) => i !== comment.id), comment.id] : ids.filter((i) => i !== comment.id)));
+      setComments((list) =>
+        list.map((c) =>
+          c.id === comment.id ? { ...c, likeCount: Math.max(0, (c.likeCount || 0) + (liked ? 1 : -1)) } : c
+        )
+      );
+    };
+    likeBusy.current.add(comment.id);
+    haptic.light();
+    apply(!wasLiked);
+    const res = wasLiked ? await unlikeComment(comment.id, userId) : await likeComment(comment.id, userId);
+    likeBusy.current.delete(comment.id);
+    if (!res.ok) {
+      apply(wasLiked);
+      haptic.error();
+      setFeedback({
+        ok: false,
+        text:
+          res.reason === 'unavailable'
+            ? "Les likes ne sont pas encore ouverts."
+            : "Impossible d'aimer ce commentaire, vérifie ta connexion.",
+      });
+    }
+  };
+
   const handleUnblock = async (comment) => {
     const res = await blocks.unblock(comment.authorId);
     if (!res.ok) {
@@ -294,7 +339,14 @@ export default function MixCommentsView({ item, screenH, onBack, goLogin }) {
       canBlock: others,
       // L'auteur du mix retire les commentaires des AUTRES sur son mix (les siens,
       // il les supprime comme tout le monde).
-      canRemove: isCreator && others,
+      // À 3 likes, le commentaire est approuvé par la communauté : plus de retrait
+      // (la base le refuse aussi). Les signalements restent possibles.
+      canRemove: isCreator && others && !isApproved(c),
+      // Aimer : un compte, jamais son propre commentaire ni un commentaire supprimé.
+      canLike: others,
+      liked: likedIds.includes(c.id),
+      approved: isApproved(c) && !c.deleted,
+      onToggleLike: () => handleToggleLike(c),
       blockedAuthor: !!c.authorId && blocks.isBlocked(c.authorId) && !(userId && c.authorId === userId),
       reported: reportedIds.includes(c.id),
       reporting: reportingId === c.id,
@@ -516,6 +568,10 @@ function Bubble({
   canReport,
   canBlock,
   canRemove,
+  canLike,
+  liked,
+  approved,
+  onToggleLike,
   blockedAuthor,
   reported,
   reporting,
@@ -559,6 +615,11 @@ function Bubble({
         {isAuthorOfMix && (
           <View style={styles.creatorChip}>
             <Text style={styles.creatorText}>AUTEUR</Text>
+          </View>
+        )}
+        {approved && (
+          <View style={styles.approvedChip}>
+            <Text style={styles.approvedText}>APPROUVÉ</Text>
           </View>
         )}
         <Text style={styles.time} numberOfLines={1}>
@@ -635,6 +696,30 @@ function Bubble({
         </View>
       ) : (
         <View style={styles.actions}>
+          {!comment.deleted && (canLike || comment.likeCount > 0) &&
+            (canLike ? (
+              <PressTap
+                tapScale={0.9}
+                hitSlop={8}
+                onPress={onToggleLike}
+                containerStyle={styles.likeBtn}
+                accessibilityLabel={liked ? 'Retirer mon like' : 'Aimer ce commentaire'}
+              >
+                <AppIcon
+                  name={liked ? 'heart-fill' : 'heart'}
+                  size={14}
+                  color={liked ? ERROR_RED : 'rgba(255,255,255,0.55)'}
+                />
+                <Text style={[styles.likeCount, liked && styles.likeCountOn]}>
+                  {comment.likeCount > 0 ? comment.likeCount : ''}
+                </Text>
+              </PressTap>
+            ) : (
+              <View style={styles.likeBtn}>
+                <AppIcon name="heart-fill" size={14} color="rgba(255,255,255,0.35)" />
+                <Text style={styles.likeCount}>{comment.likeCount}</Text>
+              </View>
+            ))}
           {canReply && (
             <PressTap tapScale={0.95} hitSlop={8} onPress={onReply} accessibilityLabel="Répondre">
               <Text style={styles.action}>Répondre</Text>
@@ -864,6 +949,34 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
+  likeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    minWidth: 28,
+  },
+  likeCount: {
+    fontFamily: fonts.monoBold,
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.55)',
+  },
+  likeCountOn: {
+    color: ERROR_RED,
+  },
+  approvedChip: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: 'rgba(31,199,119,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(31,199,119,0.50)',
+  },
+  approvedText: {
+    fontFamily: fonts.monoBold,
+    fontSize: 8.5,
+    letterSpacing: 1,
+    color: OK_GREEN,
+  },
   // Signaler / Bloquer : à droite de la rangée, côte à côte.
   moreActions: {
     flexDirection: 'row',

@@ -50,5 +50,9 @@ from (
   select 10, 'supabase-moderation.sql',
          to_regclass('public.user_blocks') is not null
          and to_regprocedure('public.owner_remove_comment(uuid)') is not null
+  union all
+  select 11, 'supabase-commentaires-likes.sql',
+         to_regclass('public.comment_likes') is not null
+         and to_regprocedure('public.refresh_comment_like_count()') is not null
 ) t
 order by ordre;

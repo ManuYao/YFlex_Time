@@ -122,7 +122,7 @@ export const ICON_NAMES = [
   'reset', 'play', 'pause', 'finish', 'skip',
   'back', 'plus', 'gear', 'more', 'arrow', 'list', 'share', 'note',
   'user', 'bar', 'swim', 'run',
-  'star', 'star-fill', 'globe', 'flag',
+  'star', 'star-fill', 'globe', 'flag', 'heart', 'heart-fill',
   'hub', 'expand', 'history', 'calendar', 'chat',
   'edit', 'move', 'bulb',
 ];
@@ -378,6 +378,24 @@ export default function AppIcon({ name, size = 20, color = '#FFFFFF', opacity = 
     // Drapeau : signaler un mix du fil public.
     case 'flag':
       body = <Path {...line} d="M6 21V4M6 4h11l-2.4 4.2L17 12.4H6" />;
+      break;
+    // Cœur : aimer un commentaire (3 likes = « approuvé par la communauté »).
+    // Vide = pas encore aimé, plein = aimé.
+    case 'heart':
+      body = (
+        <Path
+          {...line}
+          d="M12 20.3C7.3 17.3 3.6 14 3.6 9.9 3.6 7.5 5.4 5.7 7.7 5.7c1.8 0 3.3.9 4.3 2.4 1-1.5 2.5-2.4 4.3-2.4 2.3 0 4.1 1.8 4.1 4.2 0 4.1-3.7 7.4-8.4 10.4z"
+        />
+      );
+      break;
+    case 'heart-fill':
+      body = (
+        <Path
+          {...rounded}
+          d="M12 20.3C7.3 17.3 3.6 14 3.6 9.9 3.6 7.5 5.4 5.7 7.7 5.7c1.8 0 3.3.9 4.3 2.4 1-1.5 2.5-2.4 4.3-2.4 2.3 0 4.1 1.8 4.1 4.2 0 4.1-3.7 7.4-8.4 10.4z"
+        />
+      );
       break;
     // Menu global (v16.2.0) : quatre cases, la plus grande pleine = le MIX,
     // point névralgique de l'app. Remplace l'horloge de l'historique en haut
