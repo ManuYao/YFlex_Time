@@ -1709,10 +1709,11 @@ function CooldownPips({ cooldown, t, tone, onGoPremium, hideLockedHint = false, 
   }
 
   return (
-    <View style={[styles.cooldownRow, flat && styles.flatMargin]}>
-      {/* cooldown.quota, pas une constante fixe : varie par mode (TABATA 6,
-          MIX 4) et se réduit d'une place le cycle qui suit un "cramé"
-          (lib/cooldown.js, malus). */}
+    <View style={[styles.cooldownRow, cooldown.quota > 8 && styles.cooldownRowDense, flat && styles.flatMargin]}>
+      {/* cooldown.quota, pas une constante fixe : varie par mode (TABATA 15,
+          MIX 6, lib/cooldown.js). Les pastilles se remplissent une à une au fil
+          des lancements de la semaine ; à partir de 9 places l'écart se resserre
+          pour que la rangée (TABATA : 15) tienne même en fenêtre étroite. */}
       {Array.from({ length: cooldown.quota }).map((_, i) => (
         <View
           key={i}
@@ -2534,6 +2535,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     marginBottom: 16,
+  },
+  // Beaucoup de places (TABATA : 15) : 15 × 8 dp + 14 × 5 dp = 190 dp, au lieu de 232.
+  cooldownRowDense: {
+    gap: 5,
   },
   // Emplacement fixe des places gratuites (bouton « Débloque » = 36 dp).
   cooldownSlot: {
