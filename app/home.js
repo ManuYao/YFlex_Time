@@ -125,10 +125,6 @@ import {
 // ci-dessous : la source de verite reactive est l'onLayout de la racine (Q9).
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
-// Durée pendant laquelle le contenu de l'accueil (carte, barres) s'efface sous la transition de
-// lancement (components/common/LaunchTransition.js). Un fondu, jamais une coupure.
-const LAUNCH_FADE_MS = 480;
-
 // Badge streak (F) — à partir de ce nombre de lancements sur 7 jours
 // glissants, la carte affiche une flamme + compteur. Voir lib/history.js.
 const STREAK_THRESHOLD = 3;
@@ -255,6 +251,10 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   const blurTargetRef = useRef(null);
   const ctaRef = useRef(null);
   const [ctaRect, setCtaRect] = useState(null);
+  // L'anneau de la carte active, mesuré au tap : point de départ de l'anneau qui voyage jusqu'au
+  // décompte (components/common/LaunchTransition.js).
+  const ringRef = useRef(null);
+  const [ringRect, setRingRect] = useState(null);
   const { timers, updateStat, hydrated } = useTimers();
   const { settings } = useSettings();
   const { getStatus: getCooldownStatusRaw } = useCooldown();
@@ -355,10 +355,6 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   // continue de flotter derrière, et rien ne disparaît d'un coup.
   const contentFade = useSharedValue(1);
   const contentFadeStyle = useAnimatedStyle(() => ({ opacity: contentFade.value }));
-  useEffect(() => {
-    if (!isLaunching) return;
-    contentFade.value = withTiming(0, { duration: LAUNCH_FADE_MS, easing: Easing.inOut(Easing.cubic) });
-  }, [isLaunching]);
   const [progression, setProgression] = useState(null);
   // Popup de découverte du coach vocal (lib/coachNudge.js) — proposée tant
   // que settings.voiceCoach est faux, avec un délai de 7 jours entre deux
@@ -755,17 +751,38 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
     // CTA du bas (ex. le panneau stats/badges) — évite que le morph parte
     // toujours du bouton de la BottomBar alors que l'utilisateur a tapé
     // ailleurs à l'écran.
+    // L'anneau de la carte est mesuré en même temps : la transition part de lui, pas d'un
+    // emplacement deviné. Sans anneau (fenêtre minuscule) : null, la transition s'adapte.
+    const startWith = (cta) => {
+      const ringNode = ringRef.current;
+      let started = false;
+      const go = (rect) => {
+        if (started) return;
+        started = true;
+        setRingRect(rect);
+        setCtaRect(cta);
+        setIsLaunching(true);
+      };
+      if (ringNode && ringNode.measureInWindow) {
+        // Filet de sécurité : si la mesure ne répondait jamais, la séance part quand même.
+        const guard = setTimeout(() => go(null), 250);
+        ringNode.measureInWindow((rx, ry, rw, rh) => {
+          clearTimeout(guard);
+          go(rw > 0 && rh > 0 ? { x: rx, y: ry, width: rw, height: rh } : null);
+        });
+      } else {
+        go(null);
+      }
+    };
     if (sourceRect) {
-      setCtaRect(sourceRect);
-      setIsLaunching(true);
+      startWith(sourceRect);
       return;
     }
     // Mesure la position ecran reelle du bouton CTA au moment du tap, plutot
     // que de deviner un offset fixe (ex-MORPH_BOTTOM_OFFSET) : reste juste
     // quelle que soit la taille d'ecran ou la mise en page du bouton.
     ctaRef.current?.measureInWindow((x, y, width, height) => {
-      setCtaRect({ x, y, width, height });
-      setIsLaunching(true);
+      startWith({ x, y, width, height });
     });
   }, [active, haptic]);
 
@@ -896,6 +913,7 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
         cardWidth={rootW}
         heatCount={heatMap[item.id] || 0}
         cooldown={getCooldownStatus(item.id)}
+        ringRef={ringRef}
         onStatPress={handleStatPress}
         onMixEdit={handleMixEdit}
         onStatHaptic={haptic.light}
@@ -996,6 +1014,8 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
           screenH={rootH}
           screenW={rootW}
           ctaRect={ctaRect}
+          ringRect={ringRect}
+          fade={contentFade}
         />
       )}
 
@@ -1358,7 +1378,7 @@ function TopBar({ tag, tokens, tone, onProfile, onHub, onTapHaptic, isLaunching 
 /* ─────────────────────────────────────────────────────────────────
    TimerCard — orchestration des animations sur isActive
    ────────────────────────────────────────────────────────────────*/
-const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, heatCount, cooldown, onStatPress, onMixEdit, onStatHaptic, onOpenStats, onGoPremium }) {
+const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, heatCount, cooldown, ringRef, onStatPress, onMixEdit, onStatHaptic, onOpenStats, onGoPremium }) {
   const t = getTokens(timer.textMode);
   const hero = getTimerHero(timer);
   const description = getTimerDescription(timer);
@@ -1499,6 +1519,7 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
         timerId={timer.id}
         size={ring}
         gap={scaled(24, ui)}
+        innerRef={isActive ? ringRef : undefined}
       >
         <View style={styles.ringCenter} pointerEvents="none">
           {/* (H) Hero unit */}
@@ -1905,7 +1926,7 @@ function StatChipContent({ stat, t, editable, compact }) {
 /* ─────────────────────────────────────────────────────────────────
    (F) Breathing ring — scale [1, 1.008, 1] loop sur card active
    ────────────────────────────────────────────────────────────────*/
-function BreathingRing({ isActive, t, timerId, size = 320, gap = 24, children }) {
+function BreathingRing({ isActive, t, timerId, size = 320, gap = 24, innerRef, children }) {
   const scale = useSharedValue(1);
 
   useEffect(() => {
@@ -1930,6 +1951,8 @@ function BreathingRing({ isActive, t, timerId, size = 320, gap = 24, children })
 
   return (
     <Animated.View
+      ref={innerRef}
+      collapsable={false}
       style={[styles.ringWrap, { width: size, height: size, marginBottom: gap }, animStyle]}
     >
       <TickRing

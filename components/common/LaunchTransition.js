@@ -16,6 +16,7 @@ import Animated, {
 import LaunchRing, { FineCrown, RadialGlow } from './LaunchRing';
 import LaunchBurst from './LaunchBurst';
 import useAmbiance from '../../hooks/useAmbiance';
+import useArmed from '../../hooks/useArmed';
 import { accentTextOn } from '../../lib/buttonTokens';
 import { fonts } from '../../lib/fonts';
 import {
@@ -26,45 +27,71 @@ import {
 } from '../../lib/launchVisuals';
 
 /**
- * Transition de lancement (accueil → décompte). Remplace l'ancien « bouton qui devient un gros
- * disque » : le bouton Lancer se resserre en point lumineux, monte au centre de l'écran et
- * s'épanouit en anneau de 60 graduations qui s'allument en vague — le langage de l'app — pendant
- * que le nom du mode se pose dans l'anneau.
+ * Transition de lancement (accueil → décompte), en ÉLÉMENT PARTAGÉ : l'anneau de la carte de
+ * l'accueil est le même que celui du décompte, il voyage de l'un à l'autre.
  *
- * Elle s'arrête sur l'image EXACTE où commence le décompte (app/countdown.js) : même anneau, même
- * taille, même centre, même lueur (LAUNCH_GLOW_REST). Le changement d'écran est donc invisible.
+ *   1. L'anneau de la carte reste exactement où il est (copie à l'identique : 45 graduations
+ *      allumées sur 60, même taille, même position, mesurées au tap) ; tout le reste de l'accueil
+ *      s'efface en fondu. Le bouton Lancer se resserre en point lumineux et monte le rejoindre.
+ *   2. À son arrivée le point éclate : une onde, une vague de lumière parcourt l'anneau (la comète
+ *      de l'app) — et l'anneau, qui TOURNE UNE FOIS SUR LUI-MÊME comme une pièce (même geste que
+ *      l'intro de démarrage), glisse jusqu'à sa place du décompte (centre de l'écran, taille
+ *      `launchRingSize`), en s'éteignant à son niveau de repos.
+ *   3. Le nom du mode se pose dans l'anneau, tient un instant, puis s'efface.
  *
- * Avec une ambiance de saison active : lueur teintée, fine couronne de repères aux couleurs de
- * la saison, tête de comète teintée, et une rafale de formes de la saison (feuilles, flocons,
- * pétales…) qui jaillit à l'arrivée. Sans ambiance (réglage « Aucune ») : la même transition, en
- * blanc (ou noir sur un mode à texte noir), avec quelques étincelles discrètes.
+ * Elle s'arrête sur l'image EXACTE où commence le décompte (app/countdown.js) : même anneau,
+ * même taille, même centre, même lueur (LAUNCH_GLOW_REST). Le changement d'écran est invisible.
+ * Sans anneau mesurable (fenêtre minuscule : la carte n'en a pas), l'anneau apparaît directement
+ * au centre au moment où le point arrive.
+ *
+ * Avec une ambiance de saison : lueur teintée, fine couronne de repères aux couleurs de la saison,
+ * tête de comète teintée et rafale de formes de la saison (feuilles, flocons, pétales…). Sans
+ * ambiance (réglage « Aucune ») : blanc (noir sur un mode à texte noir), quelques étincelles.
+ *
+ * PRÉCHARGEMENT : tout est monté et dessiné dans son état de départ (le bouton, l'anneau copié)
+ * AVANT que l'horloge ne démarre (hooks/useArmed.js) : le gel du montage ne mange jamais les
+ * premières images. `fade` (valeur partagée de l'accueil) n'est lancée qu'à ce moment-là.
  *
  * Légèreté : uniquement `transform` et `opacity` sur le fil d'interface (aucune largeur, hauteur
- * ni position animée). Le bouton qui se resserre est fait de deux demi-disques et d'un rectangle
- * qui rétrécit, justement pour ne rien animer de la mise en page. « Réduire les animations » :
- * seul un fondu reste.
+ * ni position animée). « Réduire les animations » : seul un fondu reste.
  */
 
-export const LAUNCH_TOTAL_MS = 1760;
+export const LAUNCH_TOTAL_MS = 2850;
 const REDUCED_TOTAL_MS = 950;
 
-// Calendrier (ms depuis le tap).
-const COND_MS = 300; // le bouton se resserre en disque
-const FLIGHT_AT = 170;
-const FLIGHT_MS = 600; // le disque monte au centre
+// Calendrier (ms depuis l'armement).
+const COND_MS = 450; // le bouton se resserre en point
+const FLIGHT_AT = 200;
+const FLIGHT_MS = 700; // le point monte jusqu'à l'anneau de la carte
 const ARRIVE_AT = FLIGHT_AT + FLIGHT_MS;
-const RING_AT = 740; // la vague de graduations part avant l'arrivée : la comète « reçoit » le point
-const SWEEP_MS = 480;
-const RISE_MS = 110;
-const FALL_MS = 360;
+const RING_AT = ARRIVE_AT; // la vague de lumière part à l'arrivée du point
+const SWEEP_MS = 520;
+const RISE_MS = 120;
+const FALL_MS = 420;
+const MOVE_AT = 950; // l'anneau glisse jusqu'à sa place du décompte...
+const MOVE_MS = 1000;
+const SPIN_AT = 950; // ... en faisant un tour sur lui-même
+const SPIN_MS = 1050;
+const HERO_OUT_AT = 2350;
+
+const HOME_LIT = 45; // l'anneau de la carte : floor(60 × 0.75) graduations allumées (TickRing)
 
 const E_OUT = Easing.out(Easing.cubic);
 const E_INOUT = Easing.bezier(0.45, 0, 0.2, 1);
 const E_FLY = Easing.bezier(0.55, 0, 0.2, 1);
+// Le tour démarre doucement, file, puis ralentit longuement jusqu'à se poser (comme l'intro).
+const E_SPIN = Easing.bezier(0.35, 0, 0.12, 1);
 
-function LaunchTransition({ timer, ctaRect, screenW, screenH, onComplete }) {
+// Angle ramené entre -180° et 180° (équivalent visuellement).
+function norm(a) {
+  'worklet';
+  return ((((a + 180) % 360) + 360) % 360) - 180;
+}
+
+function LaunchTransition({ timer, ctaRect, ringRect, screenW, screenH, fade, onComplete }) {
   const reduced = useReducedMotion();
   const { ambiance } = useAmbiance();
+  const armed = useArmed();
 
   const cx = screenW / 2;
   const cy = screenH / 2;
@@ -76,13 +103,21 @@ function LaunchTransition({ timer, ctaRect, screenW, screenH, onComplete }) {
   const accent = ambiance ? ambiance.accent : ink;
   const glowColor = ambiance ? rgbToHex(ambiance.glow) : '#FFFFFF';
 
-  // Le bouton Lancer tel que mesuré au tap.
+  // L'anneau de la carte, tel que mesuré au tap : point de départ de l'anneau qui voyage.
+  const hasHome = !!ringRect && ringRect.width > 40 && !reduced;
+  const hx = hasHome ? ringRect.x + ringRect.width / 2 : cx;
+  const hy = hasHome ? ringRect.y + ringRect.height / 2 : cy;
+  const gs = hasHome ? ringRect.width / R : 1; // échelle de départ (taille de la carte / taille finale)
+  const gdx = hx - cx;
+  const gdy = hy - cy;
+
+  // Le bouton Lancer tel que mesuré au tap ; le point monte jusqu'au centre de l'anneau de la carte.
   const w = ctaRect.width;
   const h = ctaRect.height;
   const bx = ctaRect.x + w / 2;
   const by = ctaRect.y + h / 2;
-  const dx = cx - bx;
-  const dy = cy - by;
+  const dx = hx - bx;
+  const dy = hy - by;
   const gap = Math.max(0, (w - h) / 2);
 
   const total = reduced ? REDUCED_TOTAL_MS : LAUNCH_TOTAL_MS;
@@ -92,6 +127,9 @@ function LaunchTransition({ timer, ctaRect, screenW, screenH, onComplete }) {
   const pop = useSharedValue(0);
   const labelOp = useSharedValue(1);
   const capsuleOp = useSharedValue(1);
+  const move = useSharedValue(0);
+  const spin = useSharedValue(0);
+  const ringOp = useSharedValue(hasHome || reduced ? 1 : 0);
   const shock = useSharedValue(0);
   const glowOp = useSharedValue(reduced ? LAUNCH_GLOW_REST : 0);
   const glowScale = useSharedValue(reduced ? 1 : 0.6);
@@ -113,7 +151,12 @@ function LaunchTransition({ timer, ctaRect, screenW, screenH, onComplete }) {
     onComplete();
   }, [onComplete]);
 
+  // Rien ne démarre avant que tout soit monté et dessiné (`armed`).
   useEffect(() => {
+    if (!armed) return undefined;
+    // Le contenu de l'accueil (carte, barres) s'efface en fondu — c'est l'accueil qui l'affiche.
+    fade.value = withTiming(0, { duration: reduced ? 300 : 460, easing: E_INOUT });
+
     if (reduced) {
       labelOp.value = withTiming(0, { duration: 160 });
       capsuleOp.value = withTiming(0, { duration: 220 });
@@ -123,34 +166,37 @@ function LaunchTransition({ timer, ctaRect, screenW, screenH, onComplete }) {
       heroBar.value = withDelay(320, withTiming(1, { duration: 300 }));
       heroOut.value = withDelay(total - 220, withTiming(1, { duration: 200 }));
     } else {
-      labelOp.value = withTiming(0, { duration: 140 });
+      labelOp.value = withTiming(0, { duration: 180 });
       cond.value = withTiming(1, { duration: COND_MS, easing: E_INOUT });
       fly.value = withDelay(FLIGHT_AT, withTiming(1, { duration: FLIGHT_MS, easing: E_FLY }));
-      pop.value = withDelay(ARRIVE_AT, withTiming(1, { duration: 280, easing: E_OUT }));
-      shock.value = withDelay(ARRIVE_AT, withTiming(1, { duration: 700, easing: E_OUT }));
+      pop.value = withDelay(ARRIVE_AT, withTiming(1, { duration: 300, easing: E_OUT }));
+      shock.value = withDelay(ARRIVE_AT, withTiming(1, { duration: 850, easing: E_OUT }));
+      move.value = withDelay(MOVE_AT, withTiming(1, { duration: MOVE_MS, easing: E_INOUT }));
+      spin.value = withDelay(SPIN_AT, withTiming(360, { duration: SPIN_MS, easing: E_SPIN }));
+      if (!hasHome) ringOp.value = withDelay(ARRIVE_AT, withTiming(1, { duration: 240, easing: E_OUT }));
       glowOp.value = withDelay(
         RING_AT,
         withSequence(
-          withTiming(0.55, { duration: 240, easing: E_OUT }),
-          withTiming(LAUNCH_GLOW_REST, { duration: 520, easing: E_INOUT })
+          withTiming(0.55, { duration: 260, easing: E_OUT }),
+          withTiming(LAUNCH_GLOW_REST, { duration: 900, easing: E_INOUT })
         )
       );
-      glowScale.value = withDelay(RING_AT, withTiming(1, { duration: 760, easing: E_OUT }));
-      heroPret.value = withDelay(930, withTiming(1, { duration: 420, easing: E_OUT }));
-      heroName.value = withDelay(980, withTiming(1, { duration: 520, easing: E_OUT }));
-      heroTag.value = withDelay(1150, withTiming(1, { duration: 360, easing: E_OUT }));
-      heroBar.value = withDelay(1230, withTiming(1, { duration: 380, easing: E_OUT }));
-      heroOut.value = withDelay(1450, withTiming(1, { duration: 250, easing: E_INOUT }));
-      burst.value = withDelay(ARRIVE_AT, withTiming(1, { duration: 950, easing: Easing.linear }));
+      glowScale.value = withDelay(RING_AT, withTiming(1, { duration: 900, easing: E_OUT }));
+      heroPret.value = withDelay(1550, withTiming(1, { duration: 420, easing: E_OUT }));
+      heroName.value = withDelay(1620, withTiming(1, { duration: 600, easing: E_OUT }));
+      heroTag.value = withDelay(1800, withTiming(1, { duration: 400, easing: E_OUT }));
+      heroBar.value = withDelay(1880, withTiming(1, { duration: 400, easing: E_OUT }));
+      heroOut.value = withDelay(HERO_OUT_AT, withTiming(1, { duration: 300, easing: E_INOUT }));
+      burst.value = withDelay(ARRIVE_AT + 20, withTiming(1, { duration: 1000, easing: Easing.linear }));
       if (ambiance) {
         crownOp.value = withDelay(
-          780,
+          ARRIVE_AT + 50,
           withSequence(
-            withTiming(1, { duration: 320, easing: E_OUT }),
-            withDelay(350, withTiming(0, { duration: 300, easing: E_INOUT }))
+            withTiming(1, { duration: 350, easing: E_OUT }),
+            withDelay(1050, withTiming(0, { duration: 350, easing: E_INOUT }))
           )
         );
-        crownRot.value = withDelay(780, withTiming(36, { duration: 1000, easing: Easing.linear }));
+        crownRot.value = withDelay(ARRIVE_AT + 50, withTiming(40, { duration: 1800, easing: Easing.linear }));
       }
     }
     done.value = withDelay(
@@ -162,7 +208,7 @@ function LaunchTransition({ timer, ctaRect, screenW, screenH, onComplete }) {
     // Secours : si l'animation ne signalait jamais sa fin, la séance part quand même.
     const fallback = setTimeout(finish, total + 700);
     return () => clearTimeout(fallback);
-  }, []);
+  }, [armed]);
 
   /* ───── styles animés ───── */
 
@@ -189,6 +235,24 @@ function LaunchTransition({ timer, ctaRect, screenW, screenH, onComplete }) {
   }));
   const labelStyle = useAnimatedStyle(() => ({ opacity: labelOp.value }));
 
+  // Le groupe (anneau, lueur, couronne, nom) est dessiné à sa place FINALE ; sa transformation le
+  // ramène au départ sur l'anneau de la carte, puis la relâche : il glisse et grandit/rétrécit
+  // jusqu'au décompte.
+  const groupStyle = useAnimatedStyle(() => {
+    const m = move.value;
+    return {
+      transform: [
+        { translateX: gdx * (1 - m) },
+        { translateY: gdy * (1 - m) },
+        { scale: gs + (1 - gs) * m },
+      ],
+    };
+  });
+  // L'anneau tourne comme une pièce autour de son axe vertical (un tour).
+  const planeStyle = useAnimatedStyle(() => ({
+    opacity: ringOp.value,
+    transform: [{ perspective: R * 3 }, { rotateY: `${norm(spin.value)}deg` }],
+  }));
   const glowStyle = useAnimatedStyle(() => ({
     opacity: glowOp.value,
     transform: [{ scale: glowScale.value }],
@@ -261,117 +325,116 @@ function LaunchTransition({ timer, ctaRect, screenW, screenH, onComplete }) {
 
   return (
     <View style={styles.layer} pointerEvents="none">
-      {/* Lueur ronde derrière l'anneau */}
-      <Animated.View
-        pointerEvents="none"
-        style={[
-          styles.abs,
-          { left: cx - glowSize / 2, top: cy - glowSize / 2, width: glowSize, height: glowSize },
-          glowStyle,
-        ]}
-      >
-        <RadialGlow size={glowSize} color={glowColor} id="launchGlowHome" />
-      </Animated.View>
-
-      {/* Fine couronne de la saison */}
-      {ambiance && !reduced ? (
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            styles.abs,
-            { left: cx - crownBox / 2, top: cy - crownBox / 2, width: crownBox, height: crownBox },
-            crownStyle,
-          ]}
-        >
-          <FineCrown radius={crownRadius} color={ambiance.accent} opacity={0.7} />
-        </Animated.View>
-      ) : null}
-
-      {/* L'anneau de 60 graduations */}
-      <View
-        pointerEvents="none"
-        style={[styles.abs, { left: cx - R / 2, top: cy - R / 2, width: R, height: R }]}
-      >
-        <LaunchRing
-          size={R}
-          color={ink}
-          mode={reduced ? 'static' : 'ignite'}
-          startDelay={RING_AT}
-          sweepMs={SWEEP_MS}
-          riseMs={RISE_MS}
-          fallMs={FALL_MS}
-        />
-      </View>
-
-      {/* Tête de comète qui parcourt l'anneau avec la vague */}
-      {!reduced ? <CometHead cx={cx} cy={cy} R={R} color={accent} ink={ink} /> : null}
-
-      {/* Onde de choc à l'arrivée du point */}
-      {!reduced ? (
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            styles.abs,
-            {
-              left: cx - R / 2,
-              top: cy - R / 2,
-              width: R,
-              height: R,
-              borderRadius: R / 2,
-              borderWidth: 2,
-              borderColor: accent,
-            },
-            shockStyle,
-          ]}
-        />
-      ) : null}
-
-      {/* Étincelles / formes de la saison */}
-      {!reduced ? (
-        <LaunchBurst progress={burst} particles={particles} x={cx} y={cy} ink={ink} accent={accent} />
-      ) : null}
-
-      {/* Le nom du mode, posé dans l'anneau */}
-      <View style={styles.heroBox} pointerEvents="none">
-        <Animated.Text
-          style={[styles.pret, { color: timer.textMode === 'dark' ? 'rgba(10,10,10,0.75)' : 'rgba(255,255,255,0.9)' }, pretStyle]}
-        >
-          PRÊT
-        </Animated.Text>
-        <Animated.View style={[{ maxWidth: heroMaxW }, nameStyle]}>
-          <Text
-            style={[
-              styles.name,
-              { color: ink, fontSize: nameSize, lineHeight: Math.round(nameSize * 1.18) },
-            ]}
-            numberOfLines={1}
-            adjustsFontSizeToFit
-          >
-            {timer.name}
-          </Text>
-        </Animated.View>
-        <Animated.Text
-          style={[styles.tag, { color: timer.textMode === 'dark' ? 'rgba(10,10,10,0.65)' : 'rgba(255,255,255,0.8)' }, tagStyle]}
-        >
-          {timer.tag}
-        </Animated.Text>
-        <Animated.View
-          style={[
-            styles.bar,
-            { backgroundColor: timer.textMode === 'dark' ? 'rgba(10,10,10,0.5)' : 'rgba(255,255,255,0.7)' },
-            barStyle,
-          ]}
-        />
-      </View>
-
       {/* Traînée du point lumineux */}
       {!reduced
         ? [0, 1, 2].map((k) => (
-            <Ghost key={k} k={k} bx={bx} by={by} d={h} dx={dx} dy={dy} color={ink} />
+            <Ghost key={k} k={k} bx={bx} by={by} d={h} dx={dx} dy={dy} color={ink} play={armed} />
           ))
         : null}
 
-      {/* Le bouton Lancer qui se resserre, puis vole */}
+      {/* LE GROUPE QUI VOYAGE : de l'anneau de la carte à l'anneau du décompte */}
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.abs, { left: cx - R / 2, top: cy - R / 2, width: R, height: R }, groupStyle]}
+      >
+        {/* Lueur ronde derrière l'anneau */}
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.abs,
+            { left: R / 2 - glowSize / 2, top: R / 2 - glowSize / 2, width: glowSize, height: glowSize },
+            glowStyle,
+          ]}
+        >
+          <RadialGlow size={glowSize} color={glowColor} id="launchGlowHome" />
+        </Animated.View>
+
+        {/* Fine couronne de la saison */}
+        {ambiance && !reduced ? (
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.abs,
+              { left: R / 2 - crownBox / 2, top: R / 2 - crownBox / 2, width: crownBox, height: crownBox },
+              crownStyle,
+            ]}
+          >
+            <FineCrown radius={crownRadius} color={ambiance.accent} opacity={0.7} />
+          </Animated.View>
+        ) : null}
+
+        {/* L'anneau de 60 graduations (copie de celui de la carte), qui tourne sur son axe */}
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.abs, { left: 0, top: 0, width: R, height: R }, planeStyle]}
+        >
+          <LaunchRing
+            size={R}
+            color={ink}
+            mode={reduced ? 'static' : 'ignite'}
+            initialLit={hasHome ? HOME_LIT : 0}
+            startDelay={RING_AT}
+            sweepMs={SWEEP_MS}
+            riseMs={RISE_MS}
+            fallMs={FALL_MS}
+            play={armed}
+          />
+          {/* Tête de comète qui parcourt l'anneau avec la vague */}
+          {!reduced ? <CometHead R={R} color={accent} ink={ink} play={armed} /> : null}
+        </Animated.View>
+
+        {/* Onde de choc à l'arrivée du point */}
+        {!reduced ? (
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.abs,
+              { left: 0, top: 0, width: R, height: R, borderRadius: R / 2, borderWidth: 2, borderColor: accent },
+              shockStyle,
+            ]}
+          />
+        ) : null}
+
+        {/* Étincelles / formes de la saison */}
+        {!reduced ? (
+          <LaunchBurst progress={burst} particles={particles} x={R / 2} y={R / 2} ink={ink} accent={accent} />
+        ) : null}
+
+        {/* Le nom du mode, posé dans l'anneau */}
+        <View style={styles.heroBox} pointerEvents="none">
+          <Animated.Text
+            style={[styles.pret, { color: timer.textMode === 'dark' ? 'rgba(10,10,10,0.75)' : 'rgba(255,255,255,0.9)' }, pretStyle]}
+          >
+            PRÊT
+          </Animated.Text>
+          <Animated.View style={[{ maxWidth: heroMaxW }, nameStyle]}>
+            <Text
+              style={[
+                styles.name,
+                { color: ink, fontSize: nameSize, lineHeight: Math.round(nameSize * 1.18) },
+              ]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+            >
+              {timer.name}
+            </Text>
+          </Animated.View>
+          <Animated.Text
+            style={[styles.tag, { color: timer.textMode === 'dark' ? 'rgba(10,10,10,0.65)' : 'rgba(255,255,255,0.8)' }, tagStyle]}
+          >
+            {timer.tag}
+          </Animated.Text>
+          <Animated.View
+            style={[
+              styles.bar,
+              { backgroundColor: timer.textMode === 'dark' ? 'rgba(10,10,10,0.5)' : 'rgba(255,255,255,0.7)' },
+              barStyle,
+            ]}
+          />
+        </View>
+      </Animated.View>
+
+      {/* Le bouton Lancer qui se resserre, puis vole jusqu'à l'anneau */}
       <Animated.View
         pointerEvents="none"
         style={[styles.abs, { left: ctaRect.x, top: ctaRect.y, width: w, height: h }, wrapStyle]}
@@ -401,12 +464,14 @@ export default memo(LaunchTransition);
  * La tête de comète : un petit point lumineux (et sa traîne) qui fait le tour de l'anneau
  * exactement au rythme de la vague de graduations — 360° pendant `SWEEP_MS`, à partir de
  * `RING_AT`. Un conteneur qui tourne : une seule transformation, aucune position animée.
+ * Se pose DANS le plan de l'anneau (il tourne avec lui).
  */
-const CometHead = memo(function CometHead({ cx, cy, R, color, ink }) {
+const CometHead = memo(function CometHead({ R, color, ink, play }) {
   const rot = useSharedValue(0);
   const op = useSharedValue(0);
 
   useEffect(() => {
+    if (!play) return;
     rot.value = withDelay(RING_AT, withTiming(360, { duration: SWEEP_MS, easing: Easing.linear }));
     op.value = withDelay(
       RING_AT,
@@ -415,7 +480,7 @@ const CometHead = memo(function CometHead({ cx, cy, R, color, ink }) {
         withDelay(SWEEP_MS - 140, withTiming(0, { duration: 160 }))
       )
     );
-  }, []);
+  }, [play]);
 
   const style = useAnimatedStyle(() => ({
     opacity: op.value,
@@ -440,7 +505,7 @@ const CometHead = memo(function CometHead({ cx, cy, R, color, ink }) {
   return (
     <Animated.View
       pointerEvents="none"
-      style={[styles.abs, { left: cx - R / 2, top: cy - R / 2, width: R, height: R }, style]}
+      style={[styles.abs, { left: 0, top: 0, width: R, height: R }, style]}
     >
       {dots.map((d, i) => (
         <View
@@ -462,14 +527,15 @@ const CometHead = memo(function CometHead({ cx, cy, R, color, ink }) {
 });
 
 /** Un fantôme du point, un peu en retard : la traînée du vol. */
-const Ghost = memo(function Ghost({ k, bx, by, d, dx, dy, color }) {
+const Ghost = memo(function Ghost({ k, bx, by, d, dx, dy, color, play }) {
   const f = useSharedValue(0);
   const a = 0.34 - 0.09 * k;
   const s0 = 0.8 - 0.12 * k;
 
   useEffect(() => {
+    if (!play) return;
     f.value = withDelay(FLIGHT_AT + 60 * (k + 1), withTiming(1, { duration: FLIGHT_MS, easing: E_FLY }));
-  }, []);
+  }, [play]);
 
   const style = useAnimatedStyle(() => ({
     opacity: interpolate(f.value, [0, 0.1, 0.8, 1], [0, a, a * 0.6, 0]),

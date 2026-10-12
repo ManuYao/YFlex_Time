@@ -15,6 +15,7 @@ import GradientBackground from '../components/common/GradientBackground';
 import LaunchRing, { FineCrown, RadialGlow } from '../components/common/LaunchRing';
 import LaunchBurst from '../components/common/LaunchBurst';
 import useAmbiance from '../hooks/useAmbiance';
+import useArmed from '../hooks/useArmed';
 import { useTimers } from '../contexts/TimersContext';
 import { buildTutorialTimer } from '../lib/tutorialShape';
 import { fonts } from '../lib/fonts';
@@ -50,6 +51,9 @@ export default function Countdown() {
   const { timers } = useTimers();
   const reduced = useReducedMotion();
   const { ambiance } = useAmbiance();
+  // Rien ne démarre (anneau, bips, vibrations) avant que l'écran soit monté ET dessiné : le gel du
+  // montage ne doit pas manger les premières images ni décaler le premier bip (hooks/useArmed.js).
+  const armed = useArmed();
 
   // Chrono de test du tutoriel (lib/tutorialShape.js) : le vrai décompte, mais
   // sur un BASIC aux réglages du test. Rien n'est enregistré nulle part.
@@ -67,6 +71,7 @@ export default function Countdown() {
   const [isGo, setIsGo] = useState(false);
 
   useEffect(() => {
+    if (!armed) return undefined;
     haptic.medium();
     // count 3/2/1 -> bips 1/2/3 : les fichiers sont nommes dans l'ordre de
     // lecture, pas d'apres le chiffre affiche.
@@ -80,7 +85,7 @@ export default function Countdown() {
       return () => clearTimeout(id);
     }
     return undefined;
-  }, [count]);
+  }, [count, armed]);
 
   useEffect(() => {
     if (!isGo) return undefined;
@@ -154,17 +159,18 @@ export default function Countdown() {
 
   // Les repères du haut et du bas apparaissent en fondu : la transition n'en avait pas.
   useEffect(() => {
+    if (!armed) return;
     labelsOp.value = withTiming(1, { duration: 450, easing: E_OUT });
     if (ambiance && !reduced) {
       crownOp.value = withDelay(150, withTiming(1, { duration: 500, easing: E_OUT }));
       crownRot.value = withTiming(110, { duration: 4200, easing: Easing.linear });
     }
-  }, []);
+  }, [armed]);
 
   // Un battement à chaque seconde (et plus fort au GO) : la lueur monte et redescend, une onde
   // s'éloigne de l'anneau.
   useEffect(() => {
-    if (reduced) return;
+    if (reduced || !armed) return;
     rippleMax.value = isGo ? 1.0 : 0.5;
     rippleAlpha.value = isGo ? 0.6 : 0.4;
     pulse.value = 0;
@@ -173,7 +179,7 @@ export default function Countdown() {
       withTiming(isGo ? 0.75 : 0.46, { duration: 140, easing: E_OUT }),
       withTiming(LAUNCH_GLOW_REST, { duration: isGo ? 700 : 760, easing: E_INOUT })
     );
-  }, [count, isGo]);
+  }, [count, isGo, armed]);
 
   // GO : l'anneau plein respire, des étincelles jaillissent, puis tout s'élargit en s'effaçant.
   useEffect(() => {
@@ -295,6 +301,7 @@ export default function Countdown() {
           startDelay={120}
           sweepMs={2650}
           riseMs={170}
+          play={armed}
         />
       </Animated.View>
 
@@ -313,6 +320,7 @@ export default function Countdown() {
           size={isGo ? goSize : digitSize}
           exit={exitP}
           reduced={reduced}
+          play={armed}
         />
       </View>
 
@@ -343,14 +351,15 @@ export default function Countdown() {
  * s'efface juste avant le chiffre suivant : une respiration par seconde, sans chevauchement ni
  * rebond. Le « GO » ne s'efface pas de lui-même : il part avec l'anneau (`exit`).
  */
-function HeroDigit({ value, color, isGo, size, exit, reduced }) {
+function HeroDigit({ value, color, isGo, size, exit, reduced, play }) {
   const inP = useSharedValue(0);
   const outP = useSharedValue(0);
 
   useEffect(() => {
+    if (!play) return;
     inP.value = withTiming(1, { duration: reduced ? 200 : 520, easing: E_OUT });
     if (!isGo) outP.value = withDelay(700, withTiming(1, { duration: 280, easing: Easing.in(Easing.quad) }));
-  }, []);
+  }, [play]);
 
   const style = useAnimatedStyle(() => ({
     opacity: Math.min(1, inP.value * 2.2) * (1 - outP.value) * (1 - exit.value),

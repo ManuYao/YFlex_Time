@@ -39,6 +39,12 @@ const EASE = Easing.out(Easing.cubic);
  *   'fill'    les graduations s'allument une à une et RESTENT allumées (le décompte) ;
  *   'static'  rien ne bouge, toutes à `staticOpacity` (réduire les animations).
  * Les graduations avant `startDelay` sont à `baseOpacity`. Le tour complet dure `sweepMs`.
+ * initialLit : nombre de graduations DÉJÀ allumées au départ (les premières, dans le sens
+ *   horaire) — c'est ce qui permet de reprendre à l'identique l'anneau de la carte d'accueil
+ *   (45 sur 60), puis de le faire passer par la vague ;
+ * play : tant qu'il est faux rien ne démarre (l'anneau reste dans son état de départ) ; l'écran
+ *   le passe à vrai une fois monté et dessiné (hooks/useArmed.js), pour que le gel du montage ne
+ *   mange jamais les premières images.
  *
  * color : une couleur, ou quatre (un quart d'anneau chacune, à partir de midi — l'icône).
  */
@@ -54,6 +60,8 @@ function LaunchRing({
   fallMs = 400,
   rest,
   staticOpacity,
+  initialLit = 0,
+  play = true,
 }) {
   const ticks = useMemo(() => tickGeometry(size, preset), [size, preset]);
   const colors = Array.isArray(color) ? color : null;
@@ -67,6 +75,8 @@ function LaunchRing({
           tick={t}
           color={colors ? colors[t.group % colors.length] : color}
           base={mode === 'static' ? (staticOpacity ?? baseOpacity) : baseOpacity}
+          start={i < initialLit ? 1 : null}
+          play={play}
           mode={mode}
           delay={startDelay + (i / TICK_COUNT) * sweepMs}
           rise={riseMs}
@@ -80,10 +90,11 @@ function LaunchRing({
 
 export default memo(LaunchRing);
 
-const Tick = memo(function Tick({ tick, color, base, mode, delay, rise, fall, rest }) {
-  const opacity = useSharedValue(base);
+const Tick = memo(function Tick({ tick, color, base, start, play, mode, delay, rise, fall, rest }) {
+  const opacity = useSharedValue(start ?? base);
 
   useEffect(() => {
+    if (!play) return;
     if (mode === 'ignite') {
       opacity.value = withDelay(
         delay,
@@ -96,7 +107,7 @@ const Tick = memo(function Tick({ tick, color, base, mode, delay, rise, fall, re
       opacity.value = withDelay(delay, withTiming(1, { duration: rise, easing: EASE }));
     }
     // 'static' : rien à animer.
-  }, []);
+  }, [play]);
 
   const animatedProps = useAnimatedProps(() => ({ opacity: opacity.value }));
 
