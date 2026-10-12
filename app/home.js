@@ -4,6 +4,7 @@ import {
   Text,
   Pressable,
   FlatList,
+  InteractionManager,
   ScrollView,
   Dimensions,
   StyleSheet,
@@ -34,6 +35,7 @@ import Animated, {
 
 import GradientBackground from '../components/common/GradientBackground';
 import AmbianceBackdrop from '../components/common/AmbianceBackdrop';
+import LaunchTransition from '../components/common/LaunchTransition';
 import { WIND_SPRING } from '../components/common/AmbianceHalo';
 import useAmbiance from '../hooks/useAmbiance';
 import { AMBIANCE_WIND_MAX, ambianceWind } from '../lib/ambianceMotion';
@@ -82,6 +84,7 @@ import {
   shouldInviteTutorial,
 } from '../lib/tutorial';
 import { onSplashCleared } from '../lib/splash';
+import { markAppReady } from '../lib/appReady';
 import { pendingSeasonKey } from '../lib/seasonRecap';
 import { loadSeenSeasons } from '../lib/seasonRecapState';
 import { waitForUpdateGateSettled } from '../lib/updateGateSignal';
@@ -122,14 +125,9 @@ import {
 // ci-dessous : la source de verite reactive est l'onLayout de la racine (Q9).
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
-// Le morph part de la forme exacte du bouton Lancer : une capsule
-// (lib/buttonTokens.js), rayon = moitié de sa hauteur.
-const MORPH_R_INIT = BUTTON_HEIGHT.lg / 2;
-const MORPH_W_FINAL = 340;
-const MORPH_H_FINAL = 340;
-const MORPH_R_FINAL = 170;
-
-const LAUNCH_TOTAL_MS = 2400;
+// Durée pendant laquelle le contenu de l'accueil (carte, barres) s'efface sous la transition de
+// lancement (components/common/LaunchTransition.js). Un fondu, jamais une coupure.
+const LAUNCH_FADE_MS = 480;
 
 // Badge streak (F) — à partir de ce nombre de lancements sur 7 jours
 // glissants, la carte affiche une flamme + compteur. Voir lib/history.js.
@@ -233,6 +231,18 @@ function useChromeReveal(scrollX, pageW, appear, start, end, rise, shrink) {
 }
 
 function HomeScreen({ initialIndex, heatMap, statsMap }) {
+  // L'accueil est monté, mesuré et posé : l'intro de démarrage peut se refermer sur un écran déjà
+  // prêt (lib/appReady.js). Après les interactions et une image, pas au premier rendu.
+  useEffect(() => {
+    let raf = null;
+    const task = InteractionManager.runAfterInteractions(() => {
+      raf = requestAnimationFrame(() => markAppReady());
+    });
+    return () => {
+      task.cancel?.();
+      if (raf != null) cancelAnimationFrame(raf);
+    };
+  }, []);
   // Taille reelle de la racine : SCREEN_W/H (Dimensions window) ne correspond
   // pas forcement a la zone qu'occupe l'app (barres systeme, overlay Expo Go,
   // fenetre redimensionnee en split-screen/tablette pliable...). onLayout se
@@ -340,6 +350,15 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   // directement (demande utilisateur, v14.15.0).
   const [modePickerOpen, setModePickerOpen] = useState(false);
   const [isLaunching, setIsLaunching] = useState(false);
+  // Au lancement, tout le contenu de l'accueil (barres, carte) s'efface en fondu pendant que la
+  // transition (LaunchTransition) prend la place sur le fond, qui lui reste en place : l'ambiance
+  // continue de flotter derrière, et rien ne disparaît d'un coup.
+  const contentFade = useSharedValue(1);
+  const contentFadeStyle = useAnimatedStyle(() => ({ opacity: contentFade.value }));
+  useEffect(() => {
+    if (!isLaunching) return;
+    contentFade.value = withTiming(0, { duration: LAUNCH_FADE_MS, easing: Easing.inOut(Easing.cubic) });
+  }, [isLaunching]);
   const [progression, setProgression] = useState(null);
   // Popup de découverte du coach vocal (lib/coachNudge.js) — proposée tant
   // que settings.voiceCoach est faux, avec un délai de 7 jours entre deux
@@ -916,6 +935,7 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
           </Animated.View>
         )}
 
+        <Animated.View style={[styles.safe, contentFadeStyle]}>
         <SafeAreaView style={styles.safe} edges={['top', 'bottom']} pointerEvents={hideChrome ? 'none' : 'auto'}>
           <Animated.View style={topReveal}>
             <TopBar
@@ -925,7 +945,7 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
               onProfile={() => router.push('/profile')}
               onHub={() => router.push('/hub')}
               onTapHaptic={haptic.light}
-              isLaunching={hideChrome}
+              isLaunching={statsOpen}
             />
           </Animated.View>
 
@@ -962,39 +982,16 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
             hintReveal={hintReveal}
           />
         </SafeAreaView>
+        </Animated.View>
       </BlurTargetView>
 
-      {/* (Q0) Blur backdrop pendant le launch morph */}
-      {isLaunching && (
-        <Animated.View
-          entering={FadeIn.duration(300)}
-          exiting={FadeOut.duration(200)}
-          pointerEvents="none"
-          style={StyleSheet.absoluteFill}
-        >
-          <BlurView
-            blurTarget={blurTargetRef}
-            intensity={60}
-            tint="dark"
-            blurMethod="dimezisBlurView"
-            blurReductionFactor={4}
-            style={StyleSheet.absoluteFill}
-          />
-          <View
-            style={[
-              StyleSheet.absoluteFill,
-              { backgroundColor: 'rgba(0,0,0,0.45)' },
-            ]}
-          />
-        </Animated.View>
-      )}
-
-      {/* (Q) Launch morph overlay — ctaRect vient de la mesure reelle du
-          bouton au tap (handleLaunch) ; tant qu'elle n'est pas prete on
-          n'affiche rien plutot que de deviner une position. */}
+      {/* (Q) Transition de lancement (components/common/LaunchTransition.js) — ctaRect vient
+          de la mesure réelle du bouton au tap (handleLaunch) ; tant qu'elle n'est pas prête on
+          n'affiche rien plutôt que de deviner une position. Plus de flou par-dessus l'accueil :
+          le contenu s'efface en fondu (contentFade) et le fond reste en place. */}
       {isLaunching && ctaRect && (
-        <LaunchMorph
-          active={active}
+        <LaunchTransition
+          timer={active}
           onComplete={handleMorphComplete}
           screenH={rootH}
           screenW={rootW}
@@ -2029,7 +2026,7 @@ function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onOp
 
       {/* (O) CTA Lancer — capsule de lib/buttonTokens.js (couleur du mode en
           dégradé, liseré, lueur à sa couleur, reflet qui le traverse).
-          La View mesurée (ctaRef) sert à LaunchMorph, qui part de la
+          La View mesurée (ctaRef) sert à LaunchTransition, qui part de la
           position exacte du bouton : collapsable={false} pour qu'Android ne
           l'aplatisse pas (measureInWindow échouerait). */}
       <Animated.View style={ctaReveal}>
@@ -2207,219 +2204,6 @@ function AmbientDot({ w, isActive, index, tokens, ambiance }) {
         />
       ) : null}
     </Animated.View>
-  );
-}
-
-/* ─────────────────────────────────────────────────────────────────
-   (Q) Launch morph — bouton qui devient cercle + bond + texte hero
-   ────────────────────────────────────────────────────────────────*/
-function LaunchMorph({ active, onComplete, screenH, screenW, ctaRect }) {
-  // Position/taille de depart = mesure reelle du bouton CTA (measureInWindow
-  // dans handleLaunch), pas une estimation figee : reste juste quel que soit
-  // l'ecran, la densite ou la mise en page du bouton.
-  const morphInitTop = ctaRect.y;
-  const morphInitLeft = ctaRect.x;
-  const morphInitWidth = ctaRect.width;
-  const morphInitHeight = ctaRect.height;
-  const morphFinalTop = screenH / 2 - MORPH_H_FINAL / 2;
-  const morphFinalLeft = screenW / 2 - MORPH_W_FINAL / 2;
-  const haloTop = screenH / 2 - 300;
-  const haloLeft = screenW / 2 - 300;
-
-  // Même règle de lisibilité que le bouton Lancer (accentTextOn) : le texte
-  // ne doit pas changer de couleur quand le bouton devient le cercle.
-  const isDark = accentTextOn(active.color, active.textMode) === INK_TEXT;
-  const fgColor = isDark ? '#0A0A0A' : '#FFFFFF';
-
-  const progress = useSharedValue(0);
-  const ctaTextOpacity = useSharedValue(1);
-  const haloOpacity = useSharedValue(0);
-  const haloScale = useSharedValue(0.8);
-  const fillScale = useSharedValue(1);
-  const contentOpacity = useSharedValue(1);
-
-  useEffect(() => {
-    // (Q1) Morph keyframes — duration 900, times [0, 0.15, 0.75, 1]
-    progress.value = withTiming(1, { duration: 900, easing: easeImpact });
-
-    // (Q1) Texte CTA fade out
-    ctaTextOpacity.value = withTiming(0, { duration: 250 });
-
-    // (Q2) Halo radial : opacity [0, 0.5, 0.3], scale [0.8, 1.3, 1]
-    haloOpacity.value = withSequence(
-      withTiming(0.5, { duration: 540, easing: easeImpact }),
-      withTiming(0.3, { duration: 360, easing: easeImpact })
-    );
-    haloScale.value = withSequence(
-      withTiming(1.3, { duration: 540, easing: easeImpact }),
-      withTiming(1, { duration: 360, easing: easeImpact })
-    );
-
-    // (Q8) Remplissage final — le cercle 340x340 grossit jusqu'à couvrir l'écran
-    // Le contenu hero (PRÊT/nom/tag/bar) fade out en parallèle.
-    const FILL_DELAY = 2000;
-    const FILL_DURATION = 400;
-    fillScale.value = withDelay(
-      FILL_DELAY,
-      withTiming(4, { duration: FILL_DURATION, easing: easeImpact })
-    );
-    contentOpacity.value = withDelay(
-      FILL_DELAY,
-      withTiming(0, { duration: 250, easing: easeImpact })
-    );
-    haloOpacity.value = withDelay(
-      FILL_DELAY,
-      withTiming(0, { duration: FILL_DURATION, easing: easeImpact })
-    );
-
-    // Fin de séquence (~2.4s) → navigation par router.replace
-    const timer = setTimeout(() => {
-      runOnJS(onComplete)();
-    }, LAUNCH_TOTAL_MS);
-    return () => clearTimeout(timer);
-  }, []);
-
-  // Morph style (Q1)
-  const morphStyle = useAnimatedStyle(() => {
-    const p = progress.value;
-    const w = interpolate(
-      p,
-      [0, 0.15, 0.75, 1],
-      [morphInitWidth, morphInitWidth, MORPH_W_FINAL, MORPH_W_FINAL]
-    );
-    const h = interpolate(
-      p,
-      [0, 0.15, 0.75, 1],
-      [morphInitHeight, morphInitHeight, MORPH_H_FINAL, MORPH_H_FINAL]
-    );
-    const r = interpolate(
-      p,
-      [0, 0.15, 0.75, 1],
-      [MORPH_R_INIT, MORPH_R_INIT, MORPH_R_FINAL, MORPH_R_FINAL]
-    );
-    const top = interpolate(
-      p,
-      [0, 0.15, 0.75, 1],
-      [morphInitTop, morphInitTop - 10, morphFinalTop, morphFinalTop]
-    );
-    const left = interpolate(
-      p,
-      [0, 0.15, 0.75, 1],
-      [morphInitLeft, morphInitLeft, morphFinalLeft, morphFinalLeft]
-    );
-    const sc = interpolate(p, [0, 0.15, 0.75, 1], [1, 0.96, 1.12, 1]);
-    return {
-      width: w,
-      height: h,
-      borderRadius: r,
-      top,
-      left,
-      transform: [{ scale: sc * fillScale.value }],
-    };
-  });
-
-  const ctaTextStyle = useAnimatedStyle(() => ({
-    opacity: ctaTextOpacity.value,
-  }));
-
-  const haloStyle = useAnimatedStyle(() => ({
-    opacity: haloOpacity.value,
-    transform: [{ scale: haloScale.value }],
-  }));
-
-  const contentStyleAnim = useAnimatedStyle(() => ({
-    opacity: contentOpacity.value,
-  }));
-
-  return (
-    <View style={styles.morphLayer} pointerEvents="none">
-      {/* (Q2) Halo radial */}
-      <Animated.View
-        style={[
-          styles.halo,
-          { top: haloTop, left: haloLeft, backgroundColor: active.color + '33' },
-          haloStyle,
-        ]}
-      />
-
-      {/* (Q1) Bouton morph */}
-      <Animated.View
-        style={[
-          styles.morphBox,
-          {
-            backgroundColor: active.color,
-            shadowColor: active.color,
-          },
-          morphStyle,
-        ]}
-      >
-        <Animated.Text
-          style={[
-            styles.morphCtaText,
-            { color: fgColor },
-            ctaTextStyle,
-          ]}
-          numberOfLines={1}
-        >
-          Lancer {active.name}
-        </Animated.Text>
-      </Animated.View>
-
-      {/* (Q3-Q6) Contenu hero centré — fade out pendant Q8 */}
-      <Animated.View style={[styles.morphContent, contentStyleAnim]} pointerEvents="none">
-        <Animated.Text
-          entering={FadeIn.delay(600).duration(450).easing(easeImpact)}
-          style={[
-            styles.morphPret,
-            {
-              color: isDark ? 'rgba(10,10,10,0.75)' : 'rgba(255,255,255,0.9)',
-            },
-          ]}
-        >
-          PRÊT
-        </Animated.Text>
-
-        <Animated.Text
-          entering={FadeIn.delay(650).duration(650).easing(easeOvershoot).withInitialValues({
-            transform: [{ scale: 0.2 }],
-          })}
-          style={[
-            styles.morphHero,
-            { color: fgColor },
-          ]}
-        >
-          {active.name}
-        </Animated.Text>
-
-        <Animated.Text
-          entering={FadeIn.delay(1050).duration(400).easing(easeImpact).withInitialValues({
-            transform: [{ translateY: 20 }],
-          })}
-          style={[
-            styles.morphTag,
-            {
-              color: isDark ? 'rgba(10,10,10,0.65)' : 'rgba(255,255,255,0.8)',
-            },
-          ]}
-        >
-          {active.tag}
-        </Animated.Text>
-
-        <Animated.View
-          entering={FadeIn.delay(1200).duration(500).easing(easeImpact).withInitialValues({
-            transform: [{ scaleX: 0 }],
-          })}
-          style={[
-            styles.morphBar,
-            {
-              backgroundColor: isDark
-                ? 'rgba(10,10,10,0.5)'
-                : 'rgba(255,255,255,0.7)',
-            },
-          ]}
-        />
-      </Animated.View>
-    </View>
   );
 }
 
@@ -3023,71 +2807,6 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     textAlign: 'center',
     marginTop: 12,
-  },
-
-  // Morph layer (Q)
-  morphLayer: {
-    ...StyleSheet.absoluteFill,
-    zIndex: 60,
-  },
-  morphBox: {
-    position: 'absolute',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowOpacity: 0.6,
-    shadowRadius: 60,
-    shadowOffset: { width: 0, height: 30 },
-    elevation: 20,
-  },
-  morphCtaText: {
-    fontFamily: fonts.sansExtraBold,
-    fontSize: 16,
-    letterSpacing: -0.1,
-  },
-  halo: {
-    // top/left fournis en inline par LaunchMorph (haloTop/haloLeft, calculés
-    // depuis rootH/rootW mesurés — voir Q2).
-    position: 'absolute',
-    width: 600,
-    height: 600,
-    borderRadius: 300,
-  },
-  morphContent: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  morphPret: {
-    fontFamily: fonts.sansBold,
-    fontSize: 12,
-    letterSpacing: 6,
-    textTransform: 'uppercase',
-    marginBottom: 20,
-  },
-  morphHero: {
-    fontFamily: fonts.display,
-    fontSize: 108,
-    lineHeight: 108,
-    letterSpacing: -4,
-    includeFontPadding: false,
-    textAlign: 'center',
-  },
-  morphTag: {
-    fontFamily: fonts.sansBold,
-    fontSize: 11,
-    letterSpacing: 3.85,
-    textTransform: 'uppercase',
-    marginTop: 24,
-  },
-  morphBar: {
-    width: 56,
-    height: 2,
-    borderRadius: 1,
-    marginTop: 16,
   },
 
   // Sheet (R + S)

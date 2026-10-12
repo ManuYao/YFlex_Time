@@ -54,6 +54,8 @@ import { useOtaUpdate } from '../hooks/useOtaUpdate';
 import { markUpdatePopupSeen, resolveUpdateCandidate } from '../lib/updatePopup';
 import { haptic, setHapticStrength } from '../hooks/useHaptic';
 import { playDenied, playSound, previewVolumeTap } from '../lib/sounds';
+// TEMP — rejouer les intros de démarrage (à retirer avec la section « Intro de démarrage (test) »).
+import { forceUpdateSplash, requestSplash } from '../lib/splash';
 import { detectVoices } from '../lib/voiceCoach';
 import { fonts } from '../lib/fonts';
 import { previousSeasonRange, seasonRangeOf } from '../lib/seasonRecap';
@@ -671,6 +673,31 @@ export default function Settings() {
               onPress={() => {
                 haptic.light();
                 setAmbianceOverride(null);
+              }}
+              isLast
+            />
+          </Section>
+
+          {/* TEMP — rejoue l'intro de démarrage à la demande, à retirer avant la version
+              officielle. « Courte » = l'intro de tous les jours (un son) ; « longue » = celle d'après
+              une mise à jour (deux sons, elle dure jusqu'à la fin de la seconde mélodie). Pour voir
+              la version d'une saison : forcer l'ambiance juste au-dessus, puis rejouer. */}
+          <Section title="Intro de démarrage (test)">
+            <LinkRow
+              label="Rejouer l'intro courte"
+              sub="Celle des lancements ordinaires, avec l'ambiance du moment"
+              onPress={() => {
+                haptic.light();
+                requestSplash();
+              }}
+            />
+            <LinkRow
+              label="Rejouer l'intro longue"
+              sub="Celle d'après une mise à jour : les deux sons"
+              onPress={() => {
+                haptic.light();
+                forceUpdateSplash();
+                requestSplash();
               }}
               isLast
             />

@@ -1,8 +1,9 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
   FlatList,
+  InteractionManager,
   StyleSheet,
   useWindowDimensions,
 } from 'react-native';
@@ -18,6 +19,7 @@ import { useUiScale, scaled } from '../lib/responsive';
 import { useHaptic } from '../hooks/useHaptic';
 import PermissionPrimer from '../components/common/PermissionPrimer';
 import { shouldShowPermissionPrimer } from '../lib/permissionPrimer';
+import { markAppReady } from '../lib/appReady';
 
 const SLIDES = [
   {
@@ -60,6 +62,11 @@ const SLIDES = [
 
 export default function Onboarding() {
   const router = useRouter();
+  // Premier écran d'un nouvel utilisateur : l'intro de démarrage peut se refermer dessus.
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => markAppReady());
+    return () => task.cancel?.();
+  }, []);
   const haptic = useHaptic();
   const flatListRef = useRef(null);
   const [index, setIndex] = useState(0);

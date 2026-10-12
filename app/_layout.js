@@ -30,7 +30,7 @@ import SmallWindowNotice from '../components/common/SmallWindowNotice';
 import { WindowSizeProvider } from '../lib/responsive';
 import { useAPKCheck } from '../hooks/useAPKCheck';
 import { useOtaUpdate } from '../hooks/useOtaUpdate';
-import { shouldShowSplash, markSplashShown, markSplashCleared, onSplashRequest } from '../lib/splash';
+import { shouldShowSplash, markSplashShown, markSplashCleared, noteSplashEnded, onSplashRequest } from '../lib/splash';
 import { loadCustomCategories } from '../lib/exercises';
 import { registerTimerNotification } from '../lib/timerNotification';
 import { ensureSessionRecovered } from '../lib/sessionDraft';
@@ -223,6 +223,7 @@ export default function RootLayout() {
                     onDone={() => {
                       setSplash('hide');
                       setSplashCleared(true);
+                      noteSplashEnded();
                       markSplashCleared();
                     }}
                   />
