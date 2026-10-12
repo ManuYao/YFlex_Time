@@ -15,7 +15,9 @@ export default function MixCompositionBar({ session, width, height = 5, detail =
 
   return (
     <View
-      style={[styles.wrap, width != null && { width }]}
+      // Largeur fixe = posée dans une rangée : centrée sur la ligne de texte
+      // (le « stretch » la collait en haut de la rangée).
+      style={[styles.wrap, width != null && { width, alignSelf: 'center' }]}
       accessible
       accessibilityLabel={label}
     >
