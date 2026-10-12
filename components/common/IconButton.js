@@ -1,10 +1,19 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
+import Animated, {
+  useAnimatedStyle,
+  useDerivedValue,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
 
 import PressTap from './PressTap';
 import AppIcon from './AppIcon';
+import AmbianceHalo, { WIND_SPRING } from './AmbianceHalo';
+import useAmbiance from '../../hooks/useAmbiance';
+import { rgba } from '../../lib/ambiance';
+import { ambianceWind } from '../../lib/ambianceMotion';
 import { ROUND_SIZE, TAP_SCALE, buttonRecipe } from '../../lib/buttonTokens';
 
 /**
@@ -27,8 +36,16 @@ import { ROUND_SIZE, TAP_SCALE, buttonRecipe } from '../../lib/buttonTokens';
  *              la couleur du mode, l'ombre noire se lisait comme une bordure
  *              noire autour du disque, qui apparaissait et disparaissait au
  *              rythme de la lueur (retour utilisateur, v14.1.1).
+ * - halo     : 'left' | 'right' — ambiance de saison (voir le bas du fichier) :
+ *              couronne de 36 graduations autour du bouton, liseré teinté,
+ *              glyphe légèrement teinté, et réaction au glissé du carrousel
+ *              de l'accueil. Sans `halo`, rien ne change : même arbre qu'avant.
+ *              Le bouton est alors posé dans un conteneur de sa taille, qui
+ *              reçoit `style` (placement) et laisse déborder la couronne.
+ * - haloLive : le halo tourne et respire seul, même au repos (le SEUL bouton
+ *              animé de l'app : le choix de l'ambiance, dans les Paramètres).
  */
-export default function IconButton({
+function PlainIconButton({
   icon,
   size = ROUND_SIZE.nav,
   iconSize,
@@ -43,6 +60,7 @@ export default function IconButton({
   hitSlop = 8,
   style,
   flat = false,
+  rimColor, // interne : liseré teinté de l'ambiance (posé par WindIconButton)
 }) {
   const r = buttonRecipe({ variant, tone, color });
   const press = useSharedValue(0);
@@ -71,7 +89,7 @@ export default function IconButton({
           {
             borderRadius: size / 2,
             backgroundColor: r.backgroundColor,
-            borderColor: r.borderColor,
+            borderColor: rimColor ?? r.borderColor,
             borderWidth: r.borderWidth,
           },
           !flat && r.inner ? { boxShadow: r.inner } : null,
@@ -119,3 +137,89 @@ const styles = StyleSheet.create({
     height: '55%',
   },
 });
+
+/* ───────────── Ambiance de saison (props `halo` / `haloLive`) ───────────── */
+
+// Mouvement lissé par un ressort, tiré du vent du carrousel (`ambianceWind`, en dp :
+// positif = le doigt va à droite). `factor` convertit des dp en pixels ou en degrés,
+// `max` borne le résultat. Au relâché, retour avec un petit rebond (maquette Round :
+// gx = vent × 0,035 à ±4 ; gr = vent × 0,06 à ±8° ; mx = vent × 0,02 à ±3).
+function useWindSpring(factor, max) {
+  return useDerivedValue(() =>
+    withSpring(Math.max(-max, Math.min(max, ambianceWind.value * factor)), WIND_SPRING)
+  );
+}
+
+// Le glyphe suit le doigt de quelques pixels et s'incline un peu.
+function WindGlyph({ children }) {
+  const dx = useWindSpring(0.035, 4);
+  const deg = useWindSpring(0.06, 8);
+  const style = useAnimatedStyle(() => ({
+    transform: [{ translateX: dx.value }, { rotate: `${deg.value}deg` }],
+  }));
+  return <Animated.View style={style}>{children}</Animated.View>;
+}
+
+// Bouton posé dans un conteneur de sa taille : la couronne passe derrière et déborde
+// (jamais d'overflow hidden ici), le bouton glisse de quelques dp comme un aimant.
+function WindIconButton({
+  halo,
+  haloLive,
+  ambiance,
+  icon,
+  size = ROUND_SIZE.nav,
+  iconSize,
+  variant = 'glass',
+  tone = 'light',
+  color,
+  style,
+  ...rest
+}) {
+  const r = buttonRecipe({ variant, tone, color });
+  const glyph = iconSize ?? Math.round(size * 0.45);
+  const glide = useWindSpring(0.02, 3);
+  const glideStyle = useAnimatedStyle(() => ({ transform: [{ translateX: glide.value }] }));
+
+  // Sans ambiance (réglage « Aucune ») : aucune teinte, seulement la couronne blanche du mode live.
+  const accent = ambiance ? ambiance.accent : undefined;
+  // Le liseré teinté ne vaut que pour le verre ; les autres variantes gardent le leur.
+  const rimColor = ambiance && variant === 'glass' ? rgba(ambiance.rim, 0.7) : undefined;
+  const glyphEl =
+    typeof icon === 'string' ? (
+      <AppIcon name={icon} size={glyph} color={r.textColor} accent={accent} />
+    ) : (
+      icon
+    );
+
+  return (
+    <View style={[{ width: size, height: size }, style]}>
+      <AmbianceHalo size={size} side={halo} live={haloLive} />
+      <Animated.View style={[{ width: size, height: size }, glideStyle]}>
+        <PlainIconButton
+          {...rest}
+          icon={<WindGlyph>{glyphEl}</WindGlyph>}
+          size={size}
+          iconSize={iconSize}
+          variant={variant}
+          tone={tone}
+          color={color}
+          rimColor={rimColor}
+        />
+      </Animated.View>
+    </View>
+  );
+}
+
+// Lit l'ambiance du moment ; s'il n'y en a aucune (et pas de mode live), le bouton
+// reste exactement le bouton ordinaire.
+function AmbientIconButton(props) {
+  const { ambiance } = useAmbiance();
+  if (!ambiance && !props.haloLive) return <PlainIconButton {...props} />;
+  return <WindIconButton {...props} ambiance={ambiance} />;
+}
+
+export default function IconButton(props) {
+  // Sans `halo` : le bouton d'avant, sans un hook de plus (IconButton sert partout).
+  if (!props.halo) return <PlainIconButton {...props} />;
+  return <AmbientIconButton {...props} />;
+}

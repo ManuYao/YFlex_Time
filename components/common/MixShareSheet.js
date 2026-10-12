@@ -609,6 +609,10 @@ function ShareContent({ mix: mixProp, close, scrollToEnd, onImported, goLogin, o
     // `update: true` : si le mix est déjà là mais en version différente, la
     // personne a touché « Mettre à jour » — jamais une deuxième copie.
     const res = await receiveMix(preview, { update: true });
+    if (res.status === 'limit') {
+      importingRef.current = false;
+      return;
+    }
     await saveCurrentMix(res.entry);
     onImported?.(res.entry);
     close();

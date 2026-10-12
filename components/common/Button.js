@@ -1,12 +1,21 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
+import Animated, {
+  useAnimatedStyle,
+  useDerivedValue,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
 
 import PressTap from './PressTap';
 import AppIcon from './AppIcon';
 import DotsLoader from './DotsLoader';
 import ShineSweep from './ShineSweep';
+import { WIND_SPRING } from './AmbianceHalo';
+import useAmbiance from '../../hooks/useAmbiance';
+import { rgba } from '../../lib/ambiance';
+import { ambianceWind } from '../../lib/ambianceMotion';
 import { fonts } from '../../lib/fonts';
 import {
   BUTTON_FONT,
@@ -48,8 +57,13 @@ import {
  * - style : placement du bouton (marges, flex, alignSelf) — posé sur la zone
  *   d'appui, pour qu'un `flex: 1` fasse bien grandir le bouton dans une rangée
  * - labelStyle
+ * - ambientRim : ambiance de saison (bouton Lancer de l'accueil, variante
+ *   'accent' seulement). Le liseré prend la teinte de l'ambiance et un reflet
+ *   suit le doigt pendant un glissé du carrousel (voir le bas du fichier).
+ *   Faux (défaut) ou sans ambiance : exactement le bouton d'avant, sans un
+ *   hook ni une vue de plus (Button sert dans des dizaines d'écrans).
  */
-export default function Button({
+function PlainButton({
   variant = 'solid',
   size = 'lg',
   tone = 'light',
@@ -68,6 +82,8 @@ export default function Button({
   style,
   labelStyle,
   accessibilityLabel,
+  rimColor, // interne : liseré teinté de l'ambiance (posé par AmbientButton)
+  renderAmbient, // interne : (largeur) => reflet de l'ambiance (posé par AmbientButton)
 }) {
   const r = buttonRecipe({ variant, tone, color });
   // Chargement : plus aucun appui (ni animation, ni vibration), mais le bouton
@@ -142,7 +158,7 @@ export default function Button({
             borderRadius: radius,
             paddingHorizontal: BUTTON_PAD_X[size],
             backgroundColor: r.backgroundColor,
-            borderColor: r.borderColor,
+            borderColor: rimColor ?? r.borderColor,
             borderWidth: r.borderWidth,
           },
           r.inner ? { boxShadow: r.inner } : null,
@@ -166,6 +182,8 @@ export default function Button({
           />
         ) : null}
         {hasShine ? <ShineSweep width={box.w} height={box.h} active={!inactive} /> : null}
+        {/* Reflet de l'ambiance : sous le contenu (posé avant lui), découpé à la capsule. */}
+        {renderAmbient ? renderAmbient(box.w) : null}
         <Animated.View
           pointerEvents="none"
           style={[StyleSheet.absoluteFill, { backgroundColor: r.overlay }, overlayStyle]}
@@ -187,9 +205,82 @@ export default function Button({
   );
 }
 
+/* ───────────── Ambiance de saison (prop `ambientRim`) ───────────── */
+
+const REFLECT_W = 110; // largeur de la bande de reflet (dp)
+const REFLECT_FADE = ['rgba(255,255,255,0)', 'rgba(255,255,255,0.40)', 'rgba(255,255,255,0)'];
+
+// Reflet qui suit le doigt (maquette Launch.dc.html) : une bande inclinée dont la
+// position vient du vent du carrousel (`ambianceWind`, en dp ; positif = le doigt va à
+// droite) — centrée au repos, poussée de vent × 1,1, bornée au bouton — et dont
+// l'opacité monte avec la force du vent (0 au repos, 0,9 au plus). Les deux sont
+// lissées par un ressort : au relâché, la bande revient avec un petit rebond. Tout
+// passe par transform et opacity sur le fil d'interface ; rien ne boucle.
+function WindReflection({ width }) {
+  const x = useDerivedValue(() => {
+    const target = (width - REFLECT_W) / 2 + ambianceWind.value * 1.1;
+    return withSpring(Math.max(-REFLECT_W, Math.min(width, target)), WIND_SPRING);
+  });
+  const strength = useDerivedValue(() =>
+    withSpring(Math.max(0, Math.min(0.9, Math.abs(ambianceWind.value) / 70)), WIND_SPRING)
+  );
+  const style = useAnimatedStyle(() => ({
+    // Le ressort peut dépasser un peu : on borne une dernière fois.
+    opacity: Math.max(0, Math.min(0.9, strength.value)),
+    transform: [{ translateX: x.value }, { skewX: '-18deg' }],
+  }));
+
+  if (!(width > 0)) return null; // pas encore mesuré
+
+  return (
+    <Animated.View pointerEvents="none" style={[styles.reflect, style]}>
+      <LinearGradient
+        colors={REFLECT_FADE}
+        start={{ x: 0, y: 0.45 }}
+        end={{ x: 1, y: 0.55 }}
+        style={StyleSheet.absoluteFill}
+      />
+    </Animated.View>
+  );
+}
+
+// Identité stable : PlainButton ne refait pas rendre le reflet pour rien.
+const renderWindReflection = (width) => <WindReflection width={width} />;
+
+// Lit l'ambiance du moment. Sans ambiance (réglage « Aucune ») ou hors variante
+// 'accent' (bouton verrouillé en verre), on rend le même PlainButton, sans liseré
+// teinté ni reflet. Le choix se fait ICI et non dans l'export par défaut : le type
+// du composant ne change jamais quand le bouton passe d'accent à verre.
+function AmbientButton(props) {
+  const { ambiance } = useAmbiance();
+  const on = !!ambiance && props.variant === 'accent';
+  return (
+    <PlainButton
+      {...props}
+      rimColor={on ? rgba(ambiance.rim, 0.8) : undefined}
+      renderAmbient={on ? renderWindReflection : undefined}
+    />
+  );
+}
+
+export default function Button(props) {
+  // Sans `ambientRim` : le bouton d'avant, sans un hook de plus.
+  if (!props.ambientRim) return <PlainButton {...props} />;
+  return <AmbientButton {...props} />;
+}
+
 const styles = StyleSheet.create({
   fullWidth: {
     alignSelf: 'stretch',
+  },
+  // Bande de reflet : déborde un peu en haut et en bas (elle est inclinée) ; la
+  // capsule intérieure (overflow hidden) la découpe, elle n'est jamais visible dehors.
+  reflect: {
+    position: 'absolute',
+    top: -10,
+    bottom: -10,
+    left: 0,
+    width: REFLECT_W,
   },
   inner: {
     flexDirection: 'row',

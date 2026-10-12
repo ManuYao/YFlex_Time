@@ -473,6 +473,10 @@ function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine, launc
       { ...mix, fromFeed: { author: item.author, feedId: item.id } },
       { update: true }
     );
+    if (res.status === 'limit') {
+      haptic.warning();
+      return;
+    }
     if (res.status === 'same') {
       haptic.warning();
       showToast({ text: 'Déjà dans Mes mix.', icon: 'check' });

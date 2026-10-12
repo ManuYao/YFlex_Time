@@ -119,6 +119,7 @@ export default function ProfileAnalytics({ stats, isPremium, onGoPremium }) {
                 />
               </View>
             </PressTap>
+            <LockedList sessionCount={stats.sessionCount} />
             <View style={styles.teaserCta}>
               <Button
                 variant="glass"
@@ -140,11 +141,50 @@ export default function ProfileAnalytics({ stats, isPremium, onGoPremium }) {
   );
 }
 
+// Ce que la personne débloquerait avec SES séances : une phrase qui parle de
+// ses données (jamais de chiffres inventés) puis les trois analyses cachées.
+const LOCKED_ITEMS = [
+  { icon: 'clock', title: 'Temps sous tension', caption: 'Ton effort réel, repos exclus' },
+  { icon: 'sessions', title: 'Répartition des formats', caption: 'Ce que tu fais vraiment le plus' },
+  { icon: 'calendar', title: 'Comparatif mensuel', caption: 'Tu progresses ? Mois contre mois' },
+];
+
+function LockedList({ sessionCount }) {
+  const n = sessionCount || 0;
+  const lead =
+    n > 0
+      ? `Tes ${n} séance${n > 1 ? 's' : ''} contiennent déjà de quoi les calculer.`
+      : 'Dès ta première séance, ces analyses se remplissent toutes seules.';
+  return (
+    <View style={styles.lockedWrap}>
+      <Text style={styles.lockedLead}>{lead}</Text>
+      {LOCKED_ITEMS.map((item) => (
+        <View key={item.title} style={styles.lockedRow}>
+          <View style={styles.lockedIcon}>
+            <AppIcon name={item.icon} size={14} color={GOLD} />
+          </View>
+          <View style={styles.lockedText}>
+            <Text style={styles.lockedTitle} numberOfLines={1}>
+              {item.title}
+            </Text>
+            <Text style={styles.lockedCaption} numberOfLines={1}>
+              {item.caption}
+            </Text>
+          </View>
+          <AppIcon name="lock" size={13} color="rgba(255,255,255,0.45)" />
+        </View>
+      ))}
+    </View>
+  );
+}
+
 function PremiumContent({ stats, preview = false }) {
   const tut = stats.tension;
   const monthlyAvg = Math.round(average(stats.monthlyCounts));
   const [showMore, setShowMore] = useState(false);
   const deltaLabel = tut.deltaPct === null ? '—' : `${tut.deltaPct > 0 ? '+' : ''}${tut.deltaPct} %`;
+  // Aperçu verrouillé : la forme est visible, pas les chiffres (ils se gagnent).
+  const shown = (text) => (preview ? String(text).replace(/\d/g, '•') : text);
 
   const tensionCard = (
     <View style={styles.card}>
@@ -152,11 +192,11 @@ function PremiumContent({ stats, preview = false }) {
       <View style={styles.tutRow}>
         <View style={styles.tutLeft}>
           <Text style={styles.tutValue} numberOfLines={1}>
-            {tut.label}
+            {shown(tut.label)}
           </Text>
           <View style={styles.deltaRow}>
             <View style={styles.deltaChip}>
-              <Text style={styles.deltaText}>{deltaLabel}</Text>
+              <Text style={styles.deltaText}>{shown(deltaLabel)}</Text>
             </View>
             <Text style={styles.deltaCaption}>vs mois dernier</Text>
           </View>
@@ -459,7 +499,50 @@ const styles = StyleSheet.create({
   },
   teaserCta: {
     alignItems: 'center',
-    marginTop: -34,
+    marginTop: 14,
+  },
+  lockedWrap: {
+    marginTop: 10,
+    gap: 8,
+  },
+  lockedLead: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.78)',
+    marginBottom: 2,
+  },
+  lockedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  lockedIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(240,201,84,0.14)',
+  },
+  lockedText: {
+    flex: 1,
+  },
+  lockedTitle: {
+    fontFamily: fonts.sansBold,
+    fontSize: 14,
+    color: '#FFFFFF',
+  },
+  lockedCaption: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 11.5,
+    color: 'rgba(255,255,255,0.55)',
+    marginTop: 1,
   },
 
   tutRow: {

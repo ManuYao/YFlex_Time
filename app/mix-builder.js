@@ -382,6 +382,7 @@ export default function MixBuilder() {
       haptic.warning();
       const applyUpdate = async () => {
         const res = await receiveMix(base, { update: true });
+        if (res.status === 'limit') return;
         await stashBaseline();
         await saveCurrentMix(res.entry);
         setDraft(cloneMix(res.entry));
@@ -403,6 +404,7 @@ export default function MixBuilder() {
     haptic.success();
     await stashBaseline();
     const res = await receiveMix(base);
+    if (res.status === 'limit') return;
     await saveCurrentMix(res.entry);
     setDraft(cloneMix(res.entry));
     setPreview(false);

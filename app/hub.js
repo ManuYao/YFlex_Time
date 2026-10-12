@@ -10,10 +10,14 @@ import IconButton from '../components/common/IconButton';
 import PressTap from '../components/common/PressTap';
 import AppIcon from '../components/common/AppIcon';
 import TickRing from '../components/common/TickRing';
+import AmbianceBackdrop from '../components/common/AmbianceBackdrop';
+import AmbianceHalo from '../components/common/AmbianceHalo';
 import { SkeletonGroup, SkeletonBlock } from '../components/common/Skeleton';
 import { MIX_COLOR } from '../components/common/MixPill';
 import { useTimers } from '../contexts/TimersContext';
+import useAmbiance from '../hooks/useAmbiance';
 import { haptic } from '../hooks/useHaptic';
+import { rgba } from '../lib/ambiance';
 import { fonts } from '../lib/fonts';
 import { D, slideInY } from '../lib/animations';
 import { loadHistory, computeTotals, computeStreak } from '../lib/history';
@@ -39,6 +43,11 @@ const FALLBACK_MIX_BG = ['#9575FF', '#4B2FC9', '#1A0D52'];
 export default function Hub() {
   const router = useRouter();
   const { timers, currentMix, library } = useTimers();
+  // Ambiance de saison : null quand le réglage est sur « Aucune » — tout le
+  // menu est alors strictement celui d'avant.
+  const { ambiance } = useAmbiance();
+  const mixRim = ambiance ? rgba(ambiance.rim, 0.55) : null;
+  const tileRim = ambiance ? rgba(ambiance.rim, 0.3) : null;
   // `null` tant que rien n'est lu : les tuiles montrent un petit squelette au lieu
   // d'afficher « Aucune séance » / « Rien de prévu » une fraction de seconde.
   const [sessions, setSessions] = useState(null);
@@ -89,6 +98,8 @@ export default function Hub() {
 
   return (
     <GradientBackground colors={['#1A1A1A', '#0A0A0A', '#000000']} ambient>
+      {/* Décor de saison : derrière tout (lueur, motifs qui flottent, passage rare). */}
+      <AmbianceBackdrop tone="light" />
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.statusBar}>
           <Text style={styles.statusText}>MENU</Text>
@@ -97,6 +108,7 @@ export default function Hub() {
         <View style={styles.topBar}>
           <IconButton
             icon="back"
+            halo="left"
             haptic={haptic.light}
             onPress={() => router.back()}
             accessibilityLabel="Retour"
@@ -104,6 +116,7 @@ export default function Hub() {
           <Text style={styles.topTitle}>Menu</Text>
           <IconButton
             icon="gear"
+            halo="right"
             haptic={haptic.light}
             onPress={() => router.push('/settings')}
             accessibilityLabel="Réglages"
@@ -121,7 +134,7 @@ export default function Hub() {
               onPress={() => go('/mix-hub')}
               tapScale={0.98}
               accessibilityLabel="Ouvrir Mix et Partage"
-              style={styles.mixCard}
+              style={[styles.mixCard, mixRim ? { borderColor: mixRim } : null]}
             >
               <LinearGradient
                 colors={mixBg}
@@ -185,9 +198,20 @@ export default function Hub() {
                 <Text style={styles.mixFootText}>
                   {library.length} enregistré{library.length > 1 ? 's' : ''}
                 </Text>
-                <View style={styles.mixGo}>
-                  <AppIcon name="play" size={14} color="#0A0A0A" />
-                </View>
+                {ambiance ? (
+                  // La couronne de graduations déborde du rond dans la marge de
+                  // la carte (22 dp) : le conteneur ne coupe rien.
+                  <View style={styles.mixGoWrap}>
+                    <AmbianceHalo size={40} side="right" />
+                    <View style={styles.mixGo}>
+                      <AppIcon name="play" size={14} color="#0A0A0A" />
+                    </View>
+                  </View>
+                ) : (
+                  <View style={styles.mixGo}>
+                    <AppIcon name="play" size={14} color="#0A0A0A" />
+                  </View>
+                )}
               </View>
             </PressTap>
           </Animated.View>
@@ -199,6 +223,7 @@ export default function Hub() {
                 icon="history"
                 title="Mon historique"
                 summary={historySummary}
+                rim={tileRim}
                 onPress={() => go('/history')}
               />
             </Animated.View>
@@ -207,6 +232,7 @@ export default function Hub() {
                 icon="calendar"
                 title="Mon planning"
                 summary={planningSummary}
+                rim={tileRim}
                 onPress={() => go({ pathname: '/history', params: { page: 'planning' } })}
               />
             </Animated.View>
@@ -217,14 +243,15 @@ export default function Hub() {
   );
 }
 
-function HubTile({ icon, title, summary, onPress }) {
+// `rim` : liseré teinté de l'ambiance de saison (null = le liseré habituel).
+function HubTile({ icon, title, summary, onPress, rim = null }) {
   return (
     <PressTap
       onPress={onPress}
       tapScale={0.97}
       accessibilityLabel={title}
       containerStyle={styles.tileContainer}
-      style={styles.tile}
+      style={[styles.tile, rim ? { borderColor: rim } : null]}
     >
       <View style={styles.tileIcon}>
         <AppIcon name={icon} size={26} color="#FFFFFF" />
@@ -372,6 +399,12 @@ const styles = StyleSheet.create({
     fontSize: 11,
     letterSpacing: 1.2,
     color: 'rgba(255,255,255,0.70)',
+  },
+  // Conteneur de la même taille que le rond : la couronne d'ambiance le déborde
+  // (jamais d'overflow hidden ici).
+  mixGoWrap: {
+    width: 40,
+    height: 40,
   },
   mixGo: {
     width: 40,

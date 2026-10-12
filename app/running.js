@@ -129,7 +129,33 @@ export default function Running() {
       ? { basicTriggers: mixBasicTriggers }
       : undefined;
 
-  const state = computeState(timer, secondsElapsed, ctx) ?? fallbackState();
+  const rawState = computeState(timer, secondsElapsed, ctx) ?? fallbackState();
+  // Les indicateurs de progression n'avancent QUE dans un sens (celui des
+  // aiguilles d'une montre) : avec un bloc BASIC dans un MIX, la durée totale
+  // est une estimation qui se corrige quand le bloc se termine, et la barre du
+  // haut pouvait alors reculer. Un recul n'est jamais voulu pendant une séance ;
+  // seul un retour à zéro du temps (Reset) repart de rien.
+  const monoRef = useRef({ elapsed: 0, total: 0, ringKey: '', ring: 0 });
+  {
+    const m = monoRef.current;
+    if (secondsElapsed < m.elapsed) {
+      m.total = 0;
+      m.ring = 0;
+      m.ringKey = '';
+    }
+    m.elapsed = secondsElapsed;
+    m.total = Math.max(m.total, rawState.totalProgress || 0);
+    const ringKey = `${rawState.phaseLabel}|${rawState.currentRound}|${rawState.exerciseIndex ?? ''}`;
+    // Le chrono du travail libre BASIC repart légitimement à zéro chaque minute.
+    // Un gros recul (> moitié) = nouvelle phase qui repart de zéro, pas un à-coup.
+    if (ringKey !== m.ringKey || rawState.countDirection === 'up' || (rawState.ringProgress || 0) < m.ring - 0.5) {
+      m.ringKey = ringKey;
+      m.ring = rawState.ringProgress || 0;
+    } else {
+      m.ring = Math.max(m.ring, rawState.ringProgress || 0);
+    }
+  }
+  const state = { ...rawState, totalProgress: monoRef.current.total, ringProgress: monoRef.current.ring };
   const isWorkInfinite = state.countDirection === 'up';
   // Vrai pour le BASIC autonome ET pour un bloc BASIC actif d'un MIX : les
   // deux se pilotent pareil (bouton "Fin du travail", pas de Passer).

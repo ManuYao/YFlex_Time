@@ -108,6 +108,7 @@ export default function MixHub() {
       return;
     }
     const res = await receiveMix(ownedCopy, { update: true });
+    if (res.status === 'limit') return;
     await saveCurrentMix(res.entry);
   };
 

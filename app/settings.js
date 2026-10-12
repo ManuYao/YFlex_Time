@@ -27,8 +27,18 @@ import ContactSheet from '../components/common/ContactSheet';
 import ConfirmSheet from '../components/common/ConfirmSheet';
 import LegalGate from '../components/common/LegalGate';
 import CoachSheet, { COACH_STYLES } from '../components/common/CoachSheet';
+import AmbianceSheet, { ambianceSummary } from '../components/common/AmbianceSheet';
 import BlockedUsersSheet from '../components/common/BlockedUsersSheet';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
+import useAmbiance from '../hooks/useAmbiance';
+// TEMP — bouton de test des ambiances (à retirer avec la section « Ambiance (test) »).
+import { getAmbiance } from '../lib/ambiance';
+import {
+  TEST_AMBIANCE_CYCLE,
+  cycleAmbianceOverride,
+  setAmbianceOverride,
+  useAmbianceOverride,
+} from '../lib/ambianceTest';
 import { loadContactNoticeHidden, setContactNoticeHidden } from '../lib/contactNotice';
 import {
   isBatteryOptimizationEnabled,
@@ -118,6 +128,14 @@ export default function Settings() {
   // n'y apparaît que si le téléphone a une vraie voix d'homme en français
   // (lib/voiceCoach.js, detectVoices) — sinon voix femme, sans option.
   const [coachSheet, setCoachSheet] = useState(false);
+  // Feuille « Ambiance de saison » (components/common/AmbianceSheet.js) ; le
+  // résumé de la ligne suit le réglage et la date du téléphone.
+  const [ambianceSheet, setAmbianceSheet] = useState(false);
+  const { mode: ambianceMode, ambiance } = useAmbiance();
+  const testAmbianceId = useAmbianceOverride(); // TEMP
+  const testAmbianceNextId =
+    TEST_AMBIANCE_CYCLE[(TEST_AMBIANCE_CYCLE.indexOf(testAmbianceId) + 1) % TEST_AMBIANCE_CYCLE.length];
+  const testAmbianceNext = testAmbianceNextId ? getAmbiance(testAmbianceNextId).label : 'Date réelle';
   const [blockedSheet, setBlockedSheet] = useState(false);
   const blockedUsers = useBlockedUsers();
   const [maleVoiceAvailable, setMaleVoiceAvailable] = useState(false);
@@ -548,6 +566,37 @@ export default function Settings() {
             </Section>
           )}
 
+          <Section title="Apparence">
+            {/* Le SEUL bouton animé au repos de toute l'app (voulu) : sa
+                couronne de graduations tourne très doucement. Ne le copier
+                nulle part ailleurs. Le rond est décoratif : tout le tap va à
+                la ligne (pointerEvents none). */}
+            <LinkRow
+              label="Ambiance de saison"
+              sub={ambianceSummary(ambianceMode, ambiance)}
+              accessibilityLabel={`Ambiance de saison, ${ambianceSummary(ambianceMode, ambiance)}`}
+              leading={
+                <View
+                  style={styles.rowLeading}
+                  pointerEvents="none"
+                  importantForAccessibility="no-hide-descendants"
+                >
+                  <IconButton
+                    icon="season"
+                    halo="right"
+                    haloLive
+                    size={ROUND_SIZE.nav}
+                  />
+                </View>
+              }
+              onPress={() => {
+                haptic.light();
+                setAmbianceSheet(true);
+              }}
+              isLast
+            />
+          </Section>
+
           <Section title="À propos">
             <LinkRow
               label="Version"
@@ -600,6 +649,30 @@ export default function Settings() {
             />
           </Section>
 
+          {/* TEMP — à retirer avant publication : force une saison ou une fête pour
+              les juger sans attendre la date. En mémoire seulement (un relancement
+              de l'app revient à la date réelle). L'effet se voit sur l'accueil, le
+              menu, l'historique et le planning (les Paramètres restent noirs). */}
+          <Section title="Ambiance (test)">
+            <LinkRow
+              label="Forcer une ambiance"
+              sub={`${testAmbianceId ? getAmbiance(testAmbianceId).label : 'Date réelle'} · touche pour : ${testAmbianceNext}`}
+              onPress={() => {
+                haptic.light();
+                cycleAmbianceOverride();
+              }}
+            />
+            <LinkRow
+              label="Revenir à la date réelle"
+              sub="Annule l'ambiance forcée"
+              onPress={() => {
+                haptic.light();
+                setAmbianceOverride(null);
+              }}
+              isLast
+            />
+          </Section>
+
           {/* Action destructive : lien texte en rouge (DANGER), comme
               « Supprimer ce bloc » dans BlockSheet. La vibration vient de
               handleResetAll (une seule). */}
@@ -639,6 +712,8 @@ export default function Settings() {
         )}
 
         {blockedSheet && <BlockedUsersSheet screenH={screenH} onClose={() => setBlockedSheet(false)} />}
+
+        {ambianceSheet && <AmbianceSheet screenH={screenH} onClose={() => setAmbianceSheet(false)} />}
 
         {coachSheet && (
           <CoachSheet
@@ -733,11 +808,25 @@ function ModeDots() {
   );
 }
 
-function LinkRow({ label, sub, subPrefix, subStyle, danger, onPress, isLast, disabled }) {
+// `leading` : un élément posé avant le texte (icône de ligne) ; `accessibilityLabel`
+// : lecture d'écran de toute la ligne quand le libellé seul ne suffit pas.
+function LinkRow({
+  label,
+  sub,
+  subPrefix,
+  subStyle,
+  danger,
+  onPress,
+  isLast,
+  disabled,
+  leading,
+  accessibilityLabel,
+}) {
   return (
     <Pressable
       onPress={onPress}
       disabled={disabled}
+      accessibilityLabel={accessibilityLabel}
       style={({ pressed }) => [
         styles.row,
         !isLast && styles.rowBorder,
@@ -745,6 +834,7 @@ function LinkRow({ label, sub, subPrefix, subStyle, danger, onPress, isLast, dis
         pressed && !disabled && { opacity: 0.6 },
       ]}
     >
+      {leading}
       <View style={styles.rowText}>
         <Text style={[styles.rowLabel, danger && styles.rowLabelDanger]}>{label}</Text>
         {!!sub &&
@@ -983,6 +1073,10 @@ const styles = StyleSheet.create({
   rowText: {
     flex: 1,
     minWidth: 0,
+  },
+  // Icône de ligne : un peu d'air à droite, la couronne d'ambiance déborde de 13 dp.
+  rowLeading: {
+    marginRight: 4,
   },
   rowLabel: {
     fontFamily: fonts.sansSemibold,

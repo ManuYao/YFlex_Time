@@ -319,6 +319,7 @@ export default function PlanningPage({
       <View style={styles.topBar}>
         <IconButton
           icon="back"
+          halo="left"
           haptic={haptic.light}
           onPress={() => router.back()}
           accessibilityLabel="Retour"
@@ -328,6 +329,7 @@ export default function PlanningPage({
 
         <IconButton
           icon="gear"
+          halo="right"
           haptic={haptic.light}
           onPress={() => router.push('/settings')}
           accessibilityLabel="Réglages"

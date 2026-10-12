@@ -15,6 +15,8 @@ import { fonts } from '../../lib/fonts';
 import { ROUND_SIZE } from '../../lib/buttonTokens';
 import { useHaptic } from '../../hooks/useHaptic';
 import { useMyPublications } from '../../hooks/useMyPublications';
+import { usePremium } from '../../hooks/usePremium';
+import { FREE_CREATIONS, FREE_DOWNLOADS } from '../../lib/libraryLimits';
 
 const ONLINE = '#1FC777';
 
@@ -71,11 +73,25 @@ export default function MixLibrarySheet({
     [library, pubs.status, pubs.items, ownIds]
   );
   const groups = useMemo(() => {
+    // Trois volets : mes créations privées, les mix sauvegardés (pris chez les
+    // autres) et mes mix publiés. Un volet fermé n'est pas construit.
     const mine = [];
     const fromFeed = [];
-    for (const m of library) (isFeedMix(m, ownIds) ? fromFeed : mine).push(m);
-    return { mine, fromFeed };
-  }, [library, ownIds]);
+    const online = [];
+    for (const m of library) {
+      if (isFeedMix(m, ownIds)) fromFeed.push(m);
+      else if (assigned.get(m.id)) online.push(m);
+      else mine.push(m);
+    }
+    return { mine, fromFeed, online };
+  }, [library, ownIds, assigned]);
+  const { isPremium } = usePremium();
+  // Créations ouvertes au départ, le reste fermé : moins de lignes à afficher.
+  const [open, setOpen] = useState({ mine: true, fromFeed: false, online: false });
+  const toggle = (key) => {
+    haptic.light();
+    setOpen((o) => ({ ...o, [key]: !o[key] }));
+  };
 
   // Supprimer un mix de MA liste retire aussi sa publication du fil public :
   // l'un suit l'autre. Un mix pris chez quelqu'un d'autre n'a rien à retirer.
@@ -192,23 +208,50 @@ export default function MixLibrarySheet({
 
             {groups.mine.length > 0 && (
               <View style={styles.group}>
-                <Text style={styles.groupTitle}>MES CRÉATIONS · {groups.mine.length}</Text>
-                <View style={styles.libList}>{groups.mine.map((m) => renderRow(m, { feed: false }))}</View>
+                <Pressable onPress={() => toggle('mine')} style={styles.groupHead} hitSlop={6}>
+                  <Text style={[styles.groupTitle, styles.groupTitleFlex]}>
+                    MES CRÉATIONS · {isPremium ? groups.mine.length : `${groups.mine.length} / ${FREE_CREATIONS}`}
+                  </Text>
+                  <Chevron open={open.mine} />
+                </Pressable>
+                {open.mine && (
+                  <View style={styles.libList}>{groups.mine.map((m) => renderRow(m, { feed: false }))}</View>
+                )}
               </View>
             )}
 
             {groups.fromFeed.length > 0 && (
               <View style={styles.group}>
-                <View style={styles.groupHead}>
+                <Pressable onPress={() => toggle('fromFeed')} style={styles.groupHead} hitSlop={6}>
                   <AppIcon name="globe" size={11} color="rgba(149,117,255,0.9)" />
-                  <Text style={[styles.groupTitle, { color: 'rgba(149,117,255,0.9)' }]}>
-                    ENREGISTRÉS DEPUIS LE FIL · {groups.fromFeed.length}
+                  <Text style={[styles.groupTitle, styles.groupTitleFlex, { color: 'rgba(149,117,255,0.9)' }]}>
+                    SAUVEGARDÉS · {isPremium ? groups.fromFeed.length : `${groups.fromFeed.length} / ${FREE_DOWNLOADS}`}
                   </Text>
-                </View>
-                <View style={styles.libList}>{groups.fromFeed.map((m) => renderRow(m, { feed: true }))}</View>
-                <Text style={styles.groupNote}>
-                  Créés par d'autres : tu peux les modifier, ta version reste la tienne.
-                </Text>
+                  <Chevron open={open.fromFeed} />
+                </Pressable>
+                {open.fromFeed && (
+                  <>
+                    <View style={styles.libList}>{groups.fromFeed.map((m) => renderRow(m, { feed: true }))}</View>
+                    <Text style={styles.groupNote}>
+                      Créés par d'autres : tu peux les modifier, ils restent dans cette liste.
+                    </Text>
+                  </>
+                )}
+              </View>
+            )}
+
+            {groups.online.length > 0 && (
+              <View style={styles.group}>
+                <Pressable onPress={() => toggle('online')} style={styles.groupHead} hitSlop={6}>
+                  <AppIcon name="globe" size={11} color={ONLINE} />
+                  <Text style={[styles.groupTitle, styles.groupTitleFlex, { color: ONLINE }]}>
+                    PUBLIÉS · {groups.online.length}
+                  </Text>
+                  <Chevron open={open.online} />
+                </Pressable>
+                {open.online && (
+                  <View style={styles.libList}>{groups.online.map((m) => renderRow(m, { feed: false }))}</View>
+                )}
               </View>
             )}
 
@@ -224,7 +267,15 @@ export default function MixLibrarySheet({
   );
 }
 
+// Petite flèche de volet : vers le bas = ouvert.
+const Chevron = ({ open }) => (
+  <Svg width={12} height={12} viewBox="0 0 12 12" fill="none" style={{ transform: [{ rotate: open ? '0deg' : '-90deg' }] }}>
+    <Path d="M2.5 4.5L6 8l3.5-3.5" stroke="rgba(255,255,255,0.55)" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+  </Svg>
+);
+
 const styles = StyleSheet.create({
+  groupTitleFlex: { flex: 1 },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',

@@ -9,8 +9,9 @@ import {
   StyleSheet,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { BlurView, BlurTargetView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path, Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
 import Animated, {
   FadeIn,
@@ -22,6 +23,7 @@ import Animated, {
   useAnimatedReaction,
   useAnimatedScrollHandler,
   useAnimatedStyle,
+  useDerivedValue,
   useSharedValue,
   withDelay,
   withRepeat,
@@ -31,6 +33,10 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import GradientBackground from '../components/common/GradientBackground';
+import AmbianceBackdrop from '../components/common/AmbianceBackdrop';
+import { WIND_SPRING } from '../components/common/AmbianceHalo';
+import useAmbiance from '../hooks/useAmbiance';
+import { AMBIANCE_WIND_MAX, ambianceWind } from '../lib/ambianceMotion';
 import HomeSkeleton from '../components/screens/HomeSkeleton';
 import TickRing from '../components/common/TickRing';
 import WheelPicker from '../components/common/WheelPicker';
@@ -269,13 +275,26 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   // Position horizontale du carrousel, lue sur le fil d'interface : sert à
   // piloter le fond (ScrollInkBackground) sans passer par le JavaScript.
   const scrollX = useSharedValue(initialIndex * SCREEN_W);
+  // Largeur d'une page, côté fil d'interface (déclarée avant le gestionnaire de
+  // défilement, qui la lit pour calculer le vent de l'ambiance).
+  const pageW = useSharedValue(rootW || 1);
+  // Vent de l'ambiance de saison : tant que 0, rien n'est écrit. Allumé 800 ms après
+  // le montage (voir plus bas) pour ignorer le saut de positionnement du carrousel.
+  const windOn = useSharedValue(0);
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (e) => {
-      scrollX.value = e.contentOffset.x;
+      const x = e.contentOffset.x;
+      scrollX.value = x;
+      if (windOn.value === 1) {
+        // Écart du carrousel par rapport à la page la plus proche, en dp : positif quand
+        // le contenu part vers la droite (le doigt tire vers la droite). Retombe tout seul
+        // à 0 quand le carrousel se pose, puisque l'écart est alors nul.
+        const w = pageW.value;
+        const dx = -(x - Math.round(x / w) * w);
+        ambianceWind.value = Math.max(-AMBIANCE_WIND_MAX, Math.min(AMBIANCE_WIND_MAX, dx));
+      }
     },
   });
-  // Largeur d'une page, côté fil d'interface.
-  const pageW = useSharedValue(rootW || 1);
   // « Chrome » = tout ce qui dépend du timer affiché (étiquette du haut,
   // points, bouton Lancer, braises). DISPARITION : guidée par le doigt, il
   // s'éteint quand on s'éloigne d'une page (c'est là que son contenu change).
@@ -578,6 +597,9 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
     }
   }, []);
   const handleMomentumEnd = useCallback((e) => {
+    // Carrousel posé : le vent de l'ambiance retombe à 0 (ceinture et bretelles, le
+    // dernier événement de défilement l'a déjà ramené à 0 dans le cas normal).
+    ambianceWind.value = 0;
     if (!draggingRef.current) return;
     draggingRef.current = false;
     const index = Math.round(e.nativeEvent.contentOffset.x / rootW);
@@ -598,6 +620,30 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
     pageW.value = rootW || 1;
     scrollX.value = activeIndexRef.current * (rootW || 1);
   }, [rootW]);
+
+  // Vent de l'ambiance (lib/ambianceMotion.js) : à 0 au montage et au démontage, et
+  // quand l'écran perd le focus (une autre page s'ouvre par-dessus). Allumé 800 ms
+  // après le montage seulement : le carrousel fait alors son saut de positionnement
+  // (initialScrollIndex), qui ne doit pas pousser les décors.
+  useEffect(() => {
+    ambianceWind.value = 0;
+    const timer = setTimeout(() => {
+      windOn.value = 1;
+    }, 800);
+    return () => {
+      clearTimeout(timer);
+      windOn.value = 0;
+      ambianceWind.value = 0;
+    };
+  }, []);
+  useFocusEffect(
+    useCallback(
+      () => () => {
+        ambianceWind.value = 0;
+      },
+      []
+    )
+  );
   const commitNearest = useCallback((index) => {
     // Suit TOUJOURS la page la plus proche (geste, saut, enchaînement rapide),
     // sauf pendant le saut parasite du FlatList au démarrage.
@@ -846,6 +892,11 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
           BlurView Android (dimezisBlurView) ait quelque chose à flouter */}
       <BlurTargetView ref={blurTargetRef} style={styles.root}>
         <ScrollInkBackground timers={timers} scrollX={scrollX} width={rootW} />
+
+        {/* Ambiance de saison : lueur, motifs qui flottent, passage rare. Derrière le
+            contenu, sans toucher ni à la mise en page ni aux gestes (rend null avec
+            le réglage « Aucune »). Motifs noirs quand le texte du mode actif est noir. */}
+        <AmbianceBackdrop tone={active.textMode === 'dark' ? 'dark' : 'light'} />
 
         {activeHeat >= STREAK_THRESHOLD && (
           <Animated.View style={[StyleSheet.absoluteFill, emberReveal]} pointerEvents="none">
@@ -1265,6 +1316,7 @@ function TopBar({ tag, tokens, tone, onProfile, onHub, onTapHaptic, isLaunching 
         {/* Menu global (v16.2.0) : historique, planning, Mix et Partage. */}
         <IconButton
           icon="hub"
+          halo="left"
           tone={tone}
           onPress={onHub}
           haptic={onTapHaptic}
@@ -1283,6 +1335,7 @@ function TopBar({ tag, tokens, tone, onProfile, onHub, onTapHaptic, isLaunching 
         {/* Hub Profil : les Paramètres y sont accessibles par l'engrenage. */}
         <IconButton
           icon="user"
+          halo="right"
           tone={tone}
           onPress={onProfile}
           haptic={onTapHaptic}
@@ -1890,6 +1943,9 @@ function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onOp
   const { settings: rainSettings } = useSettings();
   const launchHold = holdDurations(rainSettings.rainMode).launch;
   const [ctaSize, setCtaSize] = useState({ w: 0, h: 0 });
+  // Ambiance du moment (null avec le réglage « Aucune ») : teinte les points de
+  // pagination ; lue ici une seule fois pour les cinq points.
+  const { ambiance } = useAmbiance();
   const isLocked = !!cooldown?.isLocked;
   // (V) En fenêtre courte, chaque bloc compte : le rappel de swipe part en
   // premier (le geste s'apprend au premier essai, les points restent) et le
@@ -1953,6 +2009,8 @@ function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onOp
               isActive={i === activeIndex}
               tokens={tokens}
               onPress={onOpenModePicker}
+              ambiance={ambiance}
+              index={i}
             />
           ))}
         </Animated.View>
@@ -1975,6 +2033,7 @@ function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onOp
           color={active.color}
           size={isReduced ? 'md' : 'lg'}
           fullWidth
+          ambientRim
           onPress={launchHold > 0 ? () => {} : onLaunch}
           accessibilityLabel={`Lancer ${active.name}`}
           icon={
@@ -2019,7 +2078,12 @@ function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onOp
   );
 }
 
-function IndicatorDot({ timer, isActive, tokens, onPress }) {
+// Opacité des points inactifs teintés par l'ambiance (accent de l'ambiance au lieu
+// du gris). Un seul réglage à ajuster si le rendu sur téléphone paraît trop discret
+// ou trop vif (la maquette Pager.dc.html les montre en accent plein).
+const AMBIENT_DOT_ALPHA = 0.6;
+
+function IndicatorDot({ timer, isActive, tokens, onPress, ambiance, index }) {
   const haptic = useHaptic();
   const w = useSharedValue(isActive ? 24 : 4);
   // Aperçu au maintien : nom + description de CE format, sans quitter Home
@@ -2061,16 +2125,77 @@ function IndicatorDot({ timer, isActive, tokens, onPress }) {
           </View>
         </Animated.View>
       )}
-      <Animated.View
-        style={[
-          styles.indicatorDot,
-          {
-            backgroundColor: isActive ? tokens.primary : tokens.ringInactive,
-          },
-          animStyle,
-        ]}
-      />
+      {ambiance ? (
+        <AmbientDot w={w} isActive={isActive} index={index} tokens={tokens} ambiance={ambiance} />
+      ) : (
+        <Animated.View
+          style={[
+            styles.indicatorDot,
+            {
+              backgroundColor: isActive ? tokens.primary : tokens.ringInactive,
+            },
+            animStyle,
+          ]}
+        />
+      )}
     </Pressable>
+  );
+}
+
+// Le point avec une ambiance de saison (maquette Pager.dc.html). Points inactifs à la
+// couleur de l'ambiance ; le point actif (la pastille allongée) glisse de l'encre du
+// mode vers cette couleur. Réactifs au glissé du carrousel, via le vent
+// (`ambianceWind`, lissé par un ressort : retour avec un petit rebond au relâché) :
+// la pastille s'étire vers le doigt, les autres points ondulent à peine. Tout est
+// transform sur le fil d'interface — l'étirement est un scaleX (pas de mise en page
+// refaite à chaque image) ; la largeur animée au changement de page reste celle d'avant.
+function AmbientDot({ w, isActive, index, tokens, ambiance }) {
+  const wind = useDerivedValue(() =>
+    withSpring(
+      Math.max(-AMBIANCE_WIND_MAX, Math.min(AMBIANCE_WIND_MAX, ambianceWind.value)),
+      WIND_SPRING
+    )
+  );
+  const style = useAnimatedStyle(() => {
+    const v = wind.value;
+    if (isActive) {
+      const stretch = Math.min(Math.abs(v) * 0.12, 14);
+      const sign = v < 0 ? -1 : 1;
+      // Étirement de `stretch` dp, réparti des deux côtés (scaleX), puis décalé de
+      // stretch / 2 vers le doigt : un bord reste en place, l'autre part vers le doigt.
+      return {
+        width: w.value,
+        transform: [{ translateX: (sign * stretch) / 2 }, { scaleX: 1 + stretch / Math.max(w.value, 1) }],
+      };
+    }
+    const k = Math.min(Math.abs(v) / 200, 1);
+    return {
+      width: w.value,
+      transform: [{ translateY: Math.sin(index * 1.7 + 0.6) * k * 2.6 }],
+    };
+  });
+
+  return (
+    <Animated.View
+      style={[
+        styles.indicatorDot,
+        styles.indicatorDotClip,
+        {
+          backgroundColor: isActive ? tokens.primary : ambiance.accent,
+          opacity: isActive ? 1 : AMBIENT_DOT_ALPHA,
+        },
+        style,
+      ]}
+    >
+      {isActive ? (
+        <LinearGradient
+          colors={[tokens.primary, ambiance.accent]}
+          start={{ x: 0, y: 0.5 }}
+          end={{ x: 1, y: 0.5 }}
+          style={StyleSheet.absoluteFill}
+        />
+      ) : null}
+    </Animated.View>
   );
 }
 
@@ -2839,6 +2964,10 @@ const styles = StyleSheet.create({
   indicatorDot: {
     height: 4,
     borderRadius: 2,
+  },
+  // Point teinté par l'ambiance : le dégradé du point actif est découpé à la pastille.
+  indicatorDotClip: {
+    overflow: 'hidden',
   },
   // Boîte large et invisible (déborde largement du point, minuscule) pour que
   // le contenu, lui de taille naturelle, puisse se centrer dessus sans être

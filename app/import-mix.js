@@ -58,6 +58,10 @@ export default function ImportMix() {
     setSaving(true);
     haptic.success();
     const res = await receiveMix(mix, { update: true });
+    if (res.status === 'limit') {
+      setSaving(false);
+      return;
+    }
     await saveCurrentMix(res.entry);
     router.replace('/mix-builder');
   };

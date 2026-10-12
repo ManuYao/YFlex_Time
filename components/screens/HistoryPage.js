@@ -386,6 +386,7 @@ function HistoryPage({
       <View style={styles.topBar}>
         <IconButton
           icon="back"
+          halo="left"
           haptic={haptic.light}
           onPress={() => router.back()}
           accessibilityLabel="Retour"
@@ -397,6 +398,7 @@ function HistoryPage({
 
         <IconButton
           icon="gear"
+          halo="right"
           haptic={haptic.light}
           onPress={() => router.push('/settings')}
           accessibilityLabel="Réglages"

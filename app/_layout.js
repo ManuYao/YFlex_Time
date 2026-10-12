@@ -37,6 +37,7 @@ import { ensureSessionRecovered } from '../lib/sessionDraft';
 import { TimersProvider } from '../contexts/TimersContext';
 import { SettingsProvider } from '../contexts/SettingsContext';
 import { AuthProvider } from '../contexts/AuthContext';
+import LibraryLimitGate from '../components/common/LibraryLimitGate';
 
 // Hydrate le cache des catégories perso avant que le premier écran du
 // planning ne rende ses chips : getCategory() est synchrone et lit ce cache.
@@ -197,6 +198,7 @@ export default function RootLayout() {
                 {/* « Agrandis la fenêtre » : recouvre un écran devenu inutilisable
                     dans une fenêtre minuscule (lib/responsive.js). */}
                 <SmallWindowNotice />
+                <LibraryLimitGate />
 
                 {splashCleared && !apk.isBlockedByForcedUpdate && apk.isMaintenance && !bannerClosed && (
                   <MaintenanceBanner
