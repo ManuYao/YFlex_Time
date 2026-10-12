@@ -13,7 +13,8 @@ import Animated, {
 import TickRing from './TickRing';
 import { fonts } from '../../lib/fonts';
 import { easeImpact } from '../../lib/animations';
-import { playSound } from '../../lib/sounds';
+import { playSound, playSoundSequence } from '../../lib/sounds';
+import { consumeUpdateSplash } from '../../lib/splash';
 
 const PALETTE = ['#FFFFFF', '#FF5454', '#1FC777', '#FFC933', '#9575FF'];
 const ICON_SIZE = 150;
@@ -41,7 +42,10 @@ export default function LaunchSplash({ onDone }) {
   const iconOpacity = useSharedValue(0);
 
   useEffect(() => {
-    playSound('intro');
+    // Apres une mise a jour (OTA ou nouvel APK) : intro, puis intro_new.
+    // Sinon l'intro seule, comme avant.
+    if (consumeUpdateSplash()) playSoundSequence(['intro', 'introNew']);
+    else playSound('intro');
     iconOpacity.value = withTiming(1, { duration: 220 });
     rootOpacity.value = withDelay(
       HOLD_MS,
