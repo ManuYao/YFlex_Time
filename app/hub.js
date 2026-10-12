@@ -11,7 +11,6 @@ import PressTap from '../components/common/PressTap';
 import AppIcon from '../components/common/AppIcon';
 import TickRing from '../components/common/TickRing';
 import AmbianceBackdrop from '../components/common/AmbianceBackdrop';
-import AmbianceHalo from '../components/common/AmbianceHalo';
 import { SkeletonGroup, SkeletonBlock } from '../components/common/Skeleton';
 import { MIX_COLOR } from '../components/common/MixPill';
 import { useTimers } from '../contexts/TimersContext';
@@ -198,20 +197,9 @@ export default function Hub() {
                 <Text style={styles.mixFootText}>
                   {library.length} enregistré{library.length > 1 ? 's' : ''}
                 </Text>
-                {ambiance ? (
-                  // La couronne de graduations déborde du rond dans la marge de
-                  // la carte (22 dp) : le conteneur ne coupe rien.
-                  <View style={styles.mixGoWrap}>
-                    <AmbianceHalo size={40} side="right" />
-                    <View style={styles.mixGo}>
-                      <AppIcon name="play" size={14} color="#0A0A0A" />
-                    </View>
-                  </View>
-                ) : (
-                  <View style={styles.mixGo}>
-                    <AppIcon name="play" size={14} color="#0A0A0A" />
-                  </View>
-                )}
+                <View style={styles.mixGo}>
+                  <AppIcon name="play" size={14} color="#0A0A0A" />
+                </View>
               </View>
             </PressTap>
           </Animated.View>
