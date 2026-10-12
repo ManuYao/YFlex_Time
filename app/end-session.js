@@ -20,6 +20,8 @@ import GradientBackground from '../components/common/GradientBackground';
 import Confetti from '../components/common/Confetti';
 import ConfirmSheet from '../components/common/ConfirmSheet';
 import Button from '../components/common/Button';
+import ActionLinkRow from '../components/common/ActionLinkRow';
+import { shareApp, SHARE_APP_TITLE, SHARE_APP_SUB } from '../lib/shareApp';
 import {
   shouldPromptBatteryOptimization,
   markBatteryPromptSeen,
@@ -403,6 +405,20 @@ export default function EndSession() {
           <StatCell index={1} label="TRAVAIL" value={workValue} color="#1FC777" />
           <StatCell index={2} label="REPOS" value={restValue} color="#4A90FF" />
         </View>
+
+        {/* Règle des trois fois : moment idéal pour parler de l'app à un ami.
+            Discret, arrive après les stats, et part en premier si la place
+            manque (fenêtre minuscule). */}
+        {!isMini && (
+          <LateFade delay={1300} style={styles.shareApp}>
+            <ActionLinkRow
+              icon="share"
+              title={SHARE_APP_TITLE}
+              sub={SHARE_APP_SUB}
+              onPress={shareApp}
+            />
+          </LateFade>
+        )}
       </BodyContainer>
 
       {/* Système de boutons (lib/buttonTokens.js) : « Accueil » en verre à la
@@ -491,6 +507,17 @@ function StatCell({ index, label, value, color }) {
       <Text style={[styles.statCellValue, { color }]}>{value}</Text>
     </Animated.View>
   );
+}
+
+// Apparition en fondu après les stats (même rythme que StatCell), pour que la
+// rangée ne soit pas déjà là pendant que le reste du bilan se met en place.
+function LateFade({ delay, style, children }) {
+  const opacity = useSharedValue(0);
+  useEffect(() => {
+    opacity.value = withDelay(delay, withTiming(1, { duration: 400 }));
+  }, []);
+  const animStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  return <Animated.View style={[style, animStyle]}>{children}</Animated.View>;
 }
 
 /* (V) Le bilan défile en fenêtre réduite, pas en plein écran : centré et
@@ -644,6 +671,11 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 360,
     gap: 8,
+  },
+  shareApp: {
+    width: '100%',
+    maxWidth: 360,
+    marginTop: 14,
   },
   statCell: {
     flex: 1,

@@ -82,6 +82,8 @@ import {
   shouldInviteTutorial,
 } from '../lib/tutorial';
 import { onSplashCleared } from '../lib/splash';
+import { pendingSeasonKey } from '../lib/seasonRecap';
+import { loadSeenSeasons } from '../lib/seasonRecapState';
 import { waitForUpdateGateSettled } from '../lib/updateGateSignal';
 import { formatValue } from '../lib/formatters';
 import { getTimeRange } from '../lib/timeRanges';
@@ -480,6 +482,16 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
         if (fresh.length) {
           badgeTotalRef.current = fresh.length;
           setBadgeQueue(fresh);
+          return;
+        }
+
+        // Bilan de saison (lib/seasonRecap.js) : la saison qui vient de finir,
+        // une seule fois (lib/seasonRecapState.js), après les trophées. C'est un
+        // écran à part entière : on y va, rien d'autre ne passe derrière.
+        const seasonKey = pendingSeasonKey(await loadHistory(), await loadSeenSeasons());
+        if (cancelled || overlayBusyRef.current) return;
+        if (seasonKey) {
+          router.push({ pathname: '/season-recap', params: { key: seasonKey } });
           return;
         }
 

@@ -510,7 +510,7 @@ function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
 
 // Composant à part : l'effet qui fait défiler a besoin de scrollToEnd, que
 // BottomSheet ne fournit qu'à ses enfants.
-function ShareContent({ mix: mixProp, close, scrollToEnd, onImported, goLogin, openFeed, initialTab, publishedLink: linkProp, onPublishedChange }) {
+function ShareContent({ mix: mixProp, close, scrollToEnd, onImported, goLogin, openFeed, initialTab, initialFocus, publishedLink: linkProp, onPublishedChange }) {
   const { receiveMix, saveCurrentMix, library } = useTimers();
   // UN SEUL mix pour toute la feuille : le titre, l'aperçu, « Copier le lien » et
   // « Publier » suivent le même. Changer ici change tout, d'un coup.
@@ -622,7 +622,7 @@ function ShareContent({ mix: mixProp, close, scrollToEnd, onImported, goLogin, o
     <View>
       <View style={styles.headerRow}>
         <View style={styles.headerText}>
-          <Text style={styles.kicker}>PARTAGER</Text>
+          <Text style={styles.kicker}>{initialFocus === 'publish' ? 'PUBLIER' : 'PARTAGER'}</Text>
           <Text style={styles.title} numberOfLines={1}>{mix?.name || 'Ce mix'}</Text>
         </View>
         <IconButton
@@ -724,6 +724,12 @@ function ShareContent({ mix: mixProp, close, scrollToEnd, onImported, goLogin, o
 
           {hasBlocks && !notOwned && (
             <>
+              {/* Arrivé par « Publier » (règle des trois fois) : la carte de
+                  publication passe en premier, sans avoir à faire défiler. */}
+              {initialFocus === 'publish' && (
+                <PublishCard key={mix?.id} mix={mix} goLogin={goLogin} publishedLink={publishedLink} onPublishedChange={onPublishedChange} />
+              )}
+
               <OptionCard
                 icon="link"
                 title="Envoyer à un ami"
@@ -745,7 +751,9 @@ function ShareContent({ mix: mixProp, close, scrollToEnd, onImported, goLogin, o
                 )}
               </OptionCard>
 
-              <PublishCard key={mix?.id} mix={mix} goLogin={goLogin} publishedLink={publishedLink} onPublishedChange={onPublishedChange} />
+              {initialFocus !== 'publish' && (
+                <PublishCard key={mix?.id} mix={mix} goLogin={goLogin} publishedLink={publishedLink} onPublishedChange={onPublishedChange} />
+              )}
             </>
           )}
 
@@ -846,6 +854,8 @@ function ShareContent({ mix: mixProp, close, scrollToEnd, onImported, goLogin, o
  *    un lien flextimer:// cliquable.
  * `initialTab` : 'send' (défaut) ou 'receive' — le hub Mix et Partage ouvre
  * directement l'onglet « Recevoir » depuis son bloc dédié.
+ * `initialFocus` : 'publish' met la carte « Publier dans le fil public » avant
+ * celle du lien d'ami (entrées « Publier » du Constructeur, du hub et du Profil).
  * `onOpenFeed` ouvre le fil public une fois cette feuille refermée (jamais deux
  * feuilles empilées).
  */
@@ -856,6 +866,7 @@ export default function MixShareSheet({
   onImported,
   onOpenFeed,
   initialTab = 'send',
+  initialFocus = null,
   publishedLink = null,
   onPublishedChange,
 }) {
@@ -877,6 +888,7 @@ export default function MixShareSheet({
       {({ close, scrollToEnd }) => (
         <ShareContent
           initialTab={initialTab}
+          initialFocus={initialFocus}
           publishedLink={publishedLink}
           onPublishedChange={onPublishedChange}
           mix={mix}

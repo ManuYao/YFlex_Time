@@ -33,6 +33,7 @@ import WheelPicker from '../components/common/WheelPicker';
 import PressTap from '../components/common/PressTap';
 import Button from '../components/common/Button';
 import IconButton from '../components/common/IconButton';
+import ActionLinkRow from '../components/common/ActionLinkRow';
 import BlockRoleIcon from '../components/common/BlockRoleIcon';
 import AppIcon from '../components/common/AppIcon';
 import MixShareSheet, { publishErrorText } from '../components/common/MixShareSheet';
@@ -108,6 +109,9 @@ export default function MixBuilder() {
   // brouillon : partager un autre mix depuis « Mes mix » ne doit jamais mettre
   // à jour la publication du mix qu'on est en train de modifier.
   const [shareIsDraft, setShareIsDraft] = useState(false);
+  // 'publish' = la feuille s'ouvre sur « Publier dans le fil public » (rangée du
+  // bas de la liste) ; null = ouverture habituelle (icône Partager).
+  const [shareFocus, setShareFocus] = useState(null);
   const [feedOpen, setFeedOpen] = useState(false);
   // Retour visuel de « Enregistrer » : null | 'saved' | 'added'.
   const [saveStatus, setSaveStatus] = useState(null);
@@ -617,15 +621,16 @@ export default function MixBuilder() {
   // MixShareSheet — aperçu avant d'envoyer, onglet « Recevoir » pour coller un
   // lien reçu (retour utilisateur v14.3.0 : beaucoup d'apps de messagerie ne
   // rendent pas cliquable un scheme personnalisé).
-  const openShare = (mix, { isDraft = false } = {}) => {
+  const openShare = (mix, { isDraft = false, focus = null, silent = false } = {}) => {
     // Un mix qui ne m'appartient pas ne se partage pas (voir `preview`).
     if (preview) {
       haptic.warning();
       return;
     }
-    haptic.light();
+    if (!silent) haptic.light();
     setShareMix(withLatestPublishedId(mix));
     setShareIsDraft(isDraft);
+    setShareFocus(focus);
     setShareOpen(true);
   };
 
@@ -665,6 +670,31 @@ export default function MixBuilder() {
   const editingBlock = editingBlockId
     ? draft.blocks.find((b) => b.id === editingBlockId)
     : null;
+
+  // Règle des trois fois : publier et parcourir le fil ont ici une entrée qui le
+  // DIT (l'icône Partager du haut n'a pas de texte). Au bas de la liste pour ne
+  // rien pousser vers le bas : sur un builder vide, elles sont juste sous l'en-tête.
+  // « Publier » : seulement pour un mix à moi, avec des blocs, et pas quand on
+  // modifie une publication (le bandeau « MIX PUBLIÉ » et « Mettre à jour le fil »
+  // font déjà ce travail).
+  const ListFooter = (
+    <View style={styles.feedLinks}>
+      {!preview && !publishedLink && draft.blocks.length > 0 && (
+        <ActionLinkRow
+          icon="globe"
+          title="Publier ce mix"
+          sub="Mets-le dans le fil public pour que tout le monde puisse le tester."
+          onPress={() => openShare(draft, { isDraft: true, focus: 'publish', silent: true })}
+        />
+      )}
+      <ActionLinkRow
+        icon="share"
+        title="Parcourir le fil public"
+        sub="Teste ou enregistre un mix fait par un autre sportif."
+        onPress={() => setFeedOpen(true)}
+      />
+    </View>
+  );
 
   const ListHeader = (
     <View>
@@ -833,6 +863,7 @@ export default function MixBuilder() {
             onDragEnd={handleDragEnd}
             keyExtractor={(item) => item.id}
             ListHeaderComponent={ListHeader}
+            ListFooterComponent={ListFooter}
             contentContainerStyle={styles.listContent}
             style={styles.listInner}
             containerStyle={styles.listInner}
@@ -960,6 +991,7 @@ export default function MixBuilder() {
           onShare={(m) => {
             setShareMix(withLatestPublishedId(m));
             setShareIsDraft(false);
+            setShareFocus(null);
             setShareOpen(true);
           }}
         />
@@ -969,6 +1001,7 @@ export default function MixBuilder() {
         <MixShareSheet
           screenH={screenH}
           mix={shareMix}
+          initialFocus={shareFocus}
           publishedLink={shareIsDraft ? publishedLink : null}
           onPublishedChange={handlePublishedChange}
           onClose={() => setShareOpen(false)}
@@ -1741,6 +1774,11 @@ const styles = StyleSheet.create({
   listContent: {
     paddingHorizontal: 20,
     paddingBottom: 24,
+  },
+  // Entrées « Publier » / « Parcourir le fil » au bas de la liste des blocs.
+  feedLinks: {
+    gap: 8,
+    marginTop: 12,
   },
 
   // Bandeau « MIX PUBLIÉ » : liseré violet du mode MIX, aucune couleur nouvelle.

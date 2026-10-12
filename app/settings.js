@@ -57,6 +57,7 @@ import { playDenied, playSound, previewVolumeTap } from '../lib/sounds';
 import { detectVoices } from '../lib/voiceCoach';
 import { fonts } from '../lib/fonts';
 import { DANGER, ROUND_SIZE } from '../lib/buttonTokens';
+import { shareApp, SHARE_APP_TITLE, SHARE_APP_SUB } from '../lib/shareApp';
 
 const CONTACT_EMAIL = 'yaomanuit@gmail.com';
 
@@ -246,6 +247,8 @@ export default function Settings() {
         'flexTimer_onboarded',
         'flexTimer_planning',
         'flexTimer_planningArchives',
+        // Bilans de saison déjà montrés (lib/seasonRecapState.js).
+        'flexTimer_seasonRecapSeen',
         'flexTimer_customExercises',
         'flexTimer_customCategories',
         // L'utilisateur repart de zéro : le rappel avant l'envoi d'un
@@ -610,6 +613,16 @@ export default function Settings() {
               onPress={() => {
                 haptic.light();
                 router.push({ pathname: '/tutorial', params: { step: 'menu' } });
+              }}
+            />
+            {/* Règle des trois fois : parler de l'app à un ami (aussi dans le
+                Profil et à la fin d'une séance). */}
+            <LinkRow
+              label={SHARE_APP_TITLE}
+              sub={SHARE_APP_SUB}
+              onPress={() => {
+                haptic.light();
+                shareApp();
               }}
             />
             <LinkRow label="Conditions d'utilisation" onPress={() => router.push('/terms')} />

@@ -11,6 +11,8 @@ import MixPill from '../components/common/MixPill';
 import ModeStatsSheet from '../components/common/ModeStatsSheet';
 import DisciplineSheet from '../components/common/DisciplineSheet';
 import MixPublicSheet from '../components/common/MixPublicSheet';
+import MixShareSheet from '../components/common/MixShareSheet';
+import ActionLinkRow from '../components/common/ActionLinkRow';
 import ShareRecapSheet from '../components/common/ShareRecapSheet';
 import ConfirmSheet from '../components/common/ConfirmSheet';
 import PseudoSheet from '../components/common/PseudoSheet';
@@ -20,6 +22,7 @@ import ProfileAccount from '../components/screens/ProfileAccount';
 import ProfileAnalytics from '../components/screens/ProfileAnalytics';
 import ProfileMixShare from '../components/screens/ProfileMixShare';
 import ProfileGamification from '../components/screens/ProfileGamification';
+import ProfileSeasonRow from '../components/screens/ProfileSeasonRow';
 import { useTimers } from '../contexts/TimersContext';
 import { useAuth } from '../contexts/AuthContext';
 import { usePremium } from '../hooks/usePremium';
@@ -39,6 +42,7 @@ import {
 import { computeProfileStats } from '../lib/profileStats';
 import { loadHistory } from '../lib/history';
 import { claimPseudo, PSEUDO_TAKEN_TEXT } from '../lib/pseudos';
+import { shareApp, SHARE_APP_TITLE, SHARE_APP_SUB } from '../lib/shareApp';
 
 /**
  * Hub Profil — remplace l'accès direct aux Paramètres depuis l'accueil.
@@ -51,7 +55,7 @@ export default function Profile() {
   // premier affichage d'un écran, la page « montait » puis redescendait.
   const insets = useSafeAreaInsets();
   const { height: screenH } = useWindowDimensions();
-  const { timers } = useTimers();
+  const { timers, currentMix, library } = useTimers();
   const { isPremium, loaded: premiumLoaded } = usePremium();
   const { user, signOut, updateDisplayName, hydrated: authHydrated } = useAuth();
   const blurTargetRef = useRef(null);
@@ -60,6 +64,8 @@ export default function Profile() {
   const [sessions, setSessions] = useState([]);
   const [disciplineSheet, setDisciplineSheet] = useState(false);
   const [publicMixSheet, setPublicMixSheet] = useState(false);
+  // Mix proposé à la publication depuis le Profil (null = feuille fermée).
+  const [publishMixSheet, setPublishMixSheet] = useState(null);
   const [feedRefresh, setFeedRefresh] = useState(0);
   const [statsTimerId, setStatsTimerId] = useState(null);
   const [shareSheet, setShareSheet] = useState(false);
@@ -163,6 +169,22 @@ export default function Profile() {
     return { ok: true };
   };
 
+  // « Publier un de mes mix » (règle des trois fois) : on propose le MIX courant,
+  // sinon le premier mix enregistré qui a des blocs (la feuille permet d'en
+  // choisir un autre). Rien à publier → la page Mix et Partage, qui propose d'en
+  // créer un. Un aperçu venu du fil n'est pas à moi : jamais proposé.
+  const handlePublishMix = () => {
+    const candidate =
+      currentMix?.blocks?.length && !currentMix.isPreview
+        ? currentMix
+        : library.find((m) => m.blocks?.length) || null;
+    if (!candidate) {
+      router.push('/mix-hub');
+      return;
+    }
+    setPublishMixSheet(candidate);
+  };
+
   // Calculer les vraies stats — seulement une fois l'écran prêt : ce calcul
   // parcourt tout l'historique, il n'a pas à se jouer pendant la transition.
   const stats = useMemo(
@@ -248,13 +270,25 @@ export default function Profile() {
               <ProfileMixShare
                 onOpenPublic={() => setPublicMixSheet(true)}
                 onOpenHub={() => router.push('/mix-hub')}
+                onPublish={handlePublishMix}
                 refreshKey={feedRefresh}
+              />
+              <ProfileSeasonRow
+                sessions={sessions}
+                onOpen={(key) => router.push({ pathname: '/season-recap', params: { key } })}
               />
               <ProfileGamification
                 badgeCounts={stats.badgeCounts}
                 hasData={stats.hasData}
                 onOpenModeStats={setStatsTimerId}
                 onShare={() => setShareSheet(true)}
+              />
+              {/* Règle des trois fois : parler de l'app à un ami. */}
+              <ActionLinkRow
+                icon="share"
+                title={SHARE_APP_TITLE}
+                sub={SHARE_APP_SUB}
+                onPress={shareApp}
               />
               </Animated.View>
               )}
@@ -297,6 +331,18 @@ export default function Profile() {
             setPublicMixSheet(false);
             setFeedRefresh((k) => k + 1);
           }}
+        />
+      )}
+      {publishMixSheet && (
+        <MixShareSheet
+          screenH={screenH}
+          mix={publishMixSheet}
+          initialFocus="publish"
+          onClose={() => {
+            setPublishMixSheet(null);
+            setFeedRefresh((k) => k + 1);
+          }}
+          onOpenFeed={() => setPublicMixSheet(true)}
         />
       )}
       {shareSheet && stats.hasData && (

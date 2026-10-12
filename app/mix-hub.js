@@ -112,7 +112,8 @@ export default function MixHub() {
     await saveCurrentMix(res.entry);
   };
 
-  const openShare = (tab, mix) => {
+  // `focus` = 'publish' : la feuille s'ouvre sur « Publier dans le fil public ».
+  const openShare = (tab, mix, focus = null) => {
     // L'onglet « Envoyer » d'un mix qui n'est pas à moi n'existe pas ; « Recevoir »
     // reste ouvert (on y colle un lien, ça ne partage rien).
     if (tab === 'send' && mix?.isPreview) {
@@ -120,7 +121,7 @@ export default function MixHub() {
       return;
     }
     haptic.light();
-    setSheet({ type: 'share', tab, mix });
+    setSheet({ type: 'share', tab, mix, focus });
   };
 
   // « Tester » depuis le fil public : le mix devient le MIX courant, la carte
@@ -273,7 +274,7 @@ export default function MixHub() {
               delay={130}
               icon="globe"
               title="Fil public"
-              summary="Les mix de la communauté"
+              summary="Teste ou enregistre les mix des autres sportifs"
               onPress={() => {
                 haptic.light();
                 setSheet('feed');
@@ -291,10 +292,22 @@ export default function MixHub() {
               icon="share"
               title="Envoyer mon mix"
               summary={
-                notOwned ? "Enregistre d'abord ce mix : il sera à toi" : 'Par lien, ou dans le fil public'
+                notOwned ? "Enregistre d'abord ce mix : il sera à toi" : 'Un lien à coller à un ami, sans compte'
               }
               muted={notOwned}
               onPress={() => openShare('send', currentMix)}
+            />
+            {/* Règle des trois fois : publier a son entrée à part, qui dit ce
+                qu'elle fait (avant, il fallait deviner « Envoyer »). */}
+            <Tile
+              delay={255}
+              icon="globe"
+              title="Publier mon mix"
+              summary={
+                notOwned ? "Enregistre d'abord ce mix : il sera à toi" : 'Mets-le dans le fil public pour la communauté'
+              }
+              muted={notOwned}
+              onPress={() => openShare('send', currentMix, 'publish')}
             />
             {/* Ce que j'ai publié : modifier, tester, retirer — sans passer par
                 la suppression du compte (v16.3.0). */}
@@ -363,6 +376,7 @@ export default function MixHub() {
           screenH={screenH}
           mix={sheet.mix}
           initialTab={sheet.tab}
+          initialFocus={sheet.focus}
           onClose={() => setSheet(null)}
           onOpenFeed={() => setSheet('feed')}
         />
