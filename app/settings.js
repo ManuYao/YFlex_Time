@@ -56,8 +56,8 @@ import { haptic, setHapticStrength } from '../hooks/useHaptic';
 import { playDenied, playSound, previewVolumeTap } from '../lib/sounds';
 import { detectVoices } from '../lib/voiceCoach';
 import { fonts } from '../lib/fonts';
+import { previousSeasonRange, seasonRangeOf } from '../lib/seasonRecap';
 import { DANGER, ROUND_SIZE } from '../lib/buttonTokens';
-import { shareApp, SHARE_APP_TITLE, SHARE_APP_SUB } from '../lib/shareApp';
 
 const CONTACT_EMAIL = 'yaomanuit@gmail.com';
 
@@ -615,16 +615,6 @@ export default function Settings() {
                 router.push({ pathname: '/tutorial', params: { step: 'menu' } });
               }}
             />
-            {/* Règle des trois fois : parler de l'app à un ami (aussi dans le
-                Profil et à la fin d'une séance). */}
-            <LinkRow
-              label={SHARE_APP_TITLE}
-              sub={SHARE_APP_SUB}
-              onPress={() => {
-                haptic.light();
-                shareApp();
-              }}
-            />
             <LinkRow label="Conditions d'utilisation" onPress={() => router.push('/terms')} />
             <LinkRow label="Politique de confidentialité" onPress={() => router.push('/privacy')} />
             <LinkRow
@@ -681,6 +671,27 @@ export default function Settings() {
               onPress={() => {
                 haptic.light();
                 setAmbianceOverride(null);
+              }}
+              isLast
+            />
+          </Section>
+
+          {/* TEMP — aperçu du bilan de saison, à retirer avant la version officielle. */}
+          <Section title="Bilan de saison (test)">
+            <LinkRow
+              label="Voir le bilan de la saison passée"
+              sub={previousSeasonRange().key}
+              onPress={() => {
+                haptic.light();
+                router.push({ pathname: '/season-recap', params: { key: previousSeasonRange().key } });
+              }}
+            />
+            <LinkRow
+              label="Voir le bilan de la saison en cours"
+              sub={seasonRangeOf().key}
+              onPress={() => {
+                haptic.light();
+                router.push({ pathname: '/season-recap', params: { key: seasonRangeOf().key } });
               }}
               isLast
             />

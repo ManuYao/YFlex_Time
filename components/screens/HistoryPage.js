@@ -7,8 +7,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path } from 'react-native-svg';
 import Animated, {
   Easing,
-  FadeIn,
-  FadeOut,
   LinearTransition,
   useAnimatedStyle,
   useSharedValue,
@@ -35,7 +33,6 @@ import {
   formatSessionTime,
   formatMixBreakdown,
 } from '../../lib/history';
-import { loadScrollHintNextCard, saveScrollHintNextCard } from '../../lib/scrollHint';
 import { formatDuration } from '../../lib/formatters';
 import { fonts } from '../../lib/fonts';
 import { D, easeImpact, popIn, popOut } from '../../lib/animations';
@@ -50,32 +47,6 @@ const FILTERS = ['TOUS', 'AMRAP', 'BASIC', 'EMOM', 'TABATA', 'MIX'];
 // (un gesture handler chacune) : en limiter le nombre garde la liste fluide
 // sur les longs historiques.
 const DAYS_PER_PAGE = 3;
-
-// Aperçu "glisse vers le planning" : après HINT_IDLE_MS sans toucher l'écran,
-// si l'historique a au moins HINT_MIN_SESSIONS séances, les 3 premières
-// cartes se "pressent" tour à tour pendant que le pager dévoile une bande du
-// Planning. Une fois par ouverture ; un toucher l'interrompt.
-const HINT_MIN_SESSIONS = 5;
-const HINT_IDLE_MS = 3000;
-// Relances suivantes : l'aperçu ne se rejoue qu'après une inactivité
-// nettement plus longue (l'utilisateur a touché l'écran entre-temps, il n'est
-// pas perdu — inutile de le relancer aussi vite que la première fois).
-const HINT_REPLAY_IDLE_MS = 12000;
-// Garde-fou : passé ce nombre de passages dans une même ouverture, on arrête
-// de proposer. Au-delà ce n'est plus un indice, c'est du harcèlement.
-const HINT_MAX_RUNS = 3;
-// Le doigt reste "posé" sur la carte le temps de bien le voir avant que
-// l'écran ne revienne (voir aussi le ralenti du peek dans app/history.js).
-const HINT_HOLD_MS = 1100;
-// Pas une cadence régulière : des pauses qui s'allongent, pour ne pas donner
-// l'impression d'un métronome — demande explicite de l'utilisateur après
-// test (l'enchaînement à 1.4s d'intervalle paraissait trop mécanique).
-// GAPS[i] = attente entre la fin de la carte i et le début de la carte i+1.
-const HINT_GAPS_MS = [5000, 10000];
-// Marge pour laisser le relâchement (spring-back + fondu du voile) se
-// terminer visuellement avant de compter la pause suivante.
-const HINT_RELEASE_MS = 550;
-const HINT_CARDS = 3;
 
 // Carrousel des cartes de tête (appui long sur "Séances" ou "Temps") :
 // aujourd'hui, puis la semaine, puis retour à l'affichage par défaut.
@@ -107,8 +78,6 @@ function HistoryPage({
   height,
   pageIndex,
   onSelectPage,
-  onPeek,
-  onPeekCancel,
 }) {
   const router = useRouter();
   const haptic = useHaptic();
@@ -121,37 +90,9 @@ function HistoryPage({
   const sessions = loadedSessions ?? EMPTY_SESSIONS;
   const [filter, setFilter] = useState('TOUS');
   const [visibleDays, setVisibleDays] = useState(DAYS_PER_PAGE);
-  const [hintId, setHintId] = useState(null);
-  const [hintActive, setHintActive] = useState(false);
   // null = affichage par défaut ; 'day' / 'week' = étape du carrousel.
   const [scope, setScope] = useState(null);
   const [shimmerTick, setShimmerTick] = useState(0);
-
-  // Tout l'état de l'aperçu vit dans des refs : la séquence est pilotée par
-  // des setTimeout qui doivent lire les valeurs du moment, pas celles
-  // capturées au rendu qui les a posés.
-  const hint = useRef({
-    timers: [],
-    idleTimer: null,
-    running: false,
-    stopped: false,
-    runs: 0,
-    nextCard: 0,
-    step: -1,
-    eligible: false,
-  }).current;
-
-  // Position des cartes dans la liste, pour viser celles réellement visibles
-  // en bas de l'écran (l'aperçu ne sert à rien s'il presse une carte sortie
-  // du champ). onLayout donne des coordonnées relatives au parent : on
-  // additionne l'offset du groupe (le jour) et celui de la ligne.
-  const geom = useRef({
-    scrollY: 0,
-    viewportH: 0,
-    groups: {},
-    rows: {},
-    order: [],
-  }).current;
 
   // Carrousel des cartes de tête : une seule séquence à la fois.
   const scopeTimers = useRef([]).current;
@@ -186,141 +127,6 @@ function HistoryPage({
       };
     }, [])
   );
-
-  const clearHintTimers = () => {
-    hint.timers.forEach(clearTimeout);
-    hint.timers = [];
-    if (hint.idleTimer) {
-      clearTimeout(hint.idleTimer);
-      hint.idleTimer = null;
-    }
-  };
-
-  const finishHint = (nextCard) => {
-    clearHintTimers();
-    hint.running = false;
-    hint.runs += 1;
-    hint.nextCard = nextCard;
-    hint.step = -1;
-    setHintId(null);
-    setHintActive(false);
-    saveScrollHintNextCard(nextCard);
-    // Ne clôt pas le sujet : une nouvelle inactivité (bien plus longue) peut
-    // relancer l'aperçu, jusqu'à HINT_MAX_RUNS.
-    armHint();
-  };
-
-  /**
-   * Les HINT_CARDS dernières cartes entièrement visibles dans le viewport —
-   * donc celles du bas de l'écran, là où le pouce se trouve déjà. Repli sur
-   * les premières de la liste tant que rien n'est mesuré.
-   */
-  const hintTargets = () => {
-    const visible = geom.order.filter((id) => {
-      const row = geom.rows[id];
-      if (!row) return false;
-      const groupY = geom.groups[row.groupKey];
-      if (groupY == null) return false;
-      const top = groupY + row.y;
-      return (
-        top >= geom.scrollY - 2 &&
-        top + row.h <= geom.scrollY + geom.viewportH + 2
-      );
-    });
-    const list = visible.length > 0 ? visible : geom.order;
-    return list.slice(-HINT_CARDS);
-  };
-
-  const runHint = () => {
-    const targets = hintTargets();
-    if (targets.length === 0) return;
-    hint.running = true;
-    setHintActive(true);
-    const start = Math.min(hint.nextCard, targets.length - 1);
-    let at = 0;
-    for (let i = start, pos = 0; i < targets.length; i++, pos++) {
-      // Pause croissante entre deux cartes, mesurée depuis la fin du
-      // relâchement de la précédente — pas un intervalle fixe.
-      if (pos > 0) {
-        const gap = HINT_GAPS_MS[pos - 1] ?? HINT_GAPS_MS[HINT_GAPS_MS.length - 1];
-        at += HINT_HOLD_MS + HINT_RELEASE_MS + gap;
-      }
-      const cardIndex = i;
-      const cardId = targets[i];
-      const fireAt = at;
-      hint.timers.push(
-        setTimeout(() => {
-          hint.step = cardIndex;
-          setHintId(cardId);
-          onPeek?.();
-        }, fireAt)
-      );
-      hint.timers.push(setTimeout(() => setHintId(null), fireAt + HINT_HOLD_MS));
-    }
-    const total = at + HINT_HOLD_MS + HINT_RELEASE_MS + D.slow;
-    hint.timers.push(setTimeout(() => finishHint(0), total));
-  };
-
-  const armHint = () => {
-    if (hint.idleTimer) clearTimeout(hint.idleTimer);
-    hint.idleTimer = null;
-    if (hint.stopped || hint.running || hint.runs >= HINT_MAX_RUNS) return;
-    const delay = hint.runs === 0 ? HINT_IDLE_MS : HINT_REPLAY_IDLE_MS;
-    hint.idleTimer = setTimeout(() => {
-      hint.idleTimer = null;
-      if (hint.stopped || hint.running || !hint.eligible) return;
-      runHint();
-    }, delay);
-  };
-
-  // Un toucher pendant la séquence l'arrête net et avance la reprise d'une
-  // carte ; avant la séquence, il repousse simplement le compte à rebours.
-  const handleUserTouch = () => {
-    if (hint.running) {
-      onPeekCancel?.();
-      finishHint((hint.step + 1) % HINT_CARDS);
-      return;
-    }
-    armHint();
-  };
-
-  // Le compteur de passages repart à chaque montage de l'écran (arrivée
-  // depuis le Home), pas à chaque retour de focus : revenir d'une fiche de
-  // séance ne doit pas redonner droit à trois aperçus.
-  useEffect(() => {
-    hint.stopped = false;
-    hint.runs = 0;
-    loadScrollHintNextCard().then((n) => {
-      hint.nextCard = n % HINT_CARDS;
-    });
-  }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      armHint();
-      return () => {
-        if (hint.running) onPeekCancel?.();
-        clearHintTimers();
-        hint.running = false;
-        hint.step = -1;
-        setHintId(null);
-        setHintActive(false);
-      };
-    }, [])
-  );
-
-  // Changer de page (swipe ou points) compte comme "l'utilisateur a compris" :
-  // là, on arrête définitivement pour cette ouverture.
-  useEffect(() => {
-    if (pageIndex === 0) return;
-    hint.stopped = true;
-    if (hint.running) {
-      onPeekCancel?.();
-      finishHint((hint.step + 1) % HINT_CARDS);
-    } else {
-      clearHintTimers();
-    }
-  }, [pageIndex]);
 
   const handleDelete = async (id) => {
     haptic.warning();
@@ -358,13 +164,6 @@ function HistoryPage({
   const countTotals = computeScopedTotals(sessions, countScope);
   const breakdown = scope ? computeTypeBreakdown(sessions, scope) : [];
 
-  // Ordre d'affichage des cartes, pour que l'aperçu sache lesquelles sont en
-  // bas de l'écran.
-  geom.order = shown.flatMap((g) => g.items).map((s) => s.id);
-  // Pas d'aperçu pendant que le carrousel des cartes de tête tourne : deux
-  // animations d'aide en même temps, ça fait juste un écran agité.
-  hint.eligible = pageIndex === 0 && filtered.length >= HINT_MIN_SESSIONS && !scope;
-
   const handleFilter = (f) => {
     setFilter(f);
     setVisibleDays(DAYS_PER_PAGE);
@@ -376,7 +175,7 @@ function HistoryPage({
   };
 
   return (
-    <View style={[styles.page, { width, height }]} onTouchStart={handleUserTouch}>
+    <View style={[styles.page, { width, height }]}>
       {/* Fil conducteur : le MIX reste à un tap depuis toutes les grandes
           pages (components/common/MixPill.js). */}
       <View style={styles.statusBar}>
@@ -518,15 +317,6 @@ function HistoryPage({
         style={styles.list}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
-        scrollEventThrottle={32}
-        onLayout={(e) => {
-          geom.viewportH = e.nativeEvent.layout.height;
-        }}
-        onScroll={(e) => {
-          // Écrit une ref, ne redéclenche pas de rendu : c'est juste la
-          // position dont l'aperçu a besoin pour viser le bas de l'écran.
-          geom.scrollY = e.nativeEvent.contentOffset.y;
-        }}
       >
         {!loaded ? (
           <HistorySkeleton />
@@ -542,25 +332,12 @@ function HistoryPage({
         ) : (
           <>
             {shown.map((group) => (
-              <View
-                key={group.key}
-                style={styles.group}
-                onLayout={(e) => {
-                  geom.groups[group.key] = e.nativeEvent.layout.y;
-                }}
-              >
+              <View key={group.key} style={styles.group}>
                 <Text style={styles.groupLabel}>{group.date}</Text>
                 {group.items.map((s) => (
-                  <View
-                    key={s.id}
-                    onLayout={(e) => {
-                      const { y, height } = e.nativeEvent.layout;
-                      geom.rows[s.id] = { groupKey: group.key, y, h: height };
-                    }}
-                  >
+                  <View key={s.id}>
                     <SessionRow
                       session={s}
-                      hinting={hintId === s.id}
                       onPress={() =>
                         router.push({ pathname: '/session-detail', params: { id: s.id } })
                       }
@@ -587,16 +364,6 @@ function HistoryPage({
       </ScrollView>
 
       <View style={[styles.bottom, { paddingBottom: 8 + insets.bottom }]}>
-        {hintActive && (
-          <Animated.View
-            entering={FadeIn.duration(D.base)}
-            exiting={FadeOut.duration(D.fast)}
-            style={styles.hintWrap}
-            pointerEvents="none"
-          >
-            <Text style={styles.hintText}>Glisse vers la gauche pour voir ton planning</Text>
-          </Animated.View>
-        )}
         <PageDots count={2} activeIndex={pageIndex} onSelect={onSelectPage} />
       </View>
     </View>
@@ -734,7 +501,7 @@ function BreakdownSegment({ count, color }) {
 // se poser pour que le glissement se voie, au lieu d'arriver déjà ouvert.
 const PENDING_OPEN_DELAY_MS = 450;
 
-function SessionRow({ session, hinting = false, onPress, onDelete, onKeep }) {
+function SessionRow({ session, onPress, onDelete, onKeep }) {
   // Séance arrêtée avant 6 s (lib/history.js) : la carte arrive déjà glissée
   // du côté opposé à la suppression, sur « Annuler la suppression ». Pour la
   // supprimer tout de suite, on la glisse dans l'autre sens comme une autre.
@@ -747,29 +514,6 @@ function SessionRow({ session, hinting = false, onPress, onDelete, onKeep }) {
       ? `${session.completedRounds} tours`
       : '∞';
   const swipeRef = useRef(null);
-
-  // Simule la pression d'un doigt pendant l'aperçu "glisse vers le planning" :
-  // même rétrécissement que le vrai `pressed`, plus un voile blanc (l'accent
-  // de l'app) qui s'estompe au relâchement.
-  const hintScale = useSharedValue(1);
-  const hintTint = useSharedValue(0);
-  useEffect(() => {
-    if (hinting) {
-      // Pression lente et posée (pas un tap réel) : on veut que l'oeil ait le
-      // temps de la remarquer, pas un flash.
-      hintScale.value = withTiming(0.97, { duration: 420, easing: easeImpact });
-      hintTint.value = withTiming(1, { duration: 420 });
-    } else {
-      hintScale.value = withTiming(1, { duration: HINT_RELEASE_MS, easing: easeImpact });
-      hintTint.value = withTiming(0, { duration: HINT_RELEASE_MS });
-    }
-  }, [hinting]);
-  const hintStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: hintScale.value }],
-  }));
-  const hintTintStyle = useAnimatedStyle(() => ({
-    opacity: hintTint.value,
-  }));
 
   useEffect(() => {
     if (!pending) return undefined;
@@ -837,7 +581,7 @@ function SessionRow({ session, hinting = false, onPress, onDelete, onKeep }) {
       leftThreshold={40}
       containerStyle={styles.swipeContainer}
     >
-      <Animated.View style={hintStyle}>
+      <Animated.View>
       <Pressable
         onPress={onPress}
         style={({ pressed }) => [
@@ -847,10 +591,6 @@ function SessionRow({ session, hinting = false, onPress, onDelete, onKeep }) {
         ]}
       >
         <View style={[styles.rowBlob, { backgroundColor: color }]} pointerEvents="none" />
-        <Animated.View
-          style={[StyleSheet.absoluteFill, styles.hintTint, hintTintStyle]}
-          pointerEvents="none"
-        />
         <View
           style={[
             styles.rowBadge,
@@ -1099,19 +839,6 @@ const styles = StyleSheet.create({
   bottom: {
     paddingTop: 10,
     paddingBottom: 8,
-  },
-  hintWrap: {
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  hintText: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.45)',
-  },
-  hintTint: {
-    backgroundColor: 'rgba(255,255,255,0.10)',
-    borderRadius: 18,
   },
 
   empty: {
