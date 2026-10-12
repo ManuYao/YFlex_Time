@@ -2291,7 +2291,12 @@ function LaunchMorph({ active, onComplete, screenH, screenW, ctaRect }) {
    (S) Picker modal — wheel picker pour stat éditable
    ────────────────────────────────────────────────────────────────*/
 function PickerSheet({ stat, accentColor, textMode, onClose, onValidate, screenH }) {
-  const [draft, setDraft] = useState(stat.value);
+  // Le brouillon n'est lu qu'à « Valider » : une ref, pas un état. Avec un état,
+  // chaque cran de la roue refaisait toute la feuille (flou, animations, bouton).
+  const draftRef = useRef(stat.value);
+  const setDraft = useCallback((v) => {
+    draftRef.current = v;
+  }, []);
   // La feuille est hors SafeAreaView : elle ajoute elle-même la barre de
   // navigation Android, sinon son bas passait dessous en navigation 3 boutons.
   const insets = useSafeAreaInsets();
@@ -2339,7 +2344,7 @@ function PickerSheet({ stat, accentColor, textMode, onClose, onValidate, screenH
   const handleValidate = () => {
     backdropOpacity.value = withTiming(0, { duration: D.base });
     translateY.value = withTiming(screenH, { duration: D.base, easing: easeImpact }, (done) => {
-      if (done) runOnJS(onValidate)(draft);
+      if (done) runOnJS(onValidate)(draftRef.current);
     });
   };
 
@@ -2397,7 +2402,7 @@ function PickerSheet({ stat, accentColor, textMode, onClose, onValidate, screenH
             selectedValue={stat.value}
             type={stat.type}
             accentColor={accentColor || '#FFFFFF'}
-            onChange={(v) => setDraft(v)}
+            onChange={setDraft}
             visibleItems={wheelItems}
           />
         </Animated.View>
