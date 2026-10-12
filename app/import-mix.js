@@ -136,7 +136,7 @@ export default function ImportMix() {
                     />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.rowLabel} numberOfLines={1}>{block.label}</Text>
+                    <Text style={styles.rowLabel} numberOfLines={1}>{block.label || 'Sans nom'}</Text>
                     <Text style={styles.rowSub}>{formatBlockSubtitle(block)}</Text>
                   </View>
                   <Text style={styles.rowIndex}>{i + 1}</Text>

@@ -1084,7 +1084,7 @@ function BlockRow({ block, index, drag, isActive, onEdit, onDelete, readOnly = f
               >
                 <Text style={[styles.rowBadgeText, { color: type.color }]}>{type.name}</Text>
               </View>
-              <Text style={styles.rowLabel} numberOfLines={1}>{block.label}</Text>
+              <Text style={styles.rowLabel} numberOfLines={1}>{block.label || 'Sans nom'}</Text>
             </View>
             <View style={styles.rowMeta}>
               <RoleBadge role={resolveBlockRole(block)} />
