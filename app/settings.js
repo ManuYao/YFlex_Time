@@ -628,8 +628,11 @@ export default function Settings() {
               onPress={() => {
                 haptic.light();
                 if (introNext === 'long') forceUpdateSplash();
-                requestSplash();
                 setIntroNext(introNext === 'long' ? 'short' : 'long');
+                // On repart de l'accueil pour voir la fin de l'intro telle qu'elle est : le vide, puis
+                // le vrai écran qui apparaît avec son zoom. L'intro se joue par-dessus quand il est monté.
+                router.replace('/home');
+                setTimeout(requestSplash, 450);
               }}
               isLast
             />

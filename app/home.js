@@ -85,6 +85,7 @@ import {
 } from '../lib/tutorial';
 import { onSplashCleared } from '../lib/splash';
 import { markAppReady } from '../lib/appReady';
+import { introReveal, INTRO_REVEAL_FROM_SCALE } from '../lib/introReveal';
 import { pendingSeasonKey } from '../lib/seasonRecap';
 import { loadSeenSeasons } from '../lib/seasonRecapState';
 import { waitForUpdateGateSettled } from '../lib/updateGateSignal';
@@ -190,8 +191,16 @@ export default function Home() {
     );
   }
 
+  // Fin de l'intro de démarrage : le vrai écran apparaît avec un petit zoom (lib/introReveal.js).
+  // La valeur vaut 1 en temps normal (aucun effet) ; l'intro la fait passer de 0 à 1 une fois les
+  // éléments disparus et le vide installé.
+  const revealStyle = useAnimatedStyle(() => ({
+    opacity: introReveal.value,
+    transform: [{ scale: INTRO_REVEAL_FROM_SCALE + (1 - INTRO_REVEAL_FROM_SCALE) * introReveal.value }],
+  }));
+
   return (
-    <View style={styles.root}>
+    <Animated.View style={[styles.root, revealStyle]}>
       {ready && (
         <HomeScreen initialIndex={startIndexRef.current ?? 0} heatMap={heatMap} statsMap={statsMap} />
       )}
@@ -200,7 +209,7 @@ export default function Home() {
           <HomeSkeleton />
         </Animated.View>
       )}
-    </View>
+    </Animated.View>
   );
 }
 
