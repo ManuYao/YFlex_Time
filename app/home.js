@@ -2009,7 +2009,6 @@ function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onOp
               isActive={i === activeIndex}
               tokens={tokens}
               onPress={onOpenModePicker}
-              ambiance={ambiance}
               index={i}
             />
           ))}

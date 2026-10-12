@@ -193,7 +193,8 @@ function WindIconButton({
 
   return (
     <View style={[{ width: size, height: size }, style]}>
-      <AmbianceHalo size={size} side={halo} live={haloLive} />
+      {/* Couronne de graduations : seulement pour le bouton « live » (jugée trop voyante ailleurs, 12/10). */}
+      {haloLive ? <AmbianceHalo size={size} side={halo} live={haloLive} /> : null}
       <Animated.View style={[{ width: size, height: size }, glideStyle]}>
         <PlainIconButton
           {...rest}
