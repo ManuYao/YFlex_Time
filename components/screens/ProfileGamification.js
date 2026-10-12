@@ -165,18 +165,6 @@ export default function ProfileGamification({ badgeCounts, onOpenModeStats, hasD
         </View>
       </View>
 
-      <View style={styles.section}>
-        <Button
-          variant="spectrum"
-          size="lg"
-          icon="share"
-          label="Partager mon bilan"
-          haptic={haptic.medium}
-          onPress={onShare}
-          disabled={!hasData}
-          fullWidth
-        />
-      </View>
     </View>
   );
 }

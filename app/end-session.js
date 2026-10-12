@@ -405,20 +405,6 @@ export default function EndSession() {
           <StatCell index={1} label="TRAVAIL" value={workValue} color="#1FC777" />
           <StatCell index={2} label="REPOS" value={restValue} color="#4A90FF" />
         </View>
-
-        {/* Règle des trois fois : moment idéal pour parler de l'app à un ami.
-            Discret, arrive après les stats, et part en premier si la place
-            manque (fenêtre minuscule). */}
-        {!isMini && (
-          <LateFade delay={1300} style={styles.shareApp}>
-            <ActionLinkRow
-              icon="share"
-              title={SHARE_APP_TITLE}
-              sub={SHARE_APP_SUB}
-              onPress={shareApp}
-            />
-          </LateFade>
-        )}
       </BodyContainer>
 
       {/* Système de boutons (lib/buttonTokens.js) : « Accueil » en verre à la

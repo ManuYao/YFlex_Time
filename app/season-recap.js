@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BackHandler, Share, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+
+import AmbianceBackdrop from '../components/common/AmbianceBackdrop';
 
 import TutorialFrame from '../components/screens/TutorialFrame';
 import {
@@ -37,6 +40,32 @@ import { useHaptic } from '../hooks/useHaptic';
 // Gratuit : ouverture, chiffres, mode, régularité, trophées, fin.
 // Premium : temps sous tension, exercices, rythme, charges. Les non-Premium
 // voient ces cartes verrouillées (aucune vraie donnée derrière).
+
+const NEXT_SEASON = { spring: 'summer', summer: 'autumn', autumn: 'winter', winter: 'spring' };
+
+// Décor du bilan : part de l'ambiance de la saison racontée, puis laisse
+// monter peu à peu celle de la saison suivante au fil des cartes.
+function SeasonBackdrop({ seasonId, progress }) {
+  const mix = useSharedValue(0);
+  useEffect(() => {
+    // Fondu long et doux (courbe en sinus) : la saison suivante monte sans qu'on
+    // voie le moment du changement. Les deux décors sont montés dès l'ouverture,
+    // rien ne se construit pendant le fondu.
+    mix.value = withTiming(progress, { duration: 2200, easing: Easing.inOut(Easing.sin) });
+  }, [progress]);
+  const nextStyle = useAnimatedStyle(() => ({ opacity: mix.value }));
+  const nextId = NEXT_SEASON[seasonId];
+  return (
+    <>
+      <AmbianceBackdrop tone="light" ambianceId={seasonId} />
+      {nextId ? (
+        <Animated.View style={[StyleSheet.absoluteFill, nextStyle]} pointerEvents="none">
+          <AmbianceBackdrop tone="light" ambianceId={nextId} />
+        </Animated.View>
+      ) : null}
+    </>
+  );
+}
 
 const darken = (hex, f) => {
   const n = parseInt(hex.slice(1), 16);
@@ -202,6 +231,12 @@ export default function SeasonRecap() {
     <TutorialFrame
       colors={card.colors}
       textMode={card.textMode}
+      backdrop={
+        <SeasonBackdrop
+          seasonId={data.recap.seasonId}
+          progress={last > 0 ? (index / last) * 0.9 : 0}
+        />
+      }
       eyebrow={`BILAN · ${data.recap.label} ${data.recap.yearLabel}`}
       index={index}
       total={cards.length}
@@ -217,9 +252,8 @@ export default function SeasonRecap() {
               variant="solid"
               size="lg"
               tone={card.textMode}
-              icon="share"
-              label="Partager mon bilan"
-              onPress={share}
+              label="Terminer"
+              onPress={leave}
               style={styles.grow}
             />
           ) : (

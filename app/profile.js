@@ -281,14 +281,6 @@ export default function Profile() {
                 badgeCounts={stats.badgeCounts}
                 hasData={stats.hasData}
                 onOpenModeStats={setStatsTimerId}
-                onShare={() => setShareSheet(true)}
-              />
-              {/* Règle des trois fois : parler de l'app à un ami. */}
-              <ActionLinkRow
-                icon="share"
-                title={SHARE_APP_TITLE}
-                sub={SHARE_APP_SUB}
-                onPress={shareApp}
               />
               </Animated.View>
               )}

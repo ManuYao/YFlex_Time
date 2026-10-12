@@ -13,7 +13,7 @@ import Animated, {
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 
 import useAmbiance, { useAmbianceActive } from '../../hooks/useAmbiance';
-import { nextRareDelayMs } from '../../lib/ambiance';
+import { getAmbiance, nextRareDelayMs } from '../../lib/ambiance';
 import { ambianceWind } from '../../lib/ambianceMotion';
 import AmbianceShape from './AmbianceShapes';
 
@@ -428,8 +428,10 @@ function Scene({ ambiance, ink, w, h, active }) {
   );
 }
 
-export default function AmbianceBackdrop({ tone = 'light' }) {
-  const { ambiance } = useAmbiance();
+// `ambianceId` : impose une ambiance précise (bilan de saison) au lieu de celle du jour.
+export default function AmbianceBackdrop({ tone = 'light', ambianceId = null }) {
+  const current = useAmbiance().ambiance;
+  const ambiance = ambianceId ? getAmbiance(ambianceId) : current;
   const active = useAmbianceActive();
   const [size, setSize] = useState({ w: 0, h: 0 });
 
