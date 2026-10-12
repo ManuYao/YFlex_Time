@@ -3,6 +3,10 @@ import { View, StyleSheet, Pressable } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
   useAnimatedScrollHandler,
+  useAnimatedRef,
+  useDerivedValue,
+  scrollTo,
+  cancelAnimation,
   useAnimatedStyle,
   useSharedValue,
   interpolate,
@@ -157,7 +161,21 @@ function WheelPickerBase({
 }) {
   const visible = visibleItems % 2 === 0 ? visibleItems - 1 : visibleItems;
   const paddingItems = Math.floor(visible / 2);
-  const scrollRef = useRef(null);
+  const scrollRef = useAnimatedRef();
+  // Déplacements PROGRAMMÉS de la roue (tap sur une valeur, recalage à l'arrêt) :
+  // pilotés image par image depuis le fil d'interface (`glide` → scrollTo sans
+  // animation native) au lieu d'un scrollTo animé. Un scrollTo animé n'est pas
+  // interruptible sous Android : des taps rapprochés s'empilaient, le doigt posé
+  // figeait la roue entre deux valeurs et elle « se perdait ». Ici chaque nouveau
+  // tap REDIRIGE le même mouvement depuis la position courante, et un glissement
+  // du doigt le coupe net (`driving` = 0).
+  const glide = useSharedValue(0);
+  const driving = useSharedValue(0);
+  useDerivedValue(() => {
+    if (driving.value === 1) {
+      scrollTo(scrollRef, 0, glide.value, false);
+    }
+  });
   // Le handler de scroll peut garder un `commit` d'un ancien rendu : sans ref,
   // il appellerait un onChange périmé (liaison séries ↔ tours de la fiche).
   const onChangeRef = useRef(onChange);
@@ -168,8 +186,6 @@ function WheelPickerBase({
   // du moment.
   const [windowCenter, setWindowCenter] = useState(initialIdx);
   const windowCenterRef = useRef(initialIdx);
-  // true = le scroll en cours est notre recalage, pas le doigt de l'utilisateur
-  const settlingRef = useRef(false);
   // Les flèches du rail mordraient sur la valeur dans une colonne étroite
   // (Mix Builder : 2 à 3 roues côte à côte) : affichées seulement si la place.
   const [width, setWidth] = useState(0);
@@ -220,6 +236,11 @@ function WheelPickerBase({
   };
 
   const scrollHandler = useAnimatedScrollHandler({
+    onBeginDrag: () => {
+      // Le doigt reprend la main : plus aucun déplacement programmé.
+      driving.value = 0;
+      cancelAnimation(glide);
+    },
     onScroll: (e) => {
       scrollY.value = e.contentOffset.y;
       const idx = Math.max(
@@ -233,18 +254,24 @@ function WheelPickerBase({
     },
   });
 
-  // Doigt posé : si un recalage animé est en cours, on le fige là où il en est
-  // (scrollTo sans animation à la position courante) pour qu'il ne lutte pas
-  // contre le geste. Sans effet quand la roue est immobile.
-  const onTouchStart = () => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTo({ y: scrollY.value, animated: false });
-    }
-  };
+  // Glisse jusqu'à `targetY` (multiple de ITEM_HEIGHT) depuis la position
+  // courante ; un nouvel appel en cours de route redirige le même mouvement.
+  const glideTo = useCallback(
+    (targetY, duration) => {
+      glide.value = scrollY.value;
+      driving.value = 1;
+      glide.value = withTiming(
+        targetY,
+        { duration, easing: easeImpact },
+        (finished) => {
+          if (finished) driving.value = 0;
+        }
+      );
+    },
+    [glide, driving, scrollY]
+  );
 
   const onScrollBeginDrag = () => {
-    // Nouveau geste : un recalage en attente n'a plus de sens.
-    settlingRef.current = false;
     movingRef.current = true;
     lastMotionRef.current = Date.now();
   };
@@ -266,18 +293,11 @@ function WheelPickerBase({
     lastMotionRef.current = Date.now();
     const y = e.nativeEvent.contentOffset.y;
     const idx = idxAt(y);
-    const wasSettling = settlingRef.current;
-    settlingRef.current = false;
-    // Sur Android, notre scrollTo animé déclenche lui-même un momentum end :
-    // on ne le recale pas une seconde fois, sinon aller-retour possible.
-    if (wasSettling) return;
     const target = idx * ITEM_HEIGHT;
-    if (Math.abs(y - target) > SNAP_EPSILON && scrollRef.current) {
-      // Animé pour que la roue GLISSE jusqu'à la case (un saut sec se voyait). Le
-      // doigt n'arrête pas cette animation sous Android : onTouchStart la coupe
-      // (voir plus bas), sinon elle tirait vers l'ancienne case quand on repartait
-      // dans l'autre sens.
-      scrollRef.current.scrollTo({ y: target, animated: true });
+    if (Math.abs(y - target) > SNAP_EPSILON) {
+      // Glisse jusqu'à la case (un saut sec se voyait) ; coupé net si le doigt
+      // repart (onBeginDrag).
+      glideTo(target, 140);
     }
   };
 
@@ -288,12 +308,15 @@ function WheelPickerBase({
   // d'elle-même vers elle.
   const lastMotionRef = useRef(0);
   const movingRef = useRef(false);
-  const pickIndex = useCallback((idx) => {
-    if (movingRef.current || Date.now() - lastMotionRef.current < 450) return;
-    if (scrollRef.current) {
-      scrollRef.current.scrollTo({ y: idx * ITEM_HEIGHT, animated: true });
-    }
-  }, []);
+  const pickIndex = useCallback(
+    (idx) => {
+      // Seul un élan NATIF (lancer du doigt) bloque le tap ; nos propres glissades
+      // n'émettent pas ces événements, des taps rapprochés s'enchaînent donc.
+      if (movingRef.current || Date.now() - lastMotionRef.current < 200) return;
+      glideTo(idx * ITEM_HEIGHT, 200);
+    },
+    [glideTo]
+  );
 
   const totalHeight = ITEM_HEIGHT * visible;
   const railTop = ITEM_HEIGHT * paddingItems;
@@ -364,7 +387,6 @@ function WheelPickerBase({
         // elle suit le doigt de près et s'arrête sur la case la plus proche.
         decelerationRate={0.9}
         onScroll={scrollHandler}
-        onTouchStart={onTouchStart}
         onScrollBeginDrag={onScrollBeginDrag}
         onScrollEndDrag={onScrollEndDrag}
         onMomentumScrollBegin={onMomentumScrollBegin}
