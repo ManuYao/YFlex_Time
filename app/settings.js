@@ -31,14 +31,6 @@ import AmbianceSheet, { ambianceSummary } from '../components/common/AmbianceShe
 import BlockedUsersSheet from '../components/common/BlockedUsersSheet';
 import { useBlockedUsers } from '../hooks/useBlockedUsers';
 import useAmbiance from '../hooks/useAmbiance';
-// TEMP — bouton de test des ambiances (à retirer avec la section « Ambiance (test) »).
-import { getAmbiance } from '../lib/ambiance';
-import {
-  TEST_AMBIANCE_CYCLE,
-  cycleAmbianceOverride,
-  setAmbianceOverride,
-  useAmbianceOverride,
-} from '../lib/ambianceTest';
 import { loadContactNoticeHidden, setContactNoticeHidden } from '../lib/contactNotice';
 import {
   isBatteryOptimizationEnabled,
@@ -54,11 +46,10 @@ import { useOtaUpdate } from '../hooks/useOtaUpdate';
 import { markUpdatePopupSeen, resolveUpdateCandidate } from '../lib/updatePopup';
 import { haptic, setHapticStrength } from '../hooks/useHaptic';
 import { playDenied, playSound, previewVolumeTap } from '../lib/sounds';
-// TEMP — rejouer les intros de démarrage (à retirer avec la section « Intro de démarrage (test) »).
+// TEMP — le bouton de test de l'intro (à retirer avec la section « Test »).
 import { forceUpdateSplash, requestSplash } from '../lib/splash';
 import { detectVoices } from '../lib/voiceCoach';
 import { fonts } from '../lib/fonts';
-import { previousSeasonRange, seasonRangeOf } from '../lib/seasonRecap';
 import { DANGER, ROUND_SIZE } from '../lib/buttonTokens';
 
 const CONTACT_EMAIL = 'yaomanuit@gmail.com';
@@ -121,6 +112,8 @@ export default function Settings() {
   const [updateSheet, setUpdateSheet] = useState(null);
   const [contactSheet, setContactSheet] = useState(false);
   const [resetConfirm, setResetConfirm] = useState(false);
+  // TEMP — quelle intro joue le prochain appui du bouton de test (alternance courte / longue).
+  const [introNext, setIntroNext] = useState('short');
   // Suppression du compte en ligne (section « Compte », visible seulement si
   // on est connecté).
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -135,10 +128,6 @@ export default function Settings() {
   // résumé de la ligne suit le réglage et la date du téléphone.
   const [ambianceSheet, setAmbianceSheet] = useState(false);
   const { mode: ambianceMode, ambiance } = useAmbiance();
-  const testAmbianceId = useAmbianceOverride(); // TEMP
-  const testAmbianceNextId =
-    TEST_AMBIANCE_CYCLE[(TEST_AMBIANCE_CYCLE.indexOf(testAmbianceId) + 1) % TEST_AMBIANCE_CYCLE.length];
-  const testAmbianceNext = testAmbianceNextId ? getAmbiance(testAmbianceNextId).label : 'Date réelle';
   const [blockedSheet, setBlockedSheet] = useState(false);
   const blockedUsers = useBlockedUsers();
   const [maleVoiceAvailable, setMaleVoiceAvailable] = useState(false);
@@ -630,95 +619,17 @@ export default function Settings() {
             <LinkRow label="Contact" sub={CONTACT_EMAIL} onPress={handleContact} isLast />
           </Section>
 
-          {/* TEMP — à retirer avant publication : "console" visuelle pour
-              vérifier l'état réel d'EAS Update sur un APK sans ordinateur ni
-              Metro (impossible à brancher sur un build standalone). */}
-          <Section title="Diagnostic mise à jour (test)">
-            <View style={styles.diagBox}>
-              <DiagLine label="OTA actif" value={diagnostics.isEnabled ? 'oui' : 'non (dev/Expo Go)'} />
-              <DiagLine label="Canal" value={diagnostics.channel || '—'} />
-              <DiagLine label="Runtime version" value={diagnostics.runtimeVersion || '—'} />
-              <DiagLine label="Version en cours" value={diagnostics.runningUpdateId || '—'} />
-              <DiagLine label="Mise à jour prête" value={pending ? 'oui' : 'non'} />
-              <DiagLine label="Dernier check" value={STATUS_LABEL[status] || status} />
-              {!!lastCheckAt && (
-                <DiagLine label="À" value={new Date(lastCheckAt).toLocaleTimeString('fr-FR')} />
-              )}
-              {!!lastError && <DiagLine label="Erreur" value={lastError} isError />}
-            </View>
+          {/* TEMP — le SEUL bouton de test qui reste, à retirer avant la version officielle :
+              rejoue l'intro de démarrage à la demande, pour la juger sans relancer l'app. */}
+          <Section title="Test">
             <LinkRow
-              label="Vérifier maintenant"
-              sub="Force un checkForUpdateAsync (voir le résultat ci-dessus)"
-              onPress={checkNow}
-              isLast
-            />
-          </Section>
-
-          {/* TEMP — à retirer avant publication : force une saison ou une fête pour
-              les juger sans attendre la date. En mémoire seulement (un relancement
-              de l'app revient à la date réelle). L'effet se voit sur l'accueil, le
-              menu, l'historique et le planning (les Paramètres restent noirs). */}
-          <Section title="Ambiance (test)">
-            <LinkRow
-              label="Forcer une ambiance"
-              sub={`${testAmbianceId ? getAmbiance(testAmbianceId).label : 'Date réelle'} · touche pour : ${testAmbianceNext}`}
+              label="Rejouer l'intro de démarrage"
+              sub={`Prochaine : ${introNext === 'long' ? 'longue (après une mise à jour, deux sons)' : 'courte (lancement ordinaire)'}`}
               onPress={() => {
                 haptic.light();
-                cycleAmbianceOverride();
-              }}
-            />
-            <LinkRow
-              label="Revenir à la date réelle"
-              sub="Annule l'ambiance forcée"
-              onPress={() => {
-                haptic.light();
-                setAmbianceOverride(null);
-              }}
-              isLast
-            />
-          </Section>
-
-          {/* TEMP — rejoue l'intro de démarrage à la demande, à retirer avant la version
-              officielle. « Courte » = l'intro de tous les jours (un son) ; « longue » = celle d'après
-              une mise à jour (deux sons, elle dure jusqu'à la fin de la seconde mélodie). Pour voir
-              la version d'une saison : forcer l'ambiance juste au-dessus, puis rejouer. */}
-          <Section title="Intro de démarrage (test)">
-            <LinkRow
-              label="Rejouer l'intro courte"
-              sub="Celle des lancements ordinaires, avec l'ambiance du moment"
-              onPress={() => {
-                haptic.light();
+                if (introNext === 'long') forceUpdateSplash();
                 requestSplash();
-              }}
-            />
-            <LinkRow
-              label="Rejouer l'intro longue"
-              sub="Celle d'après une mise à jour : les deux sons"
-              onPress={() => {
-                haptic.light();
-                forceUpdateSplash();
-                requestSplash();
-              }}
-              isLast
-            />
-          </Section>
-
-          {/* TEMP — aperçu du bilan de saison, à retirer avant la version officielle. */}
-          <Section title="Bilan de saison (test)">
-            <LinkRow
-              label="Voir le bilan de la saison passée"
-              sub={previousSeasonRange().key}
-              onPress={() => {
-                haptic.light();
-                router.push({ pathname: '/season-recap', params: { key: previousSeasonRange().key } });
-              }}
-            />
-            <LinkRow
-              label="Voir le bilan de la saison en cours"
-              sub={seasonRangeOf().key}
-              onPress={() => {
-                haptic.light();
-                router.push({ pathname: '/season-recap', params: { key: seasonRangeOf().key } });
+                setIntroNext(introNext === 'long' ? 'short' : 'long');
               }}
               isLast
             />

@@ -1,6 +1,15 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Pressable, StyleSheet, Dimensions } from 'react-native';
-import Svg, { Defs, RadialGradient, Pattern, Stop, Rect, Circle, Path } from 'react-native-svg';
+import Svg, {
+  Circle,
+  Defs,
+  G,
+  Path,
+  Pattern,
+  RadialGradient,
+  Rect,
+  Stop,
+} from 'react-native-svg';
 import Animated, {
   Easing,
   runOnJS,
@@ -9,86 +18,66 @@ import Animated, {
   useSharedValue,
   withDelay,
   withRepeat,
-  withSequence,
   withTiming,
 } from 'react-native-reanimated';
 
-import LaunchRing, { FineCrown, RadialGlow } from './LaunchRing';
-import LaunchBurst from './LaunchBurst';
-import AmbianceShape from './AmbianceShapes';
-import useAmbiance from '../../hooks/useAmbiance';
+import LaunchRing, { FineCrown, RadialGlow, RingHalo } from './LaunchRing';
 import useArmed from '../../hooks/useArmed';
 import { useSettings } from '../../contexts/SettingsContext';
 import { fonts } from '../../lib/fonts';
 import { playSound, playSoundSequence, preloadSound, isSoundEnabled } from '../../lib/sounds';
 import { consumeUpdateSplash } from '../../lib/splash';
 import { appReadyAt, onAppReady } from '../../lib/appReady';
-import {
-  MODE_RING,
-  burstParticles,
-  rgbToHex,
-  seededRandom,
-  splashExitAt,
-  splashLookFor,
-} from '../../lib/launchVisuals';
+import { splashExitAt, splashLookFor, tickGeometry } from '../../lib/launchVisuals';
 
 /**
- * Intro de démarrage animée, bloquante (voir lib/splash.js pour savoir quand elle se joue).
+ * Intro de démarrage, bloquante (voir lib/splash.js pour savoir quand elle se joue).
  *
- * C'est l'emblème de l'icône qui s'allume puis TOURNE COMME UNE PIÈCE : l'anneau de 60
- * graduations s'allume en blanc (une comète le parcourt), puis l'emblème fait deux tours sur son
- * axe vertical, en perspective — il passe de profil comme une ligne lumineuse, se rouvre — pendant
- * que les graduations prennent leurs couleurs en vague, et le « F » d'Anton se révèle dans le
- * dernier tour avant de se poser, face à nous. Une onde, des étincelles et (avec une saison) des
- * formes de la saison marquent l'atterrissage. Puis l'emblème TIENT : une vraie pause pour lire
- * le « F » et le nom, avant que l'intro ne se referme en faisant demi-tour sur elle-même.
+ * Volontairement CALME : notre icône, bien finie, sur un fond dessiné. Rien ne jaillit, rien ne
+ * tourne, aucune étincelle. Tout apparaît en fondu doux, dans l'ordre :
+ *   1. le fond se révèle (fondu sur place, JAMAIS une ouverture qui part du centre : un fond qui
+ *      grandit depuis le milieu fait « porte qui s'ouvre ») ;
+ *   2. l'anneau de 60 graduations s'allume dans le sens des aiguilles d'une montre, aux quatre
+ *      couleurs des modes, avec son halo ;
+ *   3. la fine couronne de 120 repères, puis le « F » d'Anton, se posent ;
+ *   4. le nom, discret ;
+ *   5. l'emblème TIENT (une vraie pause pour le lire), puis tout s'efface en fondu.
  *
- * DEUX durées, calées sur le son :
- *   - courte (~3,2 s) : un seul son, `intro` ;
+ * DEUX durées, calées sur le son, MÊME dessin :
+ *   - courte : un seul son (`intro`), l'emblème tient environ 1,2 s ;
  *   - longue (après une mise à jour, quand les sons sont actifs) : `intro` puis `introNew`. Le
- *     début est le même, puis l'intro continue de pétiller (ondes, orbite, pluie de particules,
- *     « NOUVELLE VERSION ») et ne se referme QUE quand le dernier son est fini : si la seconde
- *     mélodie est raccourcie un jour, l'intro se raccourcit toute seule.
+ *     dessin est le même, l'emblème reste posé (il respire à peine) et l'intro ne se referme
+ *     QUE quand le dernier son est fini : si la seconde mélodie est raccourcie un jour, l'intro
+ *     se raccourcit toute seule. « NOUVELLE VERSION » s'écrit sous l'emblème.
  * Dans les deux cas elle attend aussi que l'écran derrière (accueil) soit prêt
  * (lib/appReady.js), dans la limite de la patience prévue. Le moment de la fermeture est décidé
  * par `splashExitAt` (lib/launchVisuals.js, testé).
  *
- * PRÉCHARGEMENT : tout l'arbre (anneaux, particules, lueurs) est monté et dessiné dans son état
- * de départ AVANT que l'horloge, le son ne démarrent (hooks/useArmed.js) : le gel du montage ne
- * mange jamais les premières images de l'animation.
+ * UN SEUL dessin pour l'instant (pas de variante par saison) : à valider avant de le décliner.
  *
- * AVEC UNE AMBIANCE DE SAISON : le fond reprend celui de l'icône de la saison, les graduations
- * des fêtes prennent les couleurs de la fête (les saisons gardent les quatre couleurs des modes),
- * des formes de la saison jaillissent, un petit mot s'écrit sous l'anneau. SANS ambiance (réglage
- * « Aucune ») : fond noir étoilé, quatre couleurs, étincelles blanches et colorées.
+ * PRÉCHARGEMENT : tout l'arbre est monté et dessiné dans son état de départ AVANT que l'horloge
+ * et le son ne démarrent (hooks/useArmed.js).
  *
- * Légèreté : `transform` et `opacity` sur le fil d'interface, rien d'animé en mise en page. Avec
- * « réduire les animations » : l'anneau coloré et le « F » apparaissent en fondu, sans rotation.
+ * Légèreté : `opacity` et un peu de `transform` sur le fil d'interface ; les 60 graduations
+ * n'animent chacune que leur opacité. Avec « réduire les animations » : tout est posé d'emblée,
+ * seul le fondu de fermeture reste.
  */
 
 const INITIAL = Dimensions.get('window');
-const EXIT_MS = 420;
+const EXIT_MS = 560;
 
 const E_OUT = Easing.out(Easing.cubic);
-const E_INOUT = Easing.inOut(Easing.cubic);
-const E_SETTLE = Easing.bezier(0.2, 0.9, 0.3, 1.12); // se pose avec un très léger dépassement
-// La rotation démarre doucement, file, puis ralentit longuement jusqu'à se poser (pas de coup).
-const E_SPIN = Easing.bezier(0.35, 0, 0.12, 1);
+const E_SOFT = Easing.inOut(Easing.sin);
 
 // Calendrier (ms depuis l'armement).
-const IGNITE_AT = 60; // le blanc s'allume en comète
-const IGNITE_SWEEP = 480;
-const SPIN_AT = 500; // l'emblème se met à tourner
-const SPIN_MS = 1350; // deux tours (720°), qui finissent face à nous
-const WIPE_AT = 850; // les couleurs arrivent, en vague, pendant la rotation
-const WIPE_SWEEP = 650;
-const LAND_AT = 1500; // il se pose : onde, étincelles
-const MARK_AT = 1650; // nom, puis petit mot de la saison
-const GREET_AT = 1800;
-const SUSTAIN_AT = 2300; // version longue : on continue de pétiller
-
-// Perspective de la rotation, en multiple du côté de l'emblème (plus grand = plus plat).
-const PERSPECTIVE_K = 3;
+const BG_MS = 900; // le fond se révèle, en fondu
+const RING_AT = 400; // l'anneau s'allume...
+const RING_SWEEP = 1000; // ... en un tour complet
+const RING_RISE = 320; // chaque graduation monte doucement
+const CROWN_AT = 900; // la fine couronne
+const F_AT = 1150; // le « F »
+const MARK_AT = 1700; // le nom
+const SUSTAIN_AT = 2400; // version longue : l'emblème respire à peine
 
 // Le « F » d'Anton de l'icône (canevas de 512), voir design/build-icons.js.
 const F_PATH =
@@ -98,10 +87,9 @@ const F_PATH =
 const WARM_SOUNDS = ['countdown1', 'countdown2', 'countdown3', 'go', 'next1', 'next2', 'next3'];
 
 export default function LaunchSplash({ onDone }) {
-  // Les réglages (ambiance « Aucune », sons coupés) doivent être lus AVANT de montrer quoi que ce
-  // soit : sinon un utilisateur sans ambiance verrait une fois la saison, et l'intro jouerait un
-  // son qu'il a coupé. On attend donc les réglages (au plus 700 ms) puis UN rendu de plus : les
-  // effets des fournisseurs (réglage des sons) ont alors tous tourné.
+  // Les réglages (sons coupés) doivent être lus AVANT de rien jouer : sinon l'intro jouerait un
+  // son que l'utilisateur a coupé. On attend donc les réglages (au plus 700 ms) puis UN rendu de
+  // plus : les effets des fournisseurs (réglage des sons) ont alors tous tourné.
   const { hydrated } = useSettings();
   const [go, setGo] = useState(false);
   useEffect(() => {
@@ -117,17 +105,9 @@ export default function LaunchSplash({ onDone }) {
   return <SplashShow onDone={onDone} />;
 }
 
-// Angle ramené entre -180° et 180° (équivalent visuellement, et sans cumul au-delà d'un tour).
-function norm(a) {
-  'worklet';
-  return ((((a + 180) % 360) + 360) % 360) - 180;
-}
-
 function SplashShow({ onDone }) {
   const reduced = useReducedMotion();
-  const { ambiance } = useAmbiance();
-  const look = useMemo(() => splashLookFor(ambiance?.id), [ambiance?.id]);
-  const seasonal = look.seasonal && !!ambiance;
+  const look = useMemo(() => splashLookFor(null), []); // UN seul dessin pour l'instant
   const armed = useArmed();
 
   // Longue = mise à jour installée ET sons actifs (sans son, bloquer 5 s pour rien serait pénible).
@@ -142,25 +122,16 @@ function SplashShow({ onDone }) {
     setSize((prev) => (prev.width === width && prev.height === height ? prev : { width, height }));
   };
   const S = Math.max(200, Math.round(Math.min(300, size.width - 72, size.height * 0.4)));
-  const k = S / 300;
-  const perspective = S * PERSPECTIVE_K;
 
   /* ───── valeurs animées ───── */
 
   const bgOp = useSharedValue(reduced ? 1 : 0);
-  const bgScale = useSharedValue(reduced ? 1 : 0.55);
-  const glow = useSharedValue(reduced ? 0.3 : 0);
+  const glow = useSharedValue(reduced ? 0.1 : 0);
+  const haloOp = useSharedValue(reduced ? 1 : 0);
   const crownOp = useSharedValue(reduced ? 1 : 0);
-  const crownRot = useSharedValue(0);
-  // Angle de l'emblème (0 → 720°) ; en mouvement réduit il est déjà face à nous.
-  const spin = useSharedValue(reduced ? 720 : 0);
-  const fScale = useSharedValue(reduced ? 1 : 0.9);
-  const fGlow = useSharedValue(0);
-  const burst = useSharedValue(0);
-  const shapes = useSharedValue(0);
-  const shower = useSharedValue(0);
+  const fOp = useSharedValue(reduced ? 1 : 0);
+  const fScale = useSharedValue(reduced ? 1 : 0.955);
   const mark = useSharedValue(reduced ? 1 : 0);
-  const greet = useSharedValue(reduced ? 1 : 0);
   const label = useSharedValue(reduced ? 1 : 0);
   const breath = useSharedValue(0);
   const finale = useSharedValue(0);
@@ -183,7 +154,7 @@ function SplashShow({ onDone }) {
     if (exitingRef.current) return;
     exitingRef.current = true;
     clearTimeout(exitTimerRef.current);
-    finale.value = withTiming(1, { duration: EXIT_MS, easing: E_INOUT }, (finished) => {
+    finale.value = withTiming(1, { duration: EXIT_MS, easing: E_SOFT }, (finished) => {
       if (finished) runOnJS(done)();
     });
     // Secours : l'intro ne doit jamais rester collée à l'écran.
@@ -223,47 +194,20 @@ function SplashShow({ onDone }) {
     }
 
     if (!reduced) {
-      bgOp.value = withTiming(1, { duration: 450, easing: E_OUT });
-      bgScale.value = withTiming(1, { duration: 650, easing: E_OUT });
-      // L'aura : monte à l'allumage, retombe pendant la rotation, éclate à l'atterrissage.
-      glow.value = withDelay(
-        IGNITE_AT,
-        withSequence(
-          withTiming(0.4, { duration: 400, easing: E_OUT }),
-          withTiming(0.22, { duration: 900, easing: E_INOUT }),
-          withTiming(0.6, { duration: 260, easing: E_OUT }),
-          withTiming(0.3, { duration: 760, easing: E_INOUT })
-        )
-      );
-      crownOp.value = withDelay(350, withTiming(1, { duration: 450, easing: E_OUT }));
-      crownRot.value = withTiming(360, { duration: 60000, easing: Easing.linear });
-      spin.value = withDelay(SPIN_AT, withTiming(720, { duration: SPIN_MS, easing: E_SPIN }));
-      fScale.value = withDelay(SPIN_AT + 750, withTiming(1, { duration: 700, easing: E_SETTLE }));
-      fGlow.value = withDelay(
-        LAND_AT - 50,
-        withSequence(
-          withTiming(0.65, { duration: 200, easing: E_OUT }),
-          withTiming(0.22, { duration: 700, easing: E_INOUT })
-        )
-      );
-      burst.value = withDelay(LAND_AT - 50, withTiming(1, { duration: 1100, easing: Easing.linear }));
-      shapes.value = withDelay(LAND_AT, withTiming(1, { duration: 1250, easing: Easing.linear }));
-      mark.value = withDelay(MARK_AT, withTiming(1, { duration: 400, easing: E_OUT }));
-      greet.value = withDelay(GREET_AT, withTiming(1, { duration: 400, easing: E_OUT }));
+      bgOp.value = withTiming(1, { duration: BG_MS, easing: E_SOFT });
+      glow.value = withDelay(300, withTiming(0.1, { duration: 1300, easing: E_OUT }));
+      haloOp.value = withDelay(RING_AT, withTiming(1, { duration: 1100, easing: E_OUT }));
+      crownOp.value = withDelay(CROWN_AT, withTiming(1, { duration: 800, easing: E_OUT }));
+      fOp.value = withDelay(F_AT, withTiming(1, { duration: 750, easing: E_OUT }));
+      fScale.value = withDelay(F_AT, withTiming(1, { duration: 1000, easing: E_OUT }));
+      mark.value = withDelay(MARK_AT, withTiming(1, { duration: 600, easing: E_OUT }));
       if (isLong) {
-        label.value = withDelay(SUSTAIN_AT + 300, withTiming(1, { duration: 420, easing: E_OUT }));
-        shower.value = withDelay(
-          SUSTAIN_AT + 100,
-          withRepeat(withTiming(1, { duration: 3000, easing: Easing.linear }), -1, false)
-        );
-        // L'emblème respire tant que l'intro dure.
+        label.value = withDelay(SUSTAIN_AT, withTiming(1, { duration: 600, easing: E_OUT }));
         breath.value = withDelay(
           SUSTAIN_AT,
-          withRepeat(withTiming(1, { duration: 1800, easing: Easing.inOut(Easing.sin) }), -1, true)
+          withRepeat(withTiming(1, { duration: 2400, easing: E_SOFT }), -1, true)
         );
       }
-    } else if (isLong) {
-      label.value = 1;
     }
 
     reschedule();
@@ -282,172 +226,44 @@ function SplashShow({ onDone }) {
   /* ───── styles ───── */
 
   const rootStyle = useAnimatedStyle(() => ({ opacity: 1 - finale.value }));
-  const bgStyle = useAnimatedStyle(() => ({
-    opacity: bgOp.value,
-    transform: [{ scale: bgScale.value }],
-  }));
+  const bgStyle = useAnimatedStyle(() => ({ opacity: bgOp.value }));
   const glowStyle = useAnimatedStyle(() => ({
-    opacity: glow.value * (1 - finale.value) + 0.5 * 4 * finale.value * (1 - finale.value),
-    transform: [{ scale: 1 + 0.06 * breath.value + 0.1 * finale.value }],
+    opacity: glow.value * (1 + 0.25 * breath.value),
   }));
-  const crownStyle = useAnimatedStyle(() => ({
-    opacity: crownOp.value,
-    transform: [{ rotate: `${crownRot.value}deg` }],
+  const haloStyle = useAnimatedStyle(() => ({ opacity: haloOp.value * (0.85 + 0.15 * breath.value) }));
+  const crownStyle = useAnimatedStyle(() => ({ opacity: crownOp.value }));
+  // La lueur derrière le « F » reste très discrète : un « F » blanc sur un blob blanc ne se lirait pas.
+  const fGlowStyle = useAnimatedStyle(() => ({ opacity: fOp.value * 0.2 }));
+  const fStyle = useAnimatedStyle(() => ({
+    opacity: fOp.value,
+    transform: [{ scale: fScale.value * (1 + 0.012 * breath.value) }],
   }));
-
-  // L'emblème tourne comme une pièce autour de son axe vertical. À la fermeture il fait demi-tour
-  // jusqu'à passer de profil (le miroir de son entrée).
-  const planeStyle = useAnimatedStyle(() => {
-    const a = norm(spin.value + 90 * finale.value);
-    return {
-      transform: [
-        { perspective },
-        { rotateY: `${a}deg` },
-        { scale: 1 + 0.02 * breath.value },
-      ],
-    };
-  });
-  // Le « F » : tourne avec l'emblème, mais ne se montre que de face (jamais à l'envers), et sa
-  // révélation suit la rotation : il apparaît pendant le dernier tour.
-  const fStyle = useAnimatedStyle(() => {
-    const a = norm(spin.value + 90 * finale.value);
-    const facing = Math.cos((a * Math.PI) / 180) > 0.03 ? 1 : 0;
-    const reveal = Math.min(1, Math.max(0, (spin.value - 400) / 280));
-    return {
-      opacity: reveal * facing,
-      transform: [
-        { perspective },
-        { rotateY: `${a}deg` },
-        { scale: fScale.value * (1 + 0.04 * breath.value) },
-      ],
-    };
-  });
-  const fGlowStyle = useAnimatedStyle(() => ({ opacity: fGlow.value }));
   const markStyle = useAnimatedStyle(() => ({
-    opacity: mark.value * 0.75,
-    transform: [{ translateY: (1 - mark.value) * -6 }],
-  }));
-  const greetStyle = useAnimatedStyle(() => ({
-    opacity: greet.value,
-    transform: [{ translateY: (1 - greet.value) * 8 }],
+    opacity: mark.value * 0.7,
+    transform: [{ translateY: (1 - mark.value) * -4 }],
   }));
   const labelStyle = useAnimatedStyle(() => ({
-    opacity: label.value * 0.75,
-    transform: [{ translateY: (1 - label.value) * 8 }],
+    opacity: label.value * 0.7,
+    transform: [{ translateY: (1 - label.value) * 4 }],
   }));
 
-  /* ───── particules ───── */
-
-  const dotColors = useMemo(
-    () =>
-      seasonal
-        ? [...look.ring, ambiance.accent, ambiance.accent2]
-        : [...MODE_RING, '#FFFFFF'],
-    [seasonal, look.ring, ambiance?.accent, ambiance?.accent2]
-  );
-  const sparks = useMemo(
-    () =>
-      burstParticles({
-        seed: `splash-sparks-${look.id}`,
-        count: 18,
-        minDist: S * 0.42,
-        maxDist: S * 0.78,
-        minSize: 4,
-        maxSize: 8,
-        colors: dotColors,
-        spin: 0,
-        delayMax: 0.3,
-        alpha: 0.95,
-      }),
-    [look.id, S, dotColors]
-  );
-  const motifs = useMemo(() => {
-    if (!seasonal) return [];
-    const dir = ambiance.dir;
-    return burstParticles({
-      seed: `splash-motifs-${look.id}`,
-      count: 14,
-      minDist: S * 0.5,
-      maxDist: S * 1.3,
-      minSize: 18,
-      maxSize: 30,
-      kinds: ambiance.motifs,
-      drift: dir === 0 ? 0 : dir > 0 ? S * 0.55 : -S * 0.55,
-      spin: 140,
-      delayMax: 0.3,
-      alpha: 0.95,
-    });
-  }, [seasonal, ambiance, look.id, S]);
-  const showerParts = useMemo(() => {
-    if (!isLong) return [];
-    if (seasonal) {
-      const dir = ambiance.dir;
-      return burstParticles({
-        seed: `splash-shower-${look.id}`,
-        count: 16,
-        minDist: S * 0.45,
-        maxDist: S * 1.5,
-        minSize: 16,
-        maxSize: 28,
-        kinds: ambiance.motifs,
-        drift: dir === 0 ? 0 : dir > 0 ? S * 0.7 : -S * 0.7,
-        spin: 160,
-        delayMax: 0.6,
-        alpha: 0.9,
-      });
-    }
-    return burstParticles({
-      seed: 'splash-shower-base',
-      count: 16,
-      minDist: S * 0.45,
-      maxDist: S * 1.4,
-      minSize: 3,
-      maxSize: 7,
-      colors: dotColors,
-      spin: 0,
-      delayMax: 0.6,
-      alpha: 0.9,
-    });
-  }, [isLong, seasonal, ambiance, look.id, S, dotColors]);
-
-  // Petites étoiles qui scintillent autour de l'emblème posé (positions stables).
-  const twinkles = useMemo(() => {
-    const rnd = seededRandom(`twinkle-${look.id}`);
-    return Array.from({ length: 9 }, (_, i) => {
-      const a = (i / 9) * Math.PI * 2 + rnd() * 0.6;
-      const r = S * (0.56 + rnd() * 0.22);
-      return {
-        x: S / 2 + Math.cos(a) * r,
-        y: S / 2 + Math.sin(a) * r,
-        size: 8 + Math.round(rnd() * 6),
-        delay: LAND_AT - 100 + i * 95 + Math.round(rnd() * 120),
-        period: 520 + Math.round(rnd() * 240),
-        kind: i % 3 === 0 ? 'dot' : 'star',
-      };
-    });
-  }, [look.id, S]);
-
-  const accent = seasonal ? ambiance.accent : '#FFFFFF';
-  const glowColor = seasonal ? rgbToHex(ambiance.glow) : '#FFFFFF';
-  // Les graduations « blanches » du début prennent la teinte claire de la saison (blanc pur sans).
-  const whiteTone = seasonal ? look.crown[0] : '#FFFFFF';
   const crownRadius = (226 / 512) * S;
   const crownBox = (crownRadius + 2) * 2;
-  const auraSize = S * 1.7;
-  const fGlowSize = S * 0.62;
-  const ringDiameter = (204 / 512) * S * 2;
+  const auraSize = S * 1.9;
+  const fGlowSize = S * 0.6;
+  const haloBox = S * 1.5;
 
   return (
     <Animated.View style={[styles.root, rootStyle]} onLayout={handleLayout}>
       <Pressable style={StyleSheet.absoluteFill} />
 
-      {/* Le fond : noir étoilé, ou celui de l'icône de la saison. Il s'ouvre depuis le centre. */}
+      {/* Le fond dessiné : se révèle en fondu, sur place */}
       <Animated.View style={[StyleSheet.absoluteFill, bgStyle]} pointerEvents="none">
-        <Backdrop width={size.width} height={size.height} bg={look.bg} seasonal={seasonal} />
+        <BackdropArt width={size.width} height={size.height} bg={look.bg} S={S} />
       </Animated.View>
 
       <View style={[styles.stage, { width: S, height: S }]} pointerEvents="none">
-        {/* Aura */}
+        {/* Lumière douce derrière l'emblème */}
         <Animated.View
           style={[
             styles.abs,
@@ -455,10 +271,21 @@ function SplashShow({ onDone }) {
             glowStyle,
           ]}
         >
-          <RadialGlow size={auraSize} color={glowColor} id="splashAura" />
+          <RadialGlow size={auraSize} color="#FFFFFF" id="splashAura" />
         </Animated.View>
 
-        {/* Fine couronne de 120 repères : elle, ne tourne pas sur l'axe (elle reste comme un cadre) */}
+        {/* Halo de l'anneau */}
+        <Animated.View
+          style={[
+            styles.abs,
+            { left: S / 2 - haloBox / 2, top: S / 2 - haloBox / 2, width: haloBox, height: haloBox },
+            haloStyle,
+          ]}
+        >
+          <RingHalo size={S} color="#FFFFFF" id="splashHalo" />
+        </Animated.View>
+
+        {/* Fine couronne de 120 repères */}
         <Animated.View
           style={[
             styles.abs,
@@ -469,137 +296,47 @@ function SplashShow({ onDone }) {
           <FineCrown radius={crownRadius} color={look.crown[0]} opacity={look.crown[1]} />
         </Animated.View>
 
-        {/* Ondes de choc : une au départ de la rotation, deux à l'atterrissage */}
-        {!reduced ? (
-          <>
-            <Shock D={ringDiameter} delay={SPIN_AT + 20} color={accent} loop={false} play={armed} />
-            <Shock D={ringDiameter} delay={LAND_AT - 50} color={accent} loop={false} play={armed} />
-            <Shock D={ringDiameter} delay={LAND_AT + 70} color={accent} loop={false} play={armed} />
-            {isLong ? <Shock D={ringDiameter} delay={SUSTAIN_AT + 200} color={accent} loop play={armed} /> : null}
-            {isLong ? <Shock D={ringDiameter} delay={SUSTAIN_AT + 950} color={accent} loop play={armed} /> : null}
-          </>
-        ) : null}
+        {/* L'anneau de 60 graduations de l'icône, aux quatre couleurs des modes */}
+        <View style={[styles.abs, { left: 0, top: 0, width: S, height: S }]}>
+          <LaunchRing
+            size={S}
+            preset="icon"
+            color={look.ring}
+            baseOpacity={0}
+            mode={reduced ? 'static' : 'fill'}
+            staticOpacity={1}
+            startDelay={RING_AT}
+            sweepMs={RING_SWEEP}
+            riseMs={RING_RISE}
+            play={armed}
+          />
+        </View>
 
-        {/* L'EMBLÈME qui tourne : anneau blanc allumé par une comète, puis anneau de couleurs
-            qui arrive en vague par-dessus (au milieu de la vague, les graduations sont pastel) */}
-        <Animated.View style={[styles.abs, { left: 0, top: 0, width: S, height: S }, planeStyle]}>
-          {!reduced ? (
-            <LaunchRing
-              size={S}
-              preset="icon"
-              color={whiteTone}
-              baseOpacity={0}
-              mode="fill"
-              startDelay={IGNITE_AT}
-              sweepMs={IGNITE_SWEEP}
-              riseMs={140}
-              play={armed}
-            />
-          ) : null}
-          <View style={[styles.abs, { left: 0, top: 0, width: S, height: S }]}>
-            <LaunchRing
-              size={S}
-              preset="icon"
-              color={look.ring}
-              baseOpacity={0}
-              mode={reduced ? 'static' : 'fill'}
-              staticOpacity={1}
-              startDelay={WIPE_AT}
-              sweepMs={WIPE_SWEEP}
-              riseMs={220}
-              play={armed}
-            />
-          </View>
-          {/* Comète qui allume l'anneau, puis (version longue) étincelle qui continue d'orbiter */}
-          {!reduced ? (
-            <>
-              <Orbiter S={S} k={k} delay={IGNITE_AT} duration={IGNITE_SWEEP} loop={false} color={accent} play={armed} />
-              {isLong ? (
-                <Orbiter S={S} k={k} delay={SUSTAIN_AT} duration={3200} loop color={accent} play={armed} />
-              ) : null}
-            </>
-          ) : null}
-        </Animated.View>
-
-        {/* Lueur derrière le « F », puis le « F » lui-même (tourne avec l'emblème, de face seulement) */}
-        <Animated.View
+        {/* Lueur derrière le « F », puis le « F » */}
+        <View
           style={[
             styles.abs,
             { left: S / 2 - fGlowSize / 2, top: S / 2 - fGlowSize / 2, width: fGlowSize, height: fGlowSize },
-            fGlowStyle,
           ]}
         >
-          <RadialGlow size={fGlowSize} color="#FFFFFF" id="splashFGlow" />
-        </Animated.View>
+          <Animated.View style={[StyleSheet.absoluteFill, fGlowStyle]}>
+            <RadialGlow size={fGlowSize} color="#FFFFFF" id="splashFGlow" />
+          </Animated.View>
+        </View>
         <Animated.View style={[styles.abs, { left: 0, top: 0, width: S, height: S }, fStyle]}>
           <Svg width={S} height={S} viewBox="0 0 512 512">
             <Path d={F_PATH} fill="#FFFFFF" />
           </Svg>
         </Animated.View>
 
-        {/* Étincelles (et formes de la saison) à l'atterrissage */}
-        {!reduced ? (
-          <>
-            <LaunchBurst progress={burst} particles={sparks} x={S / 2} y={S / 2} />
-            {seasonal ? (
-              <LaunchBurst
-                progress={shapes}
-                particles={motifs}
-                x={S / 2}
-                y={S / 2}
-                ink="#FFFFFF"
-                accent={ambiance.accent}
-              />
-            ) : null}
-            {isLong ? (
-              <LaunchBurst
-                progress={shower}
-                particles={showerParts}
-                x={S / 2}
-                y={S / 2}
-                ink="#FFFFFF"
-                accent={accent}
-              />
-            ) : null}
-            {twinkles.map((t, i) => (
-              <Twinkle
-                key={i}
-                x={t.x}
-                y={t.y}
-                size={t.size}
-                delay={t.delay}
-                period={t.period}
-                loop={isLong}
-                play={armed}
-                kind={t.kind}
-                ink="#FFFFFF"
-                accent={accent}
-              />
-            ))}
-          </>
-        ) : null}
-
-        {/* Le nom, au-dessus de l'emblème */}
-        <Animated.Text style={[styles.mark, { top: -44, left: -60, width: S + 120 }, markStyle]}>
+        {/* Le nom, discret, au-dessus de l'emblème */}
+        <Animated.Text style={[styles.mark, { top: -46, left: -60, width: S + 120 }, markStyle]}>
           FLEX TIMER
         </Animated.Text>
 
-        {/* Le petit mot de la saison, sous l'anneau */}
-        {seasonal && look.greeting ? (
-          <Animated.Text style={[styles.greeting, { top: S + 22, left: -60, width: S + 120 }, greetStyle]}>
-            {look.greeting}
-          </Animated.Text>
-        ) : null}
-
         {/* Version longue : on dit pourquoi elle est longue */}
         {isLong ? (
-          <Animated.Text
-            style={[
-              styles.label,
-              { top: S + (seasonal && look.greeting ? 50 : 22), left: -60, width: S + 120 },
-              labelStyle,
-            ]}
-          >
+          <Animated.Text style={[styles.label, { top: S + 26, left: -60, width: S + 120 }, labelStyle]}>
             NOUVELLE VERSION
           </Animated.Text>
         ) : null}
@@ -608,164 +345,74 @@ function SplashShow({ onDone }) {
   );
 }
 
-/** Le fond de l'intro : dégradé radial, points fins, bords assombris. */
-const Backdrop = memo(function Backdrop({ width, height, bg, seasonal }) {
+/**
+ * Le fond dessiné : le dégradé de l'icône (ardoise, plus claire au centre), des cercles très fins
+ * concentriques autour de l'emblème, un grand anneau de graduations à peine visible dont on
+ * n'aperçoit que des arcs, des points très fins (qui cassent aussi les bandes du dégradé) et des
+ * bords assombris. Entièrement fixe : il se révèle en fondu et ne bouge jamais.
+ */
+const BackdropArt = memo(function BackdropArt({ width, height, bg, S }) {
+  const cx = width / 2;
+  const cy = height / 2;
+
+  // Grand anneau fantôme : les graduations de l'anneau, à 2,1 fois sa taille, recentrées.
+  const bigSize = S * 2.1;
+  const big = useMemo(() => {
+    const ticks = tickGeometry(bigSize, 'app');
+    const dx = cx - bigSize / 2;
+    const dy = cy - bigSize / 2;
+    let minor = '';
+    let major = '';
+    ticks.forEach((t) => {
+      const seg = `M${(t.x1 + dx).toFixed(1)} ${(t.y1 + dy).toFixed(1)}L${(t.x2 + dx).toFixed(1)} ${(t.y2 + dy).toFixed(1)}`;
+      if (t.major) major += seg;
+      else minor += seg;
+    });
+    return { minor, major };
+  }, [bigSize, cx, cy]);
+
   return (
     <Svg width={width} height={height} style={StyleSheet.absoluteFill} pointerEvents="none">
       <Defs>
-        <RadialGradient id="splashBase" cx="50%" cy="50%" rx="75%" ry="60%" fx="50%" fy="50%">
+        <RadialGradient id="splashBase" cx="50%" cy="43%" rx="85%" ry="65%" fx="50%" fy="43%">
           <Stop offset="0" stopColor={bg[0]} stopOpacity="1" />
-          <Stop offset="0.6" stopColor={bg[1]} stopOpacity="1" />
+          <Stop offset="0.55" stopColor={bg[1]} stopOpacity="1" />
           <Stop offset="1" stopColor={bg[2]} stopOpacity="1" />
         </RadialGradient>
         <Pattern id="splashDots" width="22" height="22" patternUnits="userSpaceOnUse">
           <Circle cx="11" cy="11" r="1" fill="#FFFFFF" />
         </Pattern>
-        <RadialGradient id="splashVignette" cx="50%" cy="50%" rx="70%" ry="60%" fx="50%" fy="50%">
+        <RadialGradient id="splashVignette" cx="50%" cy="45%" rx="72%" ry="62%" fx="50%" fy="45%">
           <Stop offset="0" stopColor="#000000" stopOpacity="0" />
-          <Stop offset="1" stopColor="#000000" stopOpacity={seasonal ? 0.5 : 0.85} />
+          <Stop offset="0.6" stopColor="#000000" stopOpacity="0.12" />
+          <Stop offset="1" stopColor="#000000" stopOpacity="0.62" />
         </RadialGradient>
       </Defs>
       <Rect width="100%" height="100%" fill="url(#splashBase)" />
-      <Rect width="100%" height="100%" fill="url(#splashDots)" opacity={seasonal ? 0.08 : 0.11} />
-      <Rect width="100%" height="100%" fill="url(#splashVignette)" />
-    </Svg>
-  );
-});
 
-/** Une onde qui s'éloigne de l'anneau (une fois, ou en boucle dans la version longue). */
-const Shock = memo(function Shock({ D, delay, color, loop, play }) {
-  const p = useSharedValue(0);
-
-  useEffect(() => {
-    if (!play) return;
-    const run = withTiming(1, { duration: loop ? 1500 : 760, easing: E_OUT });
-    p.value = withDelay(delay, loop ? withRepeat(run, -1, false) : run);
-  }, [play]);
-
-  const style = useAnimatedStyle(() => ({
-    opacity: p.value <= 0 ? 0 : 0.55 * Math.pow(1 - p.value, 1.3),
-    transform: [{ scale: 0.7 + 1.2 * p.value }],
-  }));
-
-  return (
-    <Animated.View
-      pointerEvents="none"
-      style={[
-        styles.abs,
-        {
-          left: '50%',
-          top: '50%',
-          marginLeft: -D / 2,
-          marginTop: -D / 2,
-          width: D,
-          height: D,
-          borderRadius: D / 2,
-          borderWidth: 1.5,
-          borderColor: color,
-          opacity: 0,
-        },
-        style,
-      ]}
-    />
-  );
-});
-
-/**
- * Une étincelle qui tourne autour de l'anneau, à hauteur de la bande des graduations, avec une
- * courte traîne. Une fois (la comète qui allume l'anneau, calée sur sa vague) ou en boucle
- * (version longue). Un seul conteneur qui tourne : une transformation.
- */
-const Orbiter = memo(function Orbiter({ S, k, delay, duration, loop, color, play }) {
-  const rot = useSharedValue(0);
-  const op = useSharedValue(0);
-
-  useEffect(() => {
-    if (!play) return;
-    const turn = withTiming(360, { duration, easing: Easing.linear });
-    rot.value = withDelay(delay, loop ? withRepeat(turn, -1, false) : turn);
-    op.value = withDelay(
-      delay,
-      loop
-        ? withTiming(0.85, { duration: 300 })
-        : withSequence(
-            withTiming(1, { duration: 60 }),
-            withDelay(duration - 140, withTiming(0, { duration: 160 }))
-          )
-    );
-  }, [play]);
-
-  const style = useAnimatedStyle(() => ({
-    opacity: op.value,
-    transform: [{ rotate: `${rot.value}deg` }],
-  }));
-
-  const dots = useMemo(() => {
-    const r = (187 / 512) * S; // au milieu de la bande des graduations de l'icône
-    const sizes = [11, 9, 7, 5.5, 4].map((s) => s * k);
-    const alphas = [1, 0.7, 0.5, 0.32, 0.18];
-    return sizes.map((s, i) => {
-      const a = (-i * 5 * Math.PI) / 180;
-      return {
-        s,
-        alpha: alphas[i],
-        left: S / 2 + Math.sin(a) * r - s / 2,
-        top: S / 2 - Math.cos(a) * r - s / 2,
-      };
-    });
-  }, [S, k]);
-
-  return (
-    <Animated.View pointerEvents="none" style={[styles.abs, { left: 0, top: 0, width: S, height: S }, style]}>
-      {dots.map((d, i) => (
-        <View
+      {/* Cercles très fins autour de l'emblème */}
+      {[0.62, 0.9, 1.25, 1.62].map((k, i) => (
+        <Circle
           key={i}
-          style={{
-            position: 'absolute',
-            left: d.left,
-            top: d.top,
-            width: d.s,
-            height: d.s,
-            borderRadius: d.s / 2,
-            backgroundColor: i === 0 ? '#FFFFFF' : color,
-            opacity: d.alpha,
-          }}
+          cx={cx}
+          cy={cy}
+          r={S * k}
+          fill="none"
+          stroke="#FFFFFF"
+          strokeOpacity={0.05 - i * 0.008}
+          strokeWidth={1}
         />
       ))}
-    </Animated.View>
-  );
-});
 
-/** Une petite étoile qui scintille : apparaît, grandit, s'éteint. Une fois, ou en boucle. */
-const Twinkle = memo(function Twinkle({ x, y, size, delay, period, loop, kind, ink, accent, play }) {
-  const p = useSharedValue(0);
+      {/* Le grand anneau fantôme : on n'en voit que des arcs, en haut et en bas de l'écran */}
+      <G>
+        <Path d={big.minor} stroke="#FFFFFF" strokeOpacity={0.07} strokeWidth={1.5} strokeLinecap="round" fill="none" />
+        <Path d={big.major} stroke="#FFFFFF" strokeOpacity={0.1} strokeWidth={2.5} strokeLinecap="round" fill="none" />
+      </G>
 
-  useEffect(() => {
-    if (!play) return;
-    const run = withTiming(1, { duration: period, easing: Easing.linear });
-    p.value = withDelay(delay, loop ? withRepeat(run, -1, false) : run);
-  }, [play]);
-
-  const style = useAnimatedStyle(() => {
-    const t = p.value;
-    const kk = Math.sin(Math.PI * t); // 0 → 1 → 0
-    return {
-      opacity: kk,
-      transform: [{ scale: 0.3 + 0.9 * kk }, { rotate: `${t * 90}deg` }],
-    };
-  });
-
-  return (
-    <Animated.View
-      pointerEvents="none"
-      style={[
-        styles.abs,
-        { left: x - size / 2, top: y - size / 2, width: size, height: size, opacity: 0 },
-        style,
-      ]}
-    >
-      <AmbianceShape kind={kind} size={size} ink={ink} accent={accent} />
-    </Animated.View>
+      <Rect width="100%" height="100%" fill="url(#splashDots)" opacity={0.05} />
+      <Rect width="100%" height="100%" fill="url(#splashVignette)" />
+    </Svg>
   );
 });
 
@@ -784,7 +431,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   // Carré de S × S centré à l'écran : tout se place en coordonnées de ce carré (le centre est
-  // à S / 2). Les couches plus grandes que lui (aura, ondes, étincelles) débordent librement.
+  // à S / 2). Les couches plus grandes que lui (aura, halo) débordent librement.
   stage: {
     position: 'relative',
   },
@@ -797,14 +444,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansBold,
     fontSize: 10,
     letterSpacing: 6,
-    color: '#FFFFFF',
-  },
-  greeting: {
-    position: 'absolute',
-    textAlign: 'center',
-    fontFamily: fonts.sansExtraBold,
-    fontSize: 12,
-    letterSpacing: 5,
     color: '#FFFFFF',
   },
   label: {

@@ -155,6 +155,33 @@ export const FineCrown = memo(function FineCrown({ radius, color = '#FFFFFF', op
 });
 
 /**
+ * Le halo doux de l'anneau de l'icône : une couronne de lumière qui culmine pile sur les
+ * graduations (rayon 204/512 du côté de l'emblème) et s'éteint de part et d'autre — l'équivalent
+ * du flou derrière l'anneau de l'icône, sans filtre de flou. Le carré qui le contient fait 1,5 fois
+ * le côté de l'emblème et se centre sur lui.
+ */
+export const RingHalo = memo(function RingHalo({ size, color = '#FFFFFF', id = 'ringHalo' }) {
+  const L = size * 1.5;
+  const peak = ((204 / 512) * size) / (L / 2); // ≈ 0,53 : la position des graduations
+  const a = Math.max(0.05, peak - 0.14);
+  const z = Math.min(0.97, peak + 0.14);
+  return (
+    <Svg width={L} height={L}>
+      <Defs>
+        <RadialGradient id={id} cx="50%" cy="50%" rx="50%" ry="50%">
+          <Stop offset="0" stopColor={color} stopOpacity="0" />
+          <Stop offset={a} stopColor={color} stopOpacity="0" />
+          <Stop offset={peak} stopColor={color} stopOpacity="0.24" />
+          <Stop offset={z} stopColor={color} stopOpacity="0" />
+          <Stop offset="1" stopColor={color} stopOpacity="0" />
+        </RadialGradient>
+      </Defs>
+      <Rect width="100%" height="100%" fill={`url(#${id})`} />
+    </Svg>
+  );
+});
+
+/**
  * Une lueur ronde : opaque au centre, transparente au bord. `id` doit être unique parmi les
  * lueurs montées en même temps (deux dégradés du même identifiant se marchent dessus).
  */
