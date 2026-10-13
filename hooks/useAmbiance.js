@@ -11,7 +11,6 @@ import {
   normalizeAmbianceMode,
   seasonDrift,
 } from '../lib/ambiance';
-import { useAmbianceOverride } from '../lib/ambianceTest'; // TEMP (bouton de test des Paramètres)
 
 /**
  * L'ambiance du moment : { mode, id, ambiance } — `ambiance` vaut null quand il n'y en a
@@ -22,7 +21,6 @@ export default function useAmbiance() {
   const { settings } = useSettings();
   const mode = normalizeAmbianceMode(settings.ambianceMode);
   const [today, setToday] = useState(() => new Date());
-  const override = useAmbianceOverride(); // TEMP : ambiance forcée depuis les Paramètres
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
@@ -32,13 +30,12 @@ export default function useAmbiance() {
   }, []);
 
   return useMemo(() => {
-    // TEMP : une ambiance forcée l'emporte sur le réglage et sur la date.
-    const id = override ?? ambianceIdFor(mode, today);
+    const id = ambianceIdFor(mode, today);
     // En fin de saison, la suivante se glisse peu à peu (jamais plus de 35 %).
     const base = getAmbiance(id);
-    const ambiance = override ? base : blendAmbiance(base, seasonDrift(today));
+    const ambiance = blendAmbiance(base, seasonDrift(today));
     return { mode, id, ambiance };
-  }, [mode, today, override]);
+  }, [mode, today]);
 }
 
 /**

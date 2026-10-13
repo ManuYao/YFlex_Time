@@ -47,16 +47,6 @@ import { useOtaUpdate } from '../hooks/useOtaUpdate';
 import { markUpdatePopupSeen, resolveUpdateCandidate } from '../lib/updatePopup';
 import { haptic, setHapticStrength } from '../hooks/useHaptic';
 import { playDenied, playSound, previewVolumeTap } from '../lib/sounds';
-// TEMP — boutons de test de l'intro et des saisons (à retirer avec la section « Test »).
-import { forceUpdateSplash, requestSplash } from '../lib/splash';
-import { getAmbiance } from '../lib/ambiance';
-import {
-  TEST_AMBIANCE_CYCLE,
-  cycleAmbianceOverride,
-  setAmbianceOverride,
-  useAmbianceOverride,
-} from '../lib/ambianceTest';
-import useIntroReveal from '../hooks/useIntroReveal';
 import { detectVoices } from '../lib/voiceCoach';
 import { fonts } from '../lib/fonts';
 import { DANGER, ROUND_SIZE } from '../lib/buttonTokens';
@@ -121,16 +111,6 @@ export default function Settings() {
   const [updateSheet, setUpdateSheet] = useState(null);
   const [contactSheet, setContactSheet] = useState(false);
   const [resetConfirm, setResetConfirm] = useState(false);
-  // TEMP — quelle intro joue le prochain appui du bouton de test : courte → longue (mise à jour) →
-  // longue (nouvelle saison) → courte…
-  const [introNext, setIntroNext] = useState('short');
-  // TEMP — saison forcée (en mémoire seulement, jamais enregistrée).
-  const testAmbianceId = useAmbianceOverride();
-  const testAmbianceNextId =
-    TEST_AMBIANCE_CYCLE[(TEST_AMBIANCE_CYCLE.indexOf(testAmbianceId) + 1) % TEST_AMBIANCE_CYCLE.length];
-  const testAmbianceNext = testAmbianceNextId ? getAmbiance(testAmbianceNextId).label : 'Date réelle';
-  // Fin de l'intro de test : on reste dans les Paramètres, qui réapparaissent avec le petit zoom.
-  const introRevealStyle = useIntroReveal();
   // Suppression du compte en ligne (section « Compte », visible seulement si
   // on est connecté).
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -373,7 +353,7 @@ export default function Settings() {
 
   return (
     <GradientBackground colors={['#1A1A1A', '#0A0A0A', '#000000']} ambient>
-      <Animated.View style={[styles.safe, introRevealStyle]}>
+      <Animated.View style={styles.safe}>
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.statusBar}>
           <Text style={styles.statusText}>PARAMÈTRES</Text>
@@ -635,46 +615,6 @@ export default function Settings() {
               }}
             />
             <LinkRow label="Contact" sub={CONTACT_EMAIL} onPress={handleContact} isLast />
-          </Section>
-
-          {/* TEMP — boutons de test, à retirer avant la version officielle. Tout se joue SUR PLACE :
-              on reste dans les Paramètres, l'intro passe par-dessus puis les Paramètres réapparaissent
-              avec le petit zoom (comme l'accueil à un vrai démarrage). */}
-          <Section title="Test">
-            <LinkRow
-              label="Forcer une saison"
-              sub={`${testAmbianceId ? getAmbiance(testAmbianceId).label : 'Date réelle'} · touche pour : ${testAmbianceNext}`}
-              onPress={() => {
-                haptic.light();
-                cycleAmbianceOverride();
-              }}
-            />
-            <LinkRow
-              label="Revenir à la date réelle"
-              sub="Annule la saison forcée"
-              onPress={() => {
-                haptic.light();
-                setAmbianceOverride(null);
-              }}
-            />
-            <LinkRow
-              label="Rejouer l'intro de démarrage"
-              sub={`Prochaine : ${
-                introNext === 'update'
-                  ? 'longue, mise à jour (deux sons, NOUVELLE VERSION)'
-                  : introNext === 'season'
-                    ? 'longue, nouvelle saison (nom de la saison en bas)'
-                    : 'courte (lancement ordinaire)'
-              }`}
-              onPress={() => {
-                haptic.light();
-                if (introNext === 'update') forceUpdateSplash('update');
-                if (introNext === 'season') forceUpdateSplash('season');
-                setIntroNext(introNext === 'short' ? 'update' : introNext === 'update' ? 'season' : 'short');
-                requestSplash();
-              }}
-              isLast
-            />
           </Section>
 
           {/* Action destructive : lien texte en rouge (DANGER), comme
