@@ -18,10 +18,10 @@ import Animated, {
 import TickRing from '../components/common/TickRing';
 import GradientBackground from '../components/common/GradientBackground';
 import Confetti from '../components/common/Confetti';
+import AmbianceBackdrop from '../components/common/AmbianceBackdrop';
+import useAmbiance from '../hooks/useAmbiance';
 import ConfirmSheet from '../components/common/ConfirmSheet';
 import Button from '../components/common/Button';
-import ActionLinkRow from '../components/common/ActionLinkRow';
-import { shareApp, SHARE_APP_TITLE, SHARE_APP_SUB } from '../lib/shareApp';
 import {
   shouldPromptBatteryOptimization,
   markBatteryPromptSeen,
@@ -60,6 +60,12 @@ export default function EndSession() {
   const savedRef = useRef(false);
   const { height: screenH } = useWindowDimensions();
   const ui = useUiScale();
+  // Ambiance de saison : null si l'utilisateur l'a désactivée (« Aucune ») — l'écran reste alors
+  // exactement comme avant (confettis aux 4 couleurs des modes, pas de décor).
+  const { ambiance } = useAmbiance();
+  const confettiColors = ambiance
+    ? [ambiance.accent, ambiance.accent2, '#FFFFFF', ambiance.accent]
+    : undefined;
 
   // (V) Mise en page réduite — voir lib/responsive.js. Le bilan de séance
   // empile beaucoup (badge, BRAVO, anneau, 3 stats) au-dessus de boutons
@@ -316,7 +322,9 @@ export default function EndSession() {
       textMode="light"
       ambient
     >
-      <Confetti />
+      {/* Décor de la saison derrière le bilan (rien si l'ambiance est désactivée) */}
+      {ambiance ? <AmbianceBackdrop tone="light" /> : null}
+      <Confetti colors={confettiColors} />
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.statusBar}>
           <Animated.Text style={[styles.statusText, statusStyle]}>
@@ -656,11 +664,6 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 360,
     gap: 8,
-  },
-  shareApp: {
-    width: '100%',
-    maxWidth: 360,
-    marginTop: 14,
   },
   statCell: {
     flex: 1,

@@ -21,7 +21,7 @@ function rowCaption({ count, badges }) {
   return `${count} / ${next.threshold} · ${next.label}`;
 }
 
-export default function ProfileGamification({ badgeCounts, onOpenModeStats, hasData, onShare }) {
+export default function ProfileGamification({ badgeCounts, onOpenModeStats, hasData }) {
   const customTargetRef = useRef(null);
   const ROWS = React.useMemo(
     () =>

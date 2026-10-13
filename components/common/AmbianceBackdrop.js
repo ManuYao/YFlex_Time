@@ -452,7 +452,7 @@ export default function AmbianceBackdrop({ tone = 'light', ambianceId = null }) 
       {size.w > 0 && size.h > 0 ? (
         // La clé reconstruit proprement le décor quand l'ambiance (ou la taille) change.
         <Scene
-          key={`${ambiance.id}:${size.w}x${size.h}`}
+          key={`${ambiance.id}:${ambiance.drift ? ambiance.drift.swap : 0}:${size.w}x${size.h}`}
           ambiance={ambiance}
           ink={ink}
           w={size.w}

@@ -416,7 +416,7 @@ function SplashShow({ onDone }) {
 
         {/* Mise à jour : on dit pourquoi l'intro est longue */}
         {longReason === 'update' ? (
-          <Animated.Text style={[styles.label, { top: S + 30, left: -60, width: S + 120 }, labelStyle]}>
+          <Animated.Text style={[styles.label, { top: S + 20, left: -60, width: S + 120 }, labelStyle]}>
             NOUVELLE VERSION
           </Animated.Text>
         ) : null}

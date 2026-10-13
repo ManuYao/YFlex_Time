@@ -4,7 +4,13 @@ import { useFocusEffect } from 'expo-router';
 import { useReducedMotion } from 'react-native-reanimated';
 
 import { useSettings } from '../contexts/SettingsContext';
-import { ambianceIdFor, getAmbiance, normalizeAmbianceMode } from '../lib/ambiance';
+import {
+  ambianceIdFor,
+  blendAmbiance,
+  getAmbiance,
+  normalizeAmbianceMode,
+  seasonDrift,
+} from '../lib/ambiance';
 import { useAmbianceOverride } from '../lib/ambianceTest'; // TEMP (bouton de test des Paramètres)
 
 /**
@@ -28,7 +34,10 @@ export default function useAmbiance() {
   return useMemo(() => {
     // TEMP : une ambiance forcée l'emporte sur le réglage et sur la date.
     const id = override ?? ambianceIdFor(mode, today);
-    return { mode, id, ambiance: getAmbiance(id) };
+    // En fin de saison, la suivante se glisse peu à peu (jamais plus de 35 %).
+    const base = getAmbiance(id);
+    const ambiance = override ? base : blendAmbiance(base, seasonDrift(today));
+    return { mode, id, ambiance };
   }, [mode, today, override]);
 }
 

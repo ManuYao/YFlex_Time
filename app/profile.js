@@ -12,8 +12,6 @@ import ModeStatsSheet from '../components/common/ModeStatsSheet';
 import DisciplineSheet from '../components/common/DisciplineSheet';
 import MixPublicSheet from '../components/common/MixPublicSheet';
 import MixShareSheet from '../components/common/MixShareSheet';
-import ActionLinkRow from '../components/common/ActionLinkRow';
-import ShareRecapSheet from '../components/common/ShareRecapSheet';
 import ConfirmSheet from '../components/common/ConfirmSheet';
 import PseudoSheet from '../components/common/PseudoSheet';
 import ProfileSkeleton from '../components/screens/ProfileSkeleton';
@@ -42,7 +40,6 @@ import {
 import { computeProfileStats } from '../lib/profileStats';
 import { loadHistory } from '../lib/history';
 import { claimPseudo, PSEUDO_TAKEN_TEXT } from '../lib/pseudos';
-import { shareApp, SHARE_APP_TITLE, SHARE_APP_SUB } from '../lib/shareApp';
 
 /**
  * Hub Profil — remplace l'accès direct aux Paramètres depuis l'accueil.
@@ -68,7 +65,6 @@ export default function Profile() {
   const [publishMixSheet, setPublishMixSheet] = useState(null);
   const [feedRefresh, setFeedRefresh] = useState(0);
   const [statsTimerId, setStatsTimerId] = useState(null);
-  const [shareSheet, setShareSheet] = useState(false);
   const [logoutConfirm, setLogoutConfirm] = useState(false);
   const [pseudoSheet, setPseudoSheet] = useState(null); // null | 'edit' | 'welcome' | 'taken'
   const nameSyncedForRef = useRef(null);
@@ -335,17 +331,6 @@ export default function Profile() {
             setFeedRefresh((k) => k + 1);
           }}
           onOpenFeed={() => setPublicMixSheet(true)}
-        />
-      )}
-      {shareSheet && stats.hasData && (
-        <ShareRecapSheet
-          screenH={screenH}
-          sessions={sessions}
-          timers={timers}
-          badgeCounts={stats.badgeCounts}
-          lastSession={stats.lastSession}
-          identity={{ pseudo: identity.pseudo, initials: identity.initials }}
-          onClose={() => setShareSheet(false)}
         />
       )}
       {statsTimer && (

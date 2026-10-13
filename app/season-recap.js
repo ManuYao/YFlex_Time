@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BackHandler, Share, StyleSheet, View } from 'react-native';
+import { BackHandler, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
@@ -25,7 +25,7 @@ import { AMBIANCES } from '../lib/ambiance';
 import { loadHistory } from '../lib/history';
 import { loadArchives } from '../lib/planning';
 import { loadProfile } from '../lib/profile';
-import { computeSeasonRecap, seasonRangeByKey, seasonShareText } from '../lib/seasonRecap';
+import { computeSeasonRecap, seasonRangeByKey } from '../lib/seasonRecap';
 import { markSeasonSeen } from '../lib/seasonRecapState';
 import { playSound } from '../lib/sounds';
 import { TIMERS } from '../lib/timers-config';
@@ -210,14 +210,6 @@ export default function SeasonRecap() {
     });
     return () => sub.remove();
   }, [index, prev, leave]);
-
-  const share = useCallback(async () => {
-    if (!data?.recap) return;
-    haptic.medium();
-    try {
-      await Share.share({ message: seasonShareText(data.recap, { pseudo: data.pseudo }) });
-    } catch {}
-  }, [data, haptic]);
 
   if (!cards.length) return <View style={styles.blank} />;
 

@@ -95,6 +95,13 @@ export default function AmbianceSheet({ screenH, onClose }) {
             </View>
           ) : null}
 
+          {mode !== 'none' ? (
+            <Text style={styles.perfNote}>
+              Les effets de saison demandent un peu plus de puissance : sur un téléphone ancien,
+              l'app peut être moins fluide. Choisis « Aucune » si tu le remarques.
+            </Text>
+          ) : null}
+
           <Button
             variant="solid"
             label="C'est bon"
@@ -197,6 +204,13 @@ const styles = StyleSheet.create({
   nowLabel: {
     fontFamily: fonts.sansBold,
     color: '#FFFFFF',
+  },
+  perfNote: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 11.5,
+    lineHeight: 16,
+    color: 'rgba(255,255,255,0.38)',
+    marginTop: 14,
   },
   cta: {
     marginTop: 22,
