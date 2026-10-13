@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  BackHandler,
   View,
   Text,
   Pressable,
@@ -85,7 +86,7 @@ import {
 } from '../lib/tutorial';
 import { onSplashCleared } from '../lib/splash';
 import { markAppReady } from '../lib/appReady';
-import { introReveal, INTRO_REVEAL_FROM_SCALE } from '../lib/introReveal';
+import useIntroReveal from '../hooks/useIntroReveal';
 import { pendingSeasonKey } from '../lib/seasonRecap';
 import { loadSeenSeasons } from '../lib/seasonRecapState';
 import { waitForUpdateGateSettled } from '../lib/updateGateSignal';
@@ -194,10 +195,7 @@ export default function Home() {
   // Fin de l'intro de démarrage : le vrai écran apparaît avec un petit zoom (lib/introReveal.js).
   // La valeur vaut 1 en temps normal (aucun effet) ; l'intro la fait passer de 0 à 1 une fois les
   // éléments disparus et le vide installé.
-  const revealStyle = useAnimatedStyle(() => ({
-    opacity: introReveal.value,
-    transform: [{ scale: INTRO_REVEAL_FROM_SCALE + (1 - INTRO_REVEAL_FROM_SCALE) * introReveal.value }],
-  }));
+  const revealStyle = useIntroReveal();
 
   return (
     <Animated.View style={[styles.root, revealStyle]}>
@@ -364,6 +362,19 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   // continue de flotter derrière, et rien ne disparaît d'un coup.
   const contentFade = useSharedValue(1);
   const contentFadeStyle = useAnimatedStyle(() => ({ opacity: contentFade.value }));
+  // Retour Android pendant la transition de lancement : on ANNULE le lancement (rien n'est consommé,
+  // le quota ne l'est qu'après 40 s de chrono) au lieu de quitter l'accueil — c'était une cause du
+  // « parfois je me retrouve dans le Profil » : le retour remontait la pile.
+  useEffect(() => {
+    if (!isLaunching) return undefined;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      haptic.warning();
+      setIsLaunching(false);
+      contentFade.value = withTiming(1, { duration: 300, easing: Easing.out(Easing.cubic) });
+      return true;
+    });
+    return () => sub.remove();
+  }, [isLaunching, haptic]);
   const [progression, setProgression] = useState(null);
   // Popup de découverte du coach vocal (lib/coachNudge.js) — proposée tant
   // que settings.voiceCoach est faux, avec un délai de 7 jours entre deux
@@ -777,7 +788,12 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
         const guard = setTimeout(() => go(null), 250);
         ringNode.measureInWindow((rx, ry, rw, rh) => {
           clearTimeout(guard);
-          go(rw > 0 && rh > 0 ? { x: rx, y: ry, width: rw, height: rh } : null);
+          // x forcé au centre : les cartes sont des pages pleine largeur, l'anneau de la page posée
+          // est toujours centré. Juste après un glissé, `ringRef` pointe encore sur l'anneau de la
+          // carte VOISINE (hors écran, ± une largeur) tant que la carte active n'est pas
+          // rafraîchie : l'animation partait alors de côté. y et la taille sont les mêmes d'une
+          // carte à l'autre.
+          go(rw > 0 && rh > 0 ? { x: (rootW - rw) / 2, y: ry, width: rw, height: rh } : null);
         });
       } else {
         go(null);
@@ -793,7 +809,7 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
     ctaRef.current?.measureInWindow((x, y, width, height) => {
       startWith({ x, y, width, height });
     });
-  }, [active, haptic]);
+  }, [active, haptic, rootW]);
 
   const handleLaunch = useCallback((sourceRect) => {
     // Garde : le bouton touché doit correspondre à la page réellement posée.

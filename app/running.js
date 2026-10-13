@@ -7,6 +7,7 @@ import {
   AppState,
 } from 'react-native';
 import { beginSessionDraft, saveSessionDraft, clearSessionDraft } from '../lib/sessionDraft';
+import { goHomeClean } from '../lib/navigation';
 import PressTap from '../components/common/PressTap';
 import HoldOverlay from '../components/common/HoldOverlay';
 import QuickWeightSheet from '../components/common/QuickWeightSheet';
@@ -343,7 +344,7 @@ export default function Running() {
     // Séance jetée volontairement : son brouillon aussi, sinon elle serait
     // « récupérée » au prochain démarrage.
     clearSessionDraft();
-    router.replace({ pathname: '/home', params: { lastTimerId: timer.id } });
+    goHomeClean(router, { lastTimerId: timer.id });
   };
 
   // Validation du quota (TABATA / MIX, hors Premium), une seule fois par séance.

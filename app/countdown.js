@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, Pressable, StyleSheet, BackHandler } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import Animated, {
   Easing,
@@ -18,9 +18,10 @@ import useAmbiance from '../hooks/useAmbiance';
 import useArmed from '../hooks/useArmed';
 import { useTimers } from '../contexts/TimersContext';
 import { buildTutorialTimer } from '../lib/tutorialShape';
+import { goHomeClean } from '../lib/navigation';
 import { fonts } from '../lib/fonts';
 import { useLayoutLevel, useWindowSize } from '../lib/responsive';
-import { LAUNCH_GLOW_REST, burstParticles, launchRingSize, rgbToHex } from '../lib/launchVisuals';
+import { LAUNCH_GLOW_REST, burstParticles, launchRingSize, launchTone } from '../lib/launchVisuals';
 import { useHaptic } from '../hooks/useHaptic';
 import { useSound } from '../hooks/useSound';
 
@@ -112,12 +113,21 @@ export default function Countdown() {
       router.replace({ pathname: '/tutorial', params: { step: 'menu' } });
       return;
     }
-    if (router.canGoBack()) {
-      router.back();
-    } else {
-      router.replace({ pathname: '/home', params: { lastTimerId: timer.id } });
-    }
+    // Jamais router.back() : il remontait la pile et pouvait ramener dans le Profil (ou les
+    // Paramètres) si l'on y était passé avant de lancer. Retour à l'accueil, pile nettoyée.
+    goHomeClean(router, { lastTimerId: timer.id });
   };
+
+  // Le retour Android annule le décompte (comme un appui), au lieu de remonter la pile.
+  const cancelRef = useRef(handleCancel);
+  cancelRef.current = handleCancel;
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      cancelRef.current();
+      return true;
+    });
+    return () => sub.remove();
+  }, []);
 
   // (V) Mise en page réduite — voir lib/responsive.js. Les 80 dp de marge
   // haute/basse sont du confort : ils passent en premier quand la fenêtre
@@ -139,14 +149,19 @@ export default function Countdown() {
   const cx = W / 2;
   const cy = H / 2;
   const glowSize = R * 1.9;
-  const accent = ambiance ? ambiance.accent : textColor;
-  const glowColor = ambiance ? rgbToHex(ambiance.glow) : '#FFFFFF';
+  // Mêmes couleurs que la transition de lancement (le raccord doit être invisible) et jamais de
+  // jaune sur jaune : voir launchTone.
+  const { accent, glow: glowColor, glowK } = useMemo(
+    () => launchTone(timer.color, timer.textMode, ambiance),
+    [timer.color, timer.textMode, ambiance]
+  );
+  const glowRest = LAUNCH_GLOW_REST * glowK;
   const crownRadius = R / 2 + 8;
   const crownBox = (crownRadius + 2) * 2;
   const digitSize = Math.round(R * 0.68);
   const goSize = Math.round(R * 0.5);
 
-  const glow = useSharedValue(LAUNCH_GLOW_REST);
+  const glow = useSharedValue(glowRest);
   const pulse = useSharedValue(0);
   const rippleMax = useSharedValue(0.5);
   const rippleAlpha = useSharedValue(0.4);
@@ -176,8 +191,8 @@ export default function Countdown() {
     pulse.value = 0;
     pulse.value = withTiming(1, { duration: isGo ? 1000 : 900, easing: E_OUT });
     glow.value = withSequence(
-      withTiming(isGo ? 0.75 : 0.46, { duration: 140, easing: E_OUT }),
-      withTiming(LAUNCH_GLOW_REST, { duration: isGo ? 700 : 760, easing: E_INOUT })
+      withTiming((isGo ? 0.75 : 0.46) * glowK, { duration: 140, easing: E_OUT }),
+      withTiming(glowRest, { duration: isGo ? 700 : 760, easing: E_INOUT })
     );
   }, [count, isGo, armed]);
 

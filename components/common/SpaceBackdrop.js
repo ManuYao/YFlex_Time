@@ -19,8 +19,10 @@ import { exitA, flightField, mixHex, rgbToHex, starField } from '../../lib/launc
  *
  * Couches, de l'arrière vers l'avant :
  *   1. un fond très sombre teinté de la couleur de la saison (neutre sans ambiance) ;
- *   2. la lumière de la saison : deux grandes taches douces, une forte en haut à gauche, une
- *      faible en bas à droite — comme le brun d'automne de l'accueil ;
+ *   2. la lumière de la saison : deux grandes taches douces, une forte en haut à gauche (la couleur
+ *      de la saison — le brun d'automne de l'accueil), une plus faible en bas à droite dans la
+ *      SECONDE couleur de la saison (bleu ciel l'été, violet à Halloween, lilas en fin d'année…) :
+ *      sans elle, l'été et la fin d'année viraient à un vert-olive terne ;
  *   3. trois couches d'étoiles fines (lointaines, moyennes, proches) qui grossissent à des
  *      vitesses différentes : la profondeur vient de cette parallaxe ;
  *   4. quelques motifs de la saison (feuilles, pétales, flocons…) qui passent doucement, très
@@ -44,13 +46,16 @@ const MID = { count: 20, rMin: 0.9, rMax: 1.5, aMin: 0.35, aMax: 0.6, zoomTo: 0.
 const NEAR = { count: 9, rMin: 1.3, rMax: 2.0, aMin: 0.45, aMax: 0.75, zoomTo: 2.2 };
 const NEBULA_ZOOM = 0.3;
 
-// Sans ambiance (réglage « Aucune ») : un bleu-gris froid, neutre.
+// Sans ambiance (réglage « Aucune ») : un bleu-gris froid, neutre, avec une touche chaude.
 const NEUTRAL_GLOW = '#7C86B8';
+const NEUTRAL_GLOW2 = '#B8A27C';
 
 export function spaceTone(ambiance) {
   const glow = ambiance ? rgbToHex(ambiance.glow) : NEUTRAL_GLOW;
+  const glow2 = ambiance?.accent2 ?? NEUTRAL_GLOW2;
   return {
     glow,
+    glow2,
     base: mixHex(glow, '#000000', 0.9),
     // L'hiver est la saison la plus lumineuse (glowK 1,5) : on plafonne pour rester sombre.
     peak: Math.min(0.4, 0.3 * (ambiance?.glowK ?? 1)),
@@ -99,7 +104,7 @@ function SpaceBackdrop({ width, height, ambiance, zoom, finale, drift, play, red
     <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: tone.base }, rootStyle]} pointerEvents="none">
       <Animated.View style={[StyleSheet.absoluteFill, elementsStyle]} pointerEvents="none">
       <Animated.View style={[StyleSheet.absoluteFill, nebStyle]} pointerEvents="none">
-        <Nebula width={width} height={height} color={tone.glow} peak={tone.peak} />
+        <Nebula width={width} height={height} color={tone.glow} color2={tone.glow2} peak={tone.peak} />
       </Animated.View>
 
       <Animated.View style={[StyleSheet.absoluteFill, farStyle]} pointerEvents="none">
@@ -143,7 +148,7 @@ function useLayerStyle(zoom, finale, drift, zoomTo, reduced) {
   });
 }
 
-const Nebula = memo(function Nebula({ width, height, color, peak }) {
+const Nebula = memo(function Nebula({ width, height, color, color2, peak }) {
   return (
     <Svg width={width} height={height} style={StyleSheet.absoluteFill} pointerEvents="none">
       <Defs>
@@ -153,8 +158,8 @@ const Nebula = memo(function Nebula({ width, height, color, peak }) {
           <Stop offset="1" stopColor={color} stopOpacity="0" />
         </RadialGradient>
         <RadialGradient id="spaceNebB" cx="82%" cy="78%" rx="60%" ry="45%">
-          <Stop offset="0" stopColor={color} stopOpacity={peak * 0.4} />
-          <Stop offset="1" stopColor={color} stopOpacity="0" />
+          <Stop offset="0" stopColor={color2} stopOpacity={peak * 0.7} />
+          <Stop offset="1" stopColor={color2} stopOpacity="0" />
         </RadialGradient>
       </Defs>
       <Rect width="100%" height="100%" fill="url(#spaceNebA)" />

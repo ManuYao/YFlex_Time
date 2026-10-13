@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import Animated from 'react-native-reanimated';
 import {
   View,
   Text,
@@ -46,8 +47,16 @@ import { useOtaUpdate } from '../hooks/useOtaUpdate';
 import { markUpdatePopupSeen, resolveUpdateCandidate } from '../lib/updatePopup';
 import { haptic, setHapticStrength } from '../hooks/useHaptic';
 import { playDenied, playSound, previewVolumeTap } from '../lib/sounds';
-// TEMP — le bouton de test de l'intro (à retirer avec la section « Test »).
+// TEMP — boutons de test de l'intro et des saisons (à retirer avec la section « Test »).
 import { forceUpdateSplash, requestSplash } from '../lib/splash';
+import { getAmbiance } from '../lib/ambiance';
+import {
+  TEST_AMBIANCE_CYCLE,
+  cycleAmbianceOverride,
+  setAmbianceOverride,
+  useAmbianceOverride,
+} from '../lib/ambianceTest';
+import useIntroReveal from '../hooks/useIntroReveal';
 import { detectVoices } from '../lib/voiceCoach';
 import { fonts } from '../lib/fonts';
 import { DANGER, ROUND_SIZE } from '../lib/buttonTokens';
@@ -112,8 +121,16 @@ export default function Settings() {
   const [updateSheet, setUpdateSheet] = useState(null);
   const [contactSheet, setContactSheet] = useState(false);
   const [resetConfirm, setResetConfirm] = useState(false);
-  // TEMP — quelle intro joue le prochain appui du bouton de test (alternance courte / longue).
+  // TEMP — quelle intro joue le prochain appui du bouton de test : courte → longue (mise à jour) →
+  // longue (nouvelle saison) → courte…
   const [introNext, setIntroNext] = useState('short');
+  // TEMP — saison forcée (en mémoire seulement, jamais enregistrée).
+  const testAmbianceId = useAmbianceOverride();
+  const testAmbianceNextId =
+    TEST_AMBIANCE_CYCLE[(TEST_AMBIANCE_CYCLE.indexOf(testAmbianceId) + 1) % TEST_AMBIANCE_CYCLE.length];
+  const testAmbianceNext = testAmbianceNextId ? getAmbiance(testAmbianceNextId).label : 'Date réelle';
+  // Fin de l'intro de test : on reste dans les Paramètres, qui réapparaissent avec le petit zoom.
+  const introRevealStyle = useIntroReveal();
   // Suppression du compte en ligne (section « Compte », visible seulement si
   // on est connecté).
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -356,6 +373,7 @@ export default function Settings() {
 
   return (
     <GradientBackground colors={['#1A1A1A', '#0A0A0A', '#000000']} ambient>
+      <Animated.View style={[styles.safe, introRevealStyle]}>
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.statusBar}>
           <Text style={styles.statusText}>PARAMÈTRES</Text>
@@ -619,20 +637,41 @@ export default function Settings() {
             <LinkRow label="Contact" sub={CONTACT_EMAIL} onPress={handleContact} isLast />
           </Section>
 
-          {/* TEMP — le SEUL bouton de test qui reste, à retirer avant la version officielle :
-              rejoue l'intro de démarrage à la demande, pour la juger sans relancer l'app. */}
+          {/* TEMP — boutons de test, à retirer avant la version officielle. Tout se joue SUR PLACE :
+              on reste dans les Paramètres, l'intro passe par-dessus puis les Paramètres réapparaissent
+              avec le petit zoom (comme l'accueil à un vrai démarrage). */}
           <Section title="Test">
             <LinkRow
-              label="Rejouer l'intro de démarrage"
-              sub={`Prochaine : ${introNext === 'long' ? 'longue (après une mise à jour, deux sons)' : 'courte (lancement ordinaire)'}`}
+              label="Forcer une saison"
+              sub={`${testAmbianceId ? getAmbiance(testAmbianceId).label : 'Date réelle'} · touche pour : ${testAmbianceNext}`}
               onPress={() => {
                 haptic.light();
-                if (introNext === 'long') forceUpdateSplash();
-                setIntroNext(introNext === 'long' ? 'short' : 'long');
-                // On repart de l'accueil pour voir la fin de l'intro telle qu'elle est : le vide, puis
-                // le vrai écran qui apparaît avec son zoom. L'intro se joue par-dessus quand il est monté.
-                router.replace('/home');
-                setTimeout(requestSplash, 450);
+                cycleAmbianceOverride();
+              }}
+            />
+            <LinkRow
+              label="Revenir à la date réelle"
+              sub="Annule la saison forcée"
+              onPress={() => {
+                haptic.light();
+                setAmbianceOverride(null);
+              }}
+            />
+            <LinkRow
+              label="Rejouer l'intro de démarrage"
+              sub={`Prochaine : ${
+                introNext === 'update'
+                  ? 'longue, mise à jour (deux sons, NOUVELLE VERSION)'
+                  : introNext === 'season'
+                    ? 'longue, nouvelle saison (nom de la saison en bas)'
+                    : 'courte (lancement ordinaire)'
+              }`}
+              onPress={() => {
+                haptic.light();
+                if (introNext === 'update') forceUpdateSplash('update');
+                if (introNext === 'season') forceUpdateSplash('season');
+                setIntroNext(introNext === 'short' ? 'update' : introNext === 'update' ? 'season' : 'short');
+                requestSplash();
               }}
               isLast
             />
@@ -723,6 +762,7 @@ export default function Settings() {
 
         {legalAccepted === false && <LegalGate onAccept={() => setLegalAcceptedState(true)} />}
       </SafeAreaView>
+      </Animated.View>
     </GradientBackground>
   );
 }

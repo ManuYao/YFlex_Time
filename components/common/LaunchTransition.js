@@ -23,7 +23,7 @@ import {
   LAUNCH_GLOW_REST,
   burstParticles,
   launchRingSize,
-  rgbToHex,
+  launchTone,
 } from '../../lib/launchVisuals';
 
 /**
@@ -97,11 +97,14 @@ function LaunchTransition({ timer, ctaRect, ringRect, screenW, screenH, fade, on
   const cy = screenH / 2;
   const R = launchRingSize(screenW, screenH);
 
-  // Encre de l'anneau et du texte : la même règle que le décompte (texte du mode).
-  const ink = timer.textMode === 'dark' ? '#0A0A0A' : '#FFFFFF';
+  // Couleurs adaptées au mode (lib/launchVisuals.js, launchTone) : jamais de jaune sur jaune sur
+  // TABATA, l'accent de la saison seulement s'il ressort sur le fond du mode. Le décompte utilise
+  // le MÊME calcul : la lueur doit être identique à leur raccord.
+  const { ink, accent, glow: glowColor, glowK, seedMix } = useMemo(
+    () => launchTone(timer.color, timer.textMode, ambiance),
+    [timer.color, timer.textMode, ambiance]
+  );
   const labelInk = accentTextOn(timer.color, timer.textMode);
-  const accent = ambiance ? ambiance.accent : ink;
-  const glowColor = ambiance ? rgbToHex(ambiance.glow) : '#FFFFFF';
 
   // L'anneau de la carte, tel que mesuré au tap : point de départ de l'anneau qui voyage.
   const hasHome = !!ringRect && ringRect.width > 40 && !reduced;
@@ -131,7 +134,8 @@ function LaunchTransition({ timer, ctaRect, ringRect, screenW, screenH, fade, on
   const spin = useSharedValue(0);
   const ringOp = useSharedValue(hasHome || reduced ? 1 : 0);
   const shock = useSharedValue(0);
-  const glowOp = useSharedValue(reduced ? LAUNCH_GLOW_REST : 0);
+  const glowRest = LAUNCH_GLOW_REST * glowK;
+  const glowOp = useSharedValue(reduced ? glowRest : 0);
   const glowScale = useSharedValue(reduced ? 1 : 0.6);
   const heroPret = useSharedValue(0);
   const heroName = useSharedValue(0);
@@ -143,8 +147,16 @@ function LaunchTransition({ timer, ctaRect, ringRect, screenW, screenH, fade, on
   const burst = useSharedValue(0);
   const done = useSharedValue(0);
 
-  // Une seule fin, quelle que soit la source (fin d'animation ou minuterie de secours).
+  // Une seule fin, quelle que soit la source (fin d'animation ou minuterie de secours). Démonté
+  // (lancement annulé par le retour Android) : plus jamais de fin, sinon la séance partirait quand
+  // même après l'annulation.
   const finishedRef = useRef(false);
+  useEffect(
+    () => () => {
+      finishedRef.current = true;
+    },
+    []
+  );
   const finish = useCallback(() => {
     if (finishedRef.current) return;
     finishedRef.current = true;
@@ -177,8 +189,8 @@ function LaunchTransition({ timer, ctaRect, ringRect, screenW, screenH, fade, on
       glowOp.value = withDelay(
         RING_AT,
         withSequence(
-          withTiming(0.55, { duration: 260, easing: E_OUT }),
-          withTiming(LAUNCH_GLOW_REST, { duration: 900, easing: E_INOUT })
+          withTiming(0.55 * glowK, { duration: 260, easing: E_OUT }),
+          withTiming(glowRest, { duration: 900, easing: E_INOUT })
         )
       );
       glowScale.value = withDelay(RING_AT, withTiming(1, { duration: 900, easing: E_OUT }));
@@ -231,7 +243,9 @@ function LaunchTransition({ timer, ctaRect, ringRect, screenW, screenH, fade, on
   // Le disque passe de la couleur du mode à l'encre pendant son vol : il devient lumière.
   const modeColor = timer.color; // un worklet ne capture jamais tout l'objet `timer`
   const colorStyle = useAnimatedStyle(() => ({
-    backgroundColor: interpolateColor(fly.value, [0, 1], [modeColor, ink]),
+    // La couleur du mode ne dure que le début du vol : le point devient vite de l'encre, jamais de la
+    // couleur du fond (jaune sur jaune).
+    backgroundColor: interpolateColor(fly.value, [0, seedMix, 1], [modeColor, ink, ink]),
   }));
   const labelStyle = useAnimatedStyle(() => ({ opacity: labelOp.value }));
 
@@ -359,7 +373,7 @@ function LaunchTransition({ timer, ctaRect, ringRect, screenW, screenH, fade, on
               crownStyle,
             ]}
           >
-            <FineCrown radius={crownRadius} color={ambiance.accent} opacity={0.7} />
+            <FineCrown radius={crownRadius} color={accent} opacity={0.7} />
           </Animated.View>
         ) : null}
 

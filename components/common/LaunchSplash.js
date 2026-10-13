@@ -19,12 +19,13 @@ import useArmed from '../../hooks/useArmed';
 import { useSettings } from '../../contexts/SettingsContext';
 import { fonts } from '../../lib/fonts';
 import { playSound, playSoundSequence, preloadSound, isSoundEnabled } from '../../lib/sounds';
-import { consumeUpdateSplash } from '../../lib/splash';
+import { consumeLongSplash } from '../../lib/splash';
 import { appReadyAt, onAppReady } from '../../lib/appReady';
 import { introReveal } from '../../lib/introReveal';
 import {
   EXIT_C_START,
   EXIT_MS,
+  SPLASH_LONG_MIN_MS,
   exitA,
   exitC,
   splashExitAt,
@@ -124,11 +125,11 @@ function SplashShow({ onDone }) {
   const look = useMemo(() => splashLookFor(ambiance?.id), [ambiance?.id]);
   const armed = useArmed();
 
-  // Longue = mise à jour installée ET sons actifs (sans son, bloquer 5 s pour rien serait pénible).
-  const [isLong] = useState(() => {
-    const afterUpdate = consumeUpdateSplash();
-    return afterUpdate && isSoundEnabled();
-  });
+  // Version LONGUE : mise à jour installée ('update') ou nouvelle saison / nouveau moment
+  // ('season'). Elle écrit le nom de la saison tout en bas ; « NOUVELLE VERSION » seulement pour
+  // une mise à jour. La courte, celle de tous les jours, n'écrit rien de plus.
+  const [longReason] = useState(() => consumeLongSplash());
+  const isLong = !!longReason;
   const zoomMs = isLong ? ZOOM_LONG_MS : ZOOM_MS;
   const zf = zoomMs / ZOOM_MS;
 
@@ -152,6 +153,7 @@ function SplashShow({ onDone }) {
   const fScale = useSharedValue(reduced ? 1 : 0.94);
   const mark = useSharedValue(reduced ? 1 : 0);
   const label = useSharedValue(reduced ? 1 : 0);
+  const seasonName = useSharedValue(reduced ? 1 : 0);
   const breath = useSharedValue(0);
 
   /* ───── le calendrier de l'intro ───── */
@@ -216,11 +218,14 @@ function SplashShow({ onDone }) {
     startedAtRef.current = Date.now();
 
     // Le son part en même temps que l'image.
-    if (isLong) {
+    if (isLong && isSoundEnabled()) {
       playSoundSequence(['intro', 'introNew'], () => {
         audioDoneRef.current = Date.now() - startedAtRef.current;
         reschedule();
       });
+    } else if (isLong) {
+      // Sons coupés : rien à attendre, la durée minimale de la version longue fait foi.
+      audioDoneRef.current = SPLASH_LONG_MIN_MS;
     } else {
       playSound('intro');
     }
@@ -259,6 +264,7 @@ function SplashShow({ onDone }) {
 
       if (isLong) {
         label.value = withDelay(zoomMs, withTiming(1, { duration: 600, easing: E_OUT }));
+        seasonName.value = withDelay(T(1900), withTiming(1, { duration: 700, easing: E_OUT }));
         breath.value = withDelay(
           zoomMs,
           withRepeat(withTiming(1, { duration: 2400, easing: E_SOFT }), -1, true)
@@ -311,11 +317,18 @@ function SplashShow({ onDone }) {
     opacity: mark.value * 0.7 * (1 - exitA(finale.value)),
     transform: [{ translateY: (1 - mark.value) * -4 }],
   }));
+  const seasonStyle = useAnimatedStyle(() => ({
+    opacity: seasonName.value * 0.85 * (1 - exitA(finale.value)),
+    transform: [{ translateY: (1 - seasonName.value) * 6 }],
+  }));
   const labelStyle = useAnimatedStyle(() => ({
     opacity: label.value * 0.7 * (1 - exitA(finale.value)),
     transform: [{ translateY: (1 - label.value) * 4 }],
   }));
 
+  // « FLEX TIMER » au-dessus de la fine couronne, même quand l'emblème a fini de grossir
+  // (dérive et respiration comprises) : sans cette marge il chevauchait la couronne.
+  const markGap = Math.round((S / 2 + 25) * 1.06 - S / 2) + 26;
   const crownRadius = S / 2 + 16;
   const crownBox = (crownRadius + 2) * 2;
   const auraSize = S * 1.8;
@@ -397,17 +410,27 @@ function SplashShow({ onDone }) {
         </Animated.View>
 
         {/* Le nom, discret, au-dessus de l'emblème (il ne grossit pas) */}
-        <Animated.Text style={[styles.mark, { top: -40, left: -60, width: S + 120 }, markStyle]}>
+        <Animated.Text style={[styles.mark, { top: -markGap, left: -60, width: S + 120 }, markStyle]}>
           FLEX TIMER
         </Animated.Text>
 
-        {/* Version longue : on dit pourquoi elle est longue */}
-        {isLong ? (
+        {/* Mise à jour : on dit pourquoi l'intro est longue */}
+        {longReason === 'update' ? (
           <Animated.Text style={[styles.label, { top: S + 30, left: -60, width: S + 120 }, labelStyle]}>
             NOUVELLE VERSION
           </Animated.Text>
         ) : null}
       </View>
+
+      {/* Version longue : le nom de la saison, tout en bas */}
+      {isLong && ambiance ? (
+        <Animated.Text
+          pointerEvents="none"
+          style={[styles.season, { top: size.height * 0.78 }, seasonStyle]}
+        >
+          {ambiance.label.toUpperCase()}
+        </Animated.Text>
+      ) : null}
     </Animated.View>
   );
 }
@@ -440,6 +463,16 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansBold,
     fontSize: 10,
     letterSpacing: 6,
+    color: '#FFFFFF',
+  },
+  season: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    textAlign: 'center',
+    fontFamily: fonts.sansBold,
+    fontSize: 12,
+    letterSpacing: 8,
     color: '#FFFFFF',
   },
   label: {

@@ -35,6 +35,7 @@ import {
 import { useTimers } from '../contexts/TimersContext';
 import { computeSessionStats } from '../lib/timer-engine';
 import { buildHistoryEntry, clearSessionDraft } from '../lib/sessionDraft';
+import { goHomeClean } from '../lib/navigation';
 import { formatDuration } from '../lib/formatters';
 import { fonts } from '../lib/fonts';
 import { BOTTOM_GAP, PAIR_GAP, SIDE_GAP } from '../lib/buttonTokens';
@@ -414,9 +415,7 @@ export default function EndSession() {
           variant="glass"
           label="Accueil"
           haptic={haptic.light}
-          onPress={() =>
-            router.replace({ pathname: '/home', params: { lastTimerId: timer.id } })
-          }
+          onPress={() => goHomeClean(router, { lastTimerId: timer.id })}
         />
         <Button
           variant="accent"
