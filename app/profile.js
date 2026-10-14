@@ -14,10 +14,12 @@ import MixPublicSheet from '../components/common/MixPublicSheet';
 import MixShareSheet from '../components/common/MixShareSheet';
 import ConfirmSheet from '../components/common/ConfirmSheet';
 import PseudoSheet from '../components/common/PseudoSheet';
+import BodyWeightSheet from '../components/common/BodyWeightSheet';
 import ProfileSkeleton from '../components/screens/ProfileSkeleton';
 import ProfileHeader from '../components/screens/ProfileHeader';
 import ProfileAccount from '../components/screens/ProfileAccount';
 import ProfileAnalytics from '../components/screens/ProfileAnalytics';
+import ProfileWeight from '../components/screens/ProfileWeight';
 import ProfileMixShare from '../components/screens/ProfileMixShare';
 import ProfileGamification from '../components/screens/ProfileGamification';
 import ProfileSeasonRow from '../components/screens/ProfileSeasonRow';
@@ -39,6 +41,7 @@ import {
 } from '../lib/profile';
 import { computeProfileStats } from '../lib/profileStats';
 import { loadHistory } from '../lib/history';
+import { loadBodyWeights, addBodyWeight, removeBodyWeight } from '../lib/bodyWeight';
 import { claimPseudo, PSEUDO_TAKEN_TEXT } from '../lib/pseudos';
 
 /**
@@ -67,6 +70,10 @@ export default function Profile() {
   const [statsTimerId, setStatsTimerId] = useState(null);
   const [logoutConfirm, setLogoutConfirm] = useState(false);
   const [pseudoSheet, setPseudoSheet] = useState(null); // null | 'edit' | 'welcome' | 'taken'
+  // Suivi du poids (local) : lu avec le reste, pour que la hauteur de la page
+  // soit connue avant de montrer le contenu (voir ProfileSkeleton).
+  const [weights, setWeights] = useState([]);
+  const [weightSheet, setWeightSheet] = useState(false);
   const nameSyncedForRef = useRef(null);
 
   // Chargement en deux temps : un SQUELETTE d'abord (blocs gris qui respirent),
@@ -97,10 +104,11 @@ export default function Profile() {
     React.useCallback(() => {
       let cancelled = false;
       (async () => {
-        const [prof, hist] = await Promise.all([loadProfile(), loadHistory()]);
+        const [prof, hist, kgs] = await Promise.all([loadProfile(), loadHistory(), loadBodyWeights()]);
         if (cancelled) return;
         setProfile(prof);
         setSessions(hist);
+        setWeights(kgs);
         setDataLoaded(true);
       })();
       return () => {
@@ -262,7 +270,19 @@ export default function Profile() {
                 onAccountPress={() => setLogoutConfirm(true)}
                 accountSlot={<ProfileAccount />}
               />
-              <ProfileAnalytics stats={stats} isPremium={isPremium} onGoPremium={() => router.push('/premium')} />
+              <ProfileAnalytics
+                stats={stats}
+                isPremium={isPremium}
+                onGoPremium={() => router.push('/premium')}
+                onOpenAnalysis={() => router.push('/analysis')}
+                weightSlot={
+                  <ProfileWeight
+                    entries={weights}
+                    onAdd={() => setWeightSheet(true)}
+                    onRemove={async (id) => setWeights(await removeBodyWeight(id))}
+                  />
+                }
+              />
               <ProfileMixShare
                 onOpenPublic={() => setPublicMixSheet(true)}
                 onOpenHub={() => router.push('/mix-hub')}
@@ -285,7 +305,7 @@ export default function Profile() {
             {/* Squelette par-dessus, il s'efface en fondu puis se retire. */}
             {!skeletonGone && (
               <Animated.View style={[styles.skeletonLayer, skeletonStyle]} pointerEvents="none">
-                <ProfileSkeleton showAccount={!user} />
+                <ProfileSkeleton showAccount={!user} weightCount={weights.length} />
               </Animated.View>
             )}
             </View>
@@ -300,6 +320,14 @@ export default function Profile() {
           value={profile?.disciplineIds ?? []}
           onChange={handleDisciplinesChange}
           onClose={() => setDisciplineSheet(false)}
+        />
+      )}
+      {weightSheet && (
+        <BodyWeightSheet
+          screenH={screenH}
+          entries={weights}
+          onSubmit={async (kg) => setWeights(await addBodyWeight(kg))}
+          onClose={() => setWeightSheet(false)}
         />
       )}
       {pseudoSheet && (

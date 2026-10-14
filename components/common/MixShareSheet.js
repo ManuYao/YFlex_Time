@@ -18,6 +18,7 @@ import { fonts } from '../../lib/fonts';
 import { ROUND_SIZE } from '../../lib/buttonTokens';
 import { DISCIPLINES } from '../../lib/disciplines';
 import {
+  blockDisplayName,
   formatBlockSubtitle,
   getBlockType,
   getMixTotalDuration,
@@ -90,7 +91,7 @@ function BlockRows({ blocks }) {
               <AppIcon name={type?.icon || 'mix'} size={13} color={type?.color || '#FFFFFF'} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.rowLabel} numberOfLines={1}>{block.label || 'Sans nom'}</Text>
+              <Text style={styles.rowLabel} numberOfLines={1}>{blockDisplayName(block)}</Text>
               <Text style={styles.rowSub}>{formatBlockSubtitle(block)}</Text>
               {!!block.note && (
                 <Text style={styles.rowNote} numberOfLines={1}>{block.note}</Text>

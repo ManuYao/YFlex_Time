@@ -14,6 +14,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import GradientBackground from '../components/common/GradientBackground';
 import TickRing from '../components/common/TickRing';
 import Button from '../components/common/Button';
+import OnboardingSetup from '../components/screens/OnboardingSetup';
 import { fonts } from '../lib/fonts';
 import { useUiScale, scaled } from '../lib/responsive';
 import { useHaptic } from '../hooks/useHaptic';
@@ -47,6 +48,15 @@ const SLIDES = [
     subtitle: 'TEMPO',
     description: 'Paramètre chaque timer à la seconde près. Crée ton MIX pour enchaîner plusieurs phases.',
     bgColors: ['#1FC777', '#047442', '#022A18'],
+    textMode: 'light',
+  },
+  // Étape de réglages guidés (components/screens/OnboardingSetup.js) : ambiance
+  // de saison, coach, vibrations, mode pluie. « PASSER » et « Garder les
+  // réglages par défaut » sautent à la dernière page sans rien changer.
+  {
+    id: 'setup',
+    tag: 'TES RÉGLAGES',
+    bgColors: ['#2A2A35', '#14141A', '#000000'],
     textMode: 'light',
   },
   {
@@ -153,6 +163,9 @@ export default function Onboarding() {
             index: i,
           })}
           renderItem={({ item, index: i }) => {
+            if (item.id === 'setup') {
+              return <OnboardingSetup width={screenW} onSkip={skip} />;
+            }
             const slideIsDark = item.textMode === 'dark';
             const slideText = slideIsDark ? '#0A0A0A' : '#FFFFFF';
             const slideMuted = slideIsDark ? 'rgba(10,10,10,0.55)' : 'rgba(255,255,255,0.65)';

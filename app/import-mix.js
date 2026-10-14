@@ -7,7 +7,7 @@ import GradientBackground from '../components/common/GradientBackground';
 import Button from '../components/common/Button';
 import IconButton from '../components/common/IconButton';
 import AppIcon from '../components/common/AppIcon';
-import { getBlockType, getMixTotalDuration, formatBlockSubtitle, hasEstimatedDuration } from '../lib/mix-blocks';
+import { blockDisplayName, getBlockType, getMixTotalDuration, formatBlockSubtitle, hasEstimatedDuration } from '../lib/mix-blocks';
 import { deserializeMix, sanitizeImportedPayload } from '../lib/mixShare';
 import { findLibraryMatch } from '../lib/mixIdentity';
 import { formatMixClock } from '../lib/formatters';
@@ -140,7 +140,7 @@ export default function ImportMix() {
                     />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.rowLabel} numberOfLines={1}>{block.label || 'Sans nom'}</Text>
+                    <Text style={styles.rowLabel} numberOfLines={1}>{blockDisplayName(block)}</Text>
                     <Text style={styles.rowSub}>{formatBlockSubtitle(block)}</Text>
                   </View>
                   <Text style={styles.rowIndex}>{i + 1}</Text>

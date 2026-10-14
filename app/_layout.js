@@ -177,6 +177,7 @@ export default function RootLayout() {
                     options={{ animation: 'fade', animationDuration: 400 }}
                   />
                   <Stack.Screen name="profile" options={{ animation: 'fade' }} />
+                  <Stack.Screen name="analysis" options={{ animation: 'fade' }} />
                   <Stack.Screen name="login" options={{ animation: 'fade' }} />
                   <Stack.Screen name="settings" options={{ animation: 'fade' }} />
                   <Stack.Screen name="terms" options={{ animation: 'fade' }} />

@@ -840,8 +840,14 @@ export default function Running() {
           endWorkLabel={isLastBasicWork || isLastEmomRound || isLastMixEmomRound ? 'FINI' : 'REPOS'}
           onEndWork={isLastEmomRound ? handleFinish : isLastMixEmomRound ? handleSkip : handleEndWork}
           hideSkip={(isManualBasic && isWorkInfinite) || isLastEmomRound || isLastMixEmomRound}
-          showFinish={false}
-          onFinish={handleFinish}
+          // AMRAP, TABATA, BASIC, EMOM : « Quitter » remplace « Skip ». Il arrête
+          // la séance EN GARDANT ce qui a été fait (écran de fin + historique),
+          // comme le Stop de la notification. Le MIX garde son « Skip » (passer
+          // au bloc suivant) ; au dernier tour BASIC / EMOM, « FINI » au centre
+          // fait déjà le travail ; le chrono de test du tutoriel garde le sien.
+          showFinish={!isMix && !isTutorial && !isLastBasicWork && !isLastEmomRound}
+          finishLabel="Quitter"
+          onFinish={handleStop}
           accessory={
             weightBlock && !isMini ? (
               <WeightBubble
@@ -1159,6 +1165,7 @@ function BottomControls({
   onEndWork,
   hideSkip,
   showFinish,
+  finishLabel = 'Fin',
   onFinish,
   accessory = null,
 }) {
@@ -1256,11 +1263,11 @@ function BottomControls({
         </View>
 
         {showFinish ? (
-          // EMOM : "Fin" prend la place de Skip (avancer d'une minute n'a pas
-          // de sens sur un timer calé sur l'horloge). Appui long comme les
-          // autres boutons destructeurs — terminer par erreur coûte la séance.
+          // « Quitter » prend la place de Skip (AMRAP, TABATA, BASIC, EMOM).
+          // Petit maintien même en mode normal : arrêter par erreur en plein
+          // effort ferait perdre la fin de la séance.
           <LongPressButton
-            label="Fin"
+            label={finishLabel}
             size={sideSize}
             duration={holds.finish}
             tone={tone}

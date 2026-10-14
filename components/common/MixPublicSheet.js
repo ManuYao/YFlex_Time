@@ -469,8 +469,13 @@ function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine, launc
     // Un seul chemin pour enregistrer (lib/mixes.js receiveMix) : un mix déjà
     // enregistré n'est jamais ajouté une deuxième fois ; `update: true` = la
     // personne a touché « Mettre à jour », la mise à jour est alors appliquée.
+    // Mon propre mix publié, repris du fil : il reste dans MES créations (`own`),
+    // jamais rangé avec les mix des autres.
+    const mine = item.ownerId === userId;
     const res = await receiveMix(
-      { ...mix, fromFeed: { author: item.author, feedId: item.id } },
+      mine
+        ? { ...mix, own: true, publishedId: item.id }
+        : { ...mix, fromFeed: { author: item.author, feedId: item.id } },
       { update: true }
     );
     if (res.status === 'limit') {

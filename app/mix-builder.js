@@ -44,6 +44,7 @@ import MiniToast from '../components/common/MiniToast';
 import SaveFlashRing from '../components/common/SaveFlashRing';
 import {
   BLOCK_TYPES,
+  blockDisplayName,
   getBlockType,
   getBlockDuration,
   getMixTotalDuration,
@@ -1119,7 +1120,7 @@ function BlockRow({ block, index, drag, isActive, onEdit, onDelete, readOnly = f
               >
                 <Text style={[styles.rowBadgeText, { color: type.color }]}>{type.name}</Text>
               </View>
-              <Text style={styles.rowLabel} numberOfLines={1}>{block.label || 'Sans nom'}</Text>
+              <Text style={styles.rowLabel} numberOfLines={1}>{blockDisplayName(block)}</Text>
             </View>
             <View style={styles.rowMeta}>
               <RoleBadge role={resolveBlockRole(block)} />

@@ -7,7 +7,7 @@ import IconButton from './IconButton';
 import AppIcon from './AppIcon';
 import { getMixTotalDuration, hasEstimatedDuration } from '../../lib/mix-blocks';
 import { isFeedMix } from '../../lib/mixes';
-import { assignPublications } from '../../lib/publicMixShape';
+import { assignPublications, FREE_PUBLISHED_MIXES } from '../../lib/publicMixShape';
 import { formatMixClock } from '../../lib/formatters';
 import { unpublishMix } from '../../lib/publicMixes';
 import { useTimers } from '../../contexts/TimersContext';
@@ -25,9 +25,10 @@ const ONLINE = '#1FC777';
  * (app/mix-builder.js) pour être aussi ouverte depuis le hub Mix et Partage
  * (app/mix-hub.js) — une seule liste, un seul rendu.
  *
- * Deux familles, séparées à l'écran : MES CRÉATIONS, et les mix ENREGISTRÉS
- * DEPUIS LE FIL PUBLIC (créés par d'autres). Un mix du fil reste modifiable une
- * fois dans la bibliothèque : on le charge comme les autres.
+ * Deux familles, séparées à l'écran : MES CRÉATIONS (publiées ou non), et les
+ * mix SAUVEGARDÉS (créés par d'autres : fil public ou lien d'un ami). Un mix
+ * sauvegardé reste modifiable une fois dans la bibliothèque : on le charge comme
+ * les autres, mais il ne rejoint jamais Mes créations.
  *
  * Chaque création porte un repère de publication : « EN LIGNE » (publié dans le
  * fil public) ou « PRIVÉ ». Sans compte ou sans réseau on ne peut pas savoir :
@@ -73,21 +74,25 @@ export default function MixLibrarySheet({
     [library, pubs.status, pubs.items, ownIds]
   );
   const groups = useMemo(() => {
-    // Trois volets : mes créations privées, les mix sauvegardés (pris chez les
-    // autres) et mes mix publiés. Un volet fermé n'est pas construit.
+    // Deux volets, jamais mélangés : MES CRÉATIONS (tout ce que j'ai fabriqué ici,
+    // publié ou non : le repère EN LIGNE / PRIVÉ est sur chaque ligne) et les mix
+    // SAUVEGARDÉS (pris chez les autres, par le fil ou par un lien d'ami).
+    // `published` / `privateCount` ne servent qu'à la ligne des limites gratuites.
     const mine = [];
     const fromFeed = [];
-    const online = [];
+    let published = 0;
     for (const m of library) {
       if (isFeedMix(m, ownIds)) fromFeed.push(m);
-      else if (assigned.get(m.id)) online.push(m);
-      else mine.push(m);
+      else {
+        mine.push(m);
+        if (assigned.get(m.id)) published += 1;
+      }
     }
-    return { mine, fromFeed, online };
+    return { mine, fromFeed, published, privateCount: mine.length - published };
   }, [library, ownIds, assigned]);
   const { isPremium } = usePremium();
   // Créations ouvertes au départ, le reste fermé : moins de lignes à afficher.
-  const [open, setOpen] = useState({ mine: true, fromFeed: false, online: false });
+  const [open, setOpen] = useState({ mine: true, fromFeed: false });
   const toggle = (key) => {
     haptic.light();
     setOpen((o) => ({ ...o, [key]: !o[key] }));
@@ -210,12 +215,20 @@ export default function MixLibrarySheet({
               <View style={styles.group}>
                 <Pressable onPress={() => toggle('mine')} style={styles.groupHead} hitSlop={6}>
                   <Text style={[styles.groupTitle, styles.groupTitleFlex]}>
-                    MES CRÉATIONS · {isPremium ? groups.mine.length : `${groups.mine.length} / ${FREE_CREATIONS}`}
+                    MES CRÉATIONS · {groups.mine.length}
                   </Text>
                   <Chevron open={open.mine} />
                 </Pressable>
                 {open.mine && (
-                  <View style={styles.libList}>{groups.mine.map((m) => renderRow(m, { feed: false }))}</View>
+                  <>
+                    <View style={styles.libList}>{groups.mine.map((m) => renderRow(m, { feed: false }))}</View>
+                    {!isPremium && (
+                      <Text style={styles.groupNote}>
+                        Gratuit : {groups.privateCount} / {FREE_CREATIONS} créations privées
+                        {pubs.status === 'ok' ? ` · ${groups.published} / ${FREE_PUBLISHED_MIXES} publiées` : ''}
+                      </Text>
+                    )}
+                  </>
                 )}
               </View>
             )}
@@ -236,21 +249,6 @@ export default function MixLibrarySheet({
                       Créés par d'autres : tu peux les modifier, ils restent dans cette liste.
                     </Text>
                   </>
-                )}
-              </View>
-            )}
-
-            {groups.online.length > 0 && (
-              <View style={styles.group}>
-                <Pressable onPress={() => toggle('online')} style={styles.groupHead} hitSlop={6}>
-                  <AppIcon name="globe" size={11} color={ONLINE} />
-                  <Text style={[styles.groupTitle, styles.groupTitleFlex, { color: ONLINE }]}>
-                    PUBLIÉS · {groups.online.length}
-                  </Text>
-                  <Chevron open={open.online} />
-                </Pressable>
-                {open.online && (
-                  <View style={styles.libList}>{groups.online.map((m) => renderRow(m, { feed: false }))}</View>
                 )}
               </View>
             )}

@@ -48,6 +48,7 @@ import { markUpdatePopupSeen, resolveUpdateCandidate } from '../lib/updatePopup'
 import { haptic, setHapticStrength } from '../hooks/useHaptic';
 import { playDenied, playSound, previewVolumeTap } from '../lib/sounds';
 import { detectVoices } from '../lib/voiceCoach';
+import { RAIN_OPTIONS, RAIN_SUBS } from '../lib/rainMode';
 import { fonts } from '../lib/fonts';
 import { DANGER, ROUND_SIZE } from '../lib/buttonTokens';
 
@@ -277,6 +278,9 @@ export default function Settings() {
         // rejouée et le cycle de 8 repart de zéro.
         'flexTimer_launchCount',
         'flexTimer_lastOpen',
+        // Pesées du suivi de poids (lib/bodyWeight.js) : données personnelles
+        // locales, effacées avec le reste.
+        'flexTimer_bodyWeight',
       ]);
     } catch {}
     // Le cache mémoire des catégories perso survivrait à la purge du
@@ -808,16 +812,6 @@ function DiagLine({ label, value, isError }) {
   );
 }
 
-const RAIN_OPTIONS = [
-  { value: 'normal', label: 'Normal' },
-  { value: 'soft', label: 'Pluie' },
-  { value: 'storm', label: 'Orage' },
-];
-const RAIN_SUBS = {
-  normal: 'Mains sèches : un appui suffit partout dans les chronos',
-  soft: 'Quitter, reset et passer se maintiennent (2 s) : pas de faux appui',
-  storm: 'Tout se maintient dans les chronos, lancement et pause compris',
-};
 const STRENGTH_OPTIONS = [
   { value: 'light', label: 'LÉGER' },
   { value: 'medium', label: 'MOYEN' },
