@@ -15,6 +15,7 @@ import IconButton from '../common/IconButton';
 import BlockSheet from '../common/BlockSheet';
 import ExerciseLibrarySheet from '../common/ExerciseLibrarySheet';
 import ExerciseDetailSheet from '../common/ExerciseDetailSheet';
+import MixLibrarySheet from '../common/MixLibrarySheet';
 import SaveFlashRing from '../common/SaveFlashRing';
 import ShineSweep from '../common/ShineSweep';
 import MiniToast from '../common/MiniToast';
@@ -28,6 +29,7 @@ import { springEnergetic } from '../../lib/animations';
 import { haptic } from '../../hooks/useHaptic';
 import { useKeyboardHeight, scrollToFocusedInput } from '../../hooks/useKeyboardHeight';
 import { useTimers } from '../../contexts/TimersContext';
+import { useMixLauncher } from '../../hooks/useMixLauncher';
 import ChipRow from '../common/ChipRow';
 import {
   DAYS,
@@ -89,7 +91,8 @@ export default function PlanningPage({
 }) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { saveCurrentMix } = useTimers();
+  const { saveCurrentMix, library } = useTimers();
+  const launchMix = useMixLauncher();
   const [planning, setPlanning] = useState(emptyPlanning);
   const [dayKey, setDayKey] = useState(() =>
     focus?.dayKey && DAYS.some((d) => d.key === focus.dayKey) ? focus.dayKey : todayKey()
@@ -476,17 +479,35 @@ export default function PlanningPage({
             }}
           />
         ) : (
-          <Button
-            variant="solid"
-            size="lg"
-            fullWidth
-            icon="plus"
-            label="Nouveau bloc"
-            onPress={() => {
-              haptic.light();
-              openSheet({ type: 'block' });
-            }}
-          />
+          // Le planning reste entièrement libre (gratuit comme Premium). À côté
+          // de « Nouveau bloc », « Mes mix » lance un mix déjà enregistré sans
+          // passer par le constructeur.
+          <View style={styles.bottomRow}>
+            {library.length > 0 && (
+              <Button
+                variant="glass"
+                size="lg"
+                icon="play"
+                label="Mes mix"
+                accessibilityLabel="Lancer un mix enregistré"
+                onPress={() => {
+                  haptic.light();
+                  openSheet({ type: 'mixes' });
+                }}
+              />
+            )}
+            <Button
+              variant="solid"
+              size="lg"
+              icon="plus"
+              label="Nouveau bloc"
+              style={styles.newBlockBtn}
+              onPress={() => {
+                haptic.light();
+                openSheet({ type: 'block' });
+              }}
+            />
+          </View>
         )}
 
         <PageDots count={2} activeIndex={pageIndex} onSelect={onSelectPage} />
@@ -530,6 +551,23 @@ export default function PlanningPage({
           }}
           onDelete={async () => {
             setPlanning(await removeBlock(planning, dayKey, sheet.blockId));
+          }}
+        />
+      )}
+
+      {sheet?.type === 'mixes' && screenH > 0 && (
+        <MixLibrarySheet
+          screenH={screenH}
+          library={library}
+          launchMode
+          onClose={closeSheet}
+          onLoad={async (id) => {
+            const mix = library.find((m) => m.id === id);
+            if (!mix?.blocks?.length) return false;
+            // Même porte que partout : useMixLauncher applique le quota, puis
+            // enchaîne sur le 3-2-1 (le mix devient le MIX courant).
+            const started = await launchMix({ ...mix, blocks: mix.blocks.map((b) => ({ ...b })) });
+            return started ? undefined : false;
           }}
         />
       )}
@@ -1184,6 +1222,13 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 8,
     gap: 10,
+  },
+  bottomRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  newBlockBtn: {
+    flex: 1,
   },
 
   // Calque du message « Bloc déplacé » : MiniToast se pose en bas de son

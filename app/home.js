@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BackHandler,
+  Keyboard,
   View,
   Text,
   Pressable,
@@ -43,6 +44,8 @@ import { AMBIANCE_WIND_MAX, ambianceWind } from '../lib/ambianceMotion';
 import HomeSkeleton from '../components/screens/HomeSkeleton';
 import TickRing from '../components/common/TickRing';
 import WheelPicker from '../components/common/WheelPicker';
+import DurationKeypad from '../components/common/DurationKeypad';
+import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
 import PressTap from '../components/common/PressTap';
 import Button from '../components/common/Button';
 import IconButton from '../components/common/IconButton';
@@ -53,6 +56,8 @@ import { playSound } from '../lib/sounds';
 import ProgressionSheet from '../components/common/ProgressionSheet';
 import BadgeUnlockSheet from '../components/common/BadgeUnlockSheet';
 import CoachNudgeSheet from '../components/common/CoachNudgeSheet';
+import SeasonNudgeSheet from '../components/common/SeasonNudgeSheet';
+import { loadSeasonNudgeSeen, markSeasonNudgeSeen, shouldShowSeasonNudge } from '../lib/seasonNudge';
 import TutorialInviteSheet from '../components/common/TutorialInviteSheet';
 import ModePickerSheet from '../components/common/ModePickerSheet';
 import ConfirmSheet from '../components/common/ConfirmSheet';
@@ -263,7 +268,7 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   const ringRef = useRef(null);
   const [ringRect, setRingRect] = useState(null);
   const { timers, updateStat, hydrated } = useTimers();
-  const { settings } = useSettings();
+  const { settings, update: updateSetting } = useSettings();
   const { getStatus: getCooldownStatusRaw } = useCooldown();
   const { isPremium } = usePremium();
   // Premium débloque tout, sans jamais toucher au calcul de quota/lockout
@@ -380,6 +385,9 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   // que settings.voiceCoach est faux, avec un délai de 7 jours entre deux
   // propositions et un dismiss permanent séparé.
   const [showCoachNudge, setShowCoachNudge] = useState(false);
+  // Alerte unique « ambiance de saison » (lib/seasonNudge.js) : conseille de la
+  // désactiver sur un téléphone moins puissant.
+  const [showSeasonNudge, setShowSeasonNudge] = useState(false);
   // Lu par handleScrollBeginDrag (callback stable, sans dépendance) pour
   // savoir si un swipe doit interrompre la popup — jamais lu par un render.
   const showCoachNudgeRef = useRef(false);
@@ -443,7 +451,7 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   const overlayBusyRef = useRef(false);
   overlayBusyRef.current =
     isLaunching || statsOpen || !!picker || badgeQueue.length > 0 || !!primerLaunch ||
-    showCoachNudge || showTutorialInvite || modePickerOpen;
+    showCoachNudge || showSeasonNudge || showTutorialInvite || modePickerOpen;
 
   useEffect(() => {
     shouldShowPermissionPrimer('firstSession').then((due) => {
@@ -538,6 +546,15 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
           return;
         }
 
+        // Alerte « ambiance de saison » : une seule fois, avant la découverte du
+        // coach. Elle ne passe jamais si une autre feuille vient de s'ouvrir.
+        const seasonSeen = await loadSeasonNudgeSeen();
+        if (cancelled || overlayBusyRef.current) return;
+        if (shouldShowSeasonNudge({ seen: seasonSeen, ambianceMode: settings.ambianceMode })) {
+          setShowSeasonNudge(true);
+          return;
+        }
+
         // Coach vocal — dernier de la file, le moins urgent (simple
         // découverte de fonctionnalité). Le délai (splash + PROGRESSION_DELAY_MS)
         // laisse largement le temps à SettingsContext de s'hydrater depuis
@@ -590,6 +607,16 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
       router.replace({ pathname: '/tutorial', params: { step: 'menu' } });
     }
   }, [router]);
+
+  // Alerte « ambiance de saison » : marquée vue à la fermeture (quel que soit le
+  // chemin), « Désactiver » coupe l'ambiance tout de suite.
+  const handleSeasonNudgeClose = useCallback(() => {
+    setShowSeasonNudge(false);
+    markSeasonNudgeSeen();
+  }, []);
+  const handleSeasonNudgeDisable = useCallback(() => {
+    updateSetting('ambianceMode', 'none');
+  }, [updateSetting]);
 
   // onClose couvre tout chemin de fermeture de CoachNudgeSheet (voile, retour
   // Android, "Plus tard", "Activer" — close() le déclenche toujours, voir le
@@ -1120,6 +1147,14 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
           onActivate={handleCoachNudgeActivate}
           onNeverShow={handleCoachNudgeNeverShow}
           onClose={handleCoachNudgeClose}
+        />
+      )}
+
+      {showSeasonNudge && (
+        <SeasonNudgeSheet
+          screenH={rootH}
+          onDisable={handleSeasonNudgeDisable}
+          onClose={handleSeasonNudgeClose}
         />
       )}
 
@@ -1702,7 +1737,11 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
                   onPress={statHold > 0 ? undefined : onPress}
                   tapScale={0.94}
                   onHapticIn={tappable || isMix ? onStatHaptic : undefined}
-                  style={[chipStyle, { backgroundColor: t.chipBg, borderColor: t.chipBorder }]}
+                  style={[
+                    chipStyle,
+                    { backgroundColor: t.chipBg, borderColor: t.chipBorder },
+                    !onPress && styles.statChipStatic,
+                  ]}
                 >
                   <StatChipContent stat={stat} t={t} editable={editable || isMix} compact={statsCompact} />
                   {statHold > 0 && !!onPress && (
@@ -1718,6 +1757,7 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
               style={[
                 chipStyle,
                 { backgroundColor: t.chipBg, borderColor: t.chipBorder },
+                !onPress && styles.statChipStatic,
                 statsCompact
                   ? styles.statWrapCompact
                   : isSingleStat
@@ -2269,6 +2309,14 @@ function PickerSheet({ stat, accentColor, textMode, onClose, onValidate, screenH
   // navigation Android, sinon son bas passait dessous en navigation 3 boutons.
   const insets = useSafeAreaInsets();
 
+  // AMRAP (durée en minutes) : un bouton bascule de la roue au clavier numérique
+  // du système, plus rapide quand on sait déjà la durée voulue. La feuille
+  // remonte avec le clavier (même mécanique que BottomSheet keyboardAware).
+  const canType = stat.type === 'minutes';
+  const [typing, setTyping] = useState(false);
+  const keyboardHeight = useKeyboardHeight();
+  const lift = useDerivedValue(() => Math.max(0, keyboardHeight.value - insets.bottom - 12));
+
   // (V) La feuille grandit vers le haut sans limite (sheetRoot en
   // justifyContent:'flex-end'). Son empilement complet réclame ~490 dp :
   // en fenêtre courte elle sortait par le haut, la roue se retrouvait
@@ -2303,6 +2351,7 @@ function PickerSheet({ stat, accentColor, textMode, onClose, onValidate, screenH
   }, []);
 
   const handleClose = () => {
+    Keyboard.dismiss();
     backdropOpacity.value = withTiming(0, { duration: D.base });
     translateY.value = withTiming(screenH, { duration: D.base, easing: easeImpact }, (done) => {
       if (done) runOnJS(onClose)();
@@ -2310,6 +2359,7 @@ function PickerSheet({ stat, accentColor, textMode, onClose, onValidate, screenH
   };
 
   const handleValidate = () => {
+    Keyboard.dismiss();
     backdropOpacity.value = withTiming(0, { duration: D.base });
     translateY.value = withTiming(screenH, { duration: D.base, easing: easeImpact }, (done) => {
       if (done) runOnJS(onValidate)(draftRef.current);
@@ -2317,7 +2367,7 @@ function PickerSheet({ stat, accentColor, textMode, onClose, onValidate, screenH
   };
 
   const sheetStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: translateY.value }],
+    transform: [{ translateY: translateY.value - lift.value }],
   }));
   const backdropStyle = useAnimatedStyle(() => ({
     opacity: backdropOpacity.value,
@@ -2365,14 +2415,42 @@ function PickerSheet({ stat, accentColor, textMode, onClose, onValidate, screenH
           entering={popIn(0.9, D.slow, 200)}
           style={[styles.pickerWheelWrap, isReduced && styles.pickerWheelWrapReduced]}
         >
-          <WheelPicker
-            values={values}
-            selectedValue={stat.value}
-            type={stat.type}
-            accentColor={accentColor || '#FFFFFF'}
-            onChange={setDraft}
-            visibleItems={wheelItems}
-          />
+          {typing ? (
+            <DurationKeypad
+              seconds={draftRef.current * 60}
+              maxMinutes={stat.range[1]}
+              minTotalSeconds={stat.range[0] * 60}
+              color={accentColor || '#FFFFFF'}
+              // Une saisie en cours (« 1 » avant « 12 ») ne remplace le réglage
+              // que si elle est dans les bornes.
+              onChange={(total, valid) => {
+                if (valid) setDraft(Math.round(total / 60));
+              }}
+            />
+          ) : (
+            <WheelPicker
+              values={values}
+              selectedValue={draftRef.current}
+              type={stat.type}
+              accentColor={accentColor || '#FFFFFF'}
+              onChange={setDraft}
+              visibleItems={wheelItems}
+            />
+          )}
+          {canType && (
+            <Button
+              variant="ghost"
+              size="sm"
+              tone={textMode}
+              icon={typing ? 'back' : 'plus'}
+              label={typing ? 'Revenir à la roue' : 'Saisir au clavier'}
+              onPress={() => {
+                if (typing) Keyboard.dismiss();
+                setTyping((v) => !v);
+              }}
+              style={styles.pickerKeypadBtn}
+            />
+          )}
         </Animated.View>
 
         <Animated.View entering={slideInY(20, D.slow, 300)}>
@@ -2627,6 +2705,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 14,
     alignItems: 'center',
+  },
+  // Case qu'on ne peut pas toucher (TOTAL de l'EMOM : calculé, pas réglable) :
+  // atténuée, pour qu'on ne cherche pas à la régler.
+  statChipStatic: {
+    opacity: 0.5,
   },
   statLabelRow: {
     flexDirection: 'row',
@@ -3015,5 +3098,9 @@ const styles = StyleSheet.create({
   },
   pickerWheelWrap: {
     marginBottom: 24,
+  },
+  pickerKeypadBtn: {
+    alignSelf: 'center',
+    marginTop: 6,
   },
 });

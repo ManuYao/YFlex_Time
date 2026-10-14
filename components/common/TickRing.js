@@ -55,10 +55,17 @@ export default function TickRing({
     });
   }, [size]);
 
+  // Anneau qui ne s'anime pas à l'apparition (chrono, carrousel d'accueil… la
+  // plupart des cas) : de simples traits, sans valeur partagée ni propriété
+  // animée. Avant, chacune des 60 graduations en portait deux — 300 sur l'accueil
+  // (5 cartes) — pour rien, puisque rien ne bouge. Seul l'anneau qui s'anime à
+  // l'apparition (`animateIn` / `triggerKey`) garde les traits animés.
+  const Tick = animateIn || triggerKey !== undefined ? TickLine : StaticTickLine;
+
   return (
     <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
       {geometry.map((g, i) => (
-        <TickLine
+        <Tick
           key={i}
           i={i}
           x1={g.x1}
@@ -91,6 +98,14 @@ export default function TickRing({
     </Svg>
   );
 }
+
+// Graduation fixe : un trait, rien d'autre. Mémoïsée comme TickLine (une seule
+// graduation change de couleur à la fois sur le chrono).
+const StaticTickLine = React.memo(function StaticTickLine({ x1, y1, x2, y2, stroke, strokeWidth }) {
+  return (
+    <Line x1={x1} y1={y1} x2={x2} y2={y2} stroke={stroke} strokeWidth={strokeWidth} strokeLinecap="round" />
+  );
+});
 
 // Mémoïsé : sur l'écran Running, le progrès du chrono ne fait basculer
 // qu'un seul tick de inactif à actif à la fois — les 59 autres doivent

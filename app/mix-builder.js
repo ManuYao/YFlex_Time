@@ -4,6 +4,7 @@ import {
   Text,
   Pressable,
   TextInput,
+  Keyboard,
   ScrollView,
   StyleSheet,
   useWindowDimensions,
@@ -42,9 +43,13 @@ import MixLibrarySheet from '../components/common/MixLibrarySheet';
 import UnsavedChangesSheet from '../components/common/UnsavedChangesSheet';
 import MiniToast from '../components/common/MiniToast';
 import SaveFlashRing from '../components/common/SaveFlashRing';
+import MixMetaSheet from '../components/common/MixMetaSheet';
+import DurationKeypad from '../components/common/DurationKeypad';
 import {
   BLOCK_TYPES,
   blockDisplayName,
+  countAutoRestGaps,
+  insertAutoRests,
   getBlockType,
   getBlockDuration,
   getMixTotalDuration,
@@ -80,9 +85,10 @@ import { useMixLauncher } from '../hooks/useMixLauncher';
 import { useAuth } from '../contexts/AuthContext';
 
 const ACCENT = '#9575FF';
-// Maintenir « Enregistrer » 2 s = copie dans Mes mix (jamais plus long : au-delà on
-// croit que le bouton ne répond pas).
-const SAVE_HOLD_MS = 2000;
+// Maintenir « Enregistrer » 3 s = feuille « Couleur et note », qui enregistre
+// ensuite (dans Mes mix ou comme ton MIX). La barre qui se remplit montre où on
+// en est : le bouton ne paraît pas figé.
+const SAVE_HOLD_MS = 3000;
 
 export default function MixBuilder() {
   const router = useRouter();
@@ -114,6 +120,8 @@ export default function MixBuilder() {
   // bas de la liste) ; null = ouverture habituelle (icône Partager).
   const [shareFocus, setShareFocus] = useState(null);
   const [feedOpen, setFeedOpen] = useState(false);
+  // Feuille « Couleur et note » (maintien de « Enregistrer », ou pastille du haut).
+  const [metaOpen, setMetaOpen] = useState(false);
   // Retour visuel de « Enregistrer » : null | 'saved' | 'added'.
   const [saveStatus, setSaveStatus] = useState(null);
   const [saveTick, setSaveTick] = useState(0);
@@ -267,6 +275,17 @@ export default function MixBuilder() {
     setDraft((d) => ({ ...d, blocks: [...d.blocks, block] }));
   };
 
+  // « Repos auto » (menu des blocs) : un repos d'une minute entre tous les blocs
+  // voisins qui n'en ont pas, modifiables ensuite un par un.
+  const handleAutoRest = () => {
+    const added = countAutoRestGaps(draft.blocks);
+    if (added === 0) return;
+    haptic.medium();
+    dismissUndo();
+    setDraft((d) => ({ ...d, blocks: insertAutoRests(d.blocks) }));
+    showToast({ text: added > 1 ? `${added} repos ajoutés entre les blocs` : '1 repos ajouté entre les blocs', icon: 'check' });
+  };
+
   const removeBlock = (id) => {
     haptic.warning();
     setDraft((d) => ({ ...d, blocks: d.blocks.filter((b) => b.id !== id) }));
@@ -335,8 +354,8 @@ export default function MixBuilder() {
   // Le brouillon devient le MIX courant ; s'il est déjà dans « Mes mix », son
   // entrée est mise à jour au passage (sinon la version enregistrée là-bas
   // restait l'ancienne).
-  const persistDraft = async () => {
-    const mix = withLatestPublishedId(cloneMix(draft));
+  const persistDraft = async (source = draft) => {
+    const mix = withLatestPublishedId(cloneMix(source));
     await saveCurrentMix(mix);
     if (inLibrary) {
       await saveAsLibraryEntry({ ...mix, name: mix.name?.trim() ? mix.name : 'Sans nom' });
@@ -346,14 +365,18 @@ export default function MixBuilder() {
   // Un appui : on enregistre et on RESTE sur la page (avant, l'écran se fermait
   // tout seul, ce qui surprenait). Le retour est visuel : contour vert, bouton
   // « Enregistré », petit message.
-  const handleSave = async () => {
+  // `meta` ({ color, note }) vient de la feuille « Couleur et note » : appliqué au
+  // brouillon, puis enregistré avec lui.
+  const handleSave = async (meta) => {
     if (draft.blocks.length === 0) return;
     // Mix qui ne m'appartient pas : un simple appui l'enregistre dans Mes mix
-    // (il devient alors le mien) — plus besoin de maintenir 2 s.
+    // (il devient alors le mien) — plus besoin de maintenir.
     if (preview) return handleSavePreview();
     if (inLibrary && nameTaken()) return refuseTakenName();
     haptic.success();
-    await persistDraft();
+    const source = meta ? { ...draft, ...meta } : draft;
+    if (meta) setDraft(source);
+    await persistDraft(source);
     flashSaved('saved', inLibrary ? 'Enregistré · Mes mix mis à jour' : 'Enregistré comme ton MIX');
   };
 
@@ -416,7 +439,7 @@ export default function MixBuilder() {
     flashSaved('added', 'Ajouté à Mes mix : tu peux le modifier');
   };
 
-  const handleSaveAsNew = async () => {
+  const handleSaveAsNew = async (meta) => {
     if (draft.blocks.length === 0) return;
     if (preview) return handleSavePreview();
     const baseName = (draft.name || '').trim() || 'Sans nom';
@@ -426,7 +449,9 @@ export default function MixBuilder() {
       return refuseTakenName();
     }
     haptic.success();
-    const base = withLatestPublishedId(cloneMix(draft));
+    // Couleur et note choisies dans la feuille : elles vont sur l'entrée créée
+    // (la copie, ou le mix qui entre dans Mes mix).
+    const base = withLatestPublishedId(cloneMix(meta ? { ...draft, ...meta } : draft));
     const entry = { ...base, id: `mix_${Date.now()}`, name: baseName.slice(0, 28) };
     if (inLibrary) {
       // La copie est à moi, et n'est pas publiée. C'est un AUTRE mix : clé unique
@@ -745,7 +770,31 @@ export default function MixBuilder() {
 
       <View style={styles.hero}>
         <View style={styles.heroLeft}>
-          <Text style={styles.heroKicker}>Ton MIX</Text>
+          {/* « Ton MIX » + la pastille de couleur du mix (touche = feuille
+              « Couleur et note »). Vide et discrète tant qu'aucune couleur n'est
+              choisie ; absente d'un aperçu (le mix n'est pas encore à moi). */}
+          <View style={styles.heroKickerRow}>
+            <Text style={styles.heroKicker}>Ton MIX</Text>
+            {!preview && (
+              <Pressable
+                onPress={() => {
+                  haptic.light();
+                  setMetaOpen(true);
+                }}
+                hitSlop={10}
+                accessibilityLabel="Choisir la couleur et la note du mix"
+                style={[
+                  styles.heroSwatch,
+                  draft.color ? { backgroundColor: draft.color, borderColor: draft.color } : styles.heroSwatchEmpty,
+                ]}
+              />
+            )}
+          </View>
+          {!!draft.note && (
+            <Text style={styles.heroNote} numberOfLines={2}>
+              {draft.note}
+            </Text>
+          )}
           <TextInput
             value={draft.name}
             onChangeText={updateName}
@@ -908,7 +957,10 @@ export default function MixBuilder() {
               disabled={draft.blocks.length === 0}
               oneTap={preview}
               onTap={handleSave}
-              onLongComplete={handleSaveAsNew}
+              onLongComplete={() => {
+                haptic.medium();
+                setMetaOpen(true);
+              }}
               status={saveStatus}
               flashTick={saveTick}
             />
@@ -970,6 +1022,30 @@ export default function MixBuilder() {
           screenH={screenH}
           onClose={() => setAddOpen(false)}
           onPick={addBlock}
+          autoRestCount={countAutoRestGaps(draft.blocks)}
+          draftBlockCount={draft.blocks.length}
+          onAutoRest={handleAutoRest}
+        />
+      )}
+
+      {metaOpen && (
+        <MixMetaSheet
+          screenH={screenH}
+          color={draft.color}
+          note={draft.note}
+          // Déjà dans Mes mix : l'action principale met l'entrée à jour, l'autre
+          // en fait une copie. Sinon : l'action principale l'ajoute à Mes mix.
+          primary={
+            inLibrary
+              ? { label: 'Enregistrer', onPress: handleSave }
+              : { label: 'Ajouter à Mes mix', onPress: handleSaveAsNew }
+          }
+          secondary={
+            inLibrary
+              ? { label: 'Enregistrer une copie', onPress: handleSaveAsNew }
+              : { label: 'Enregistrer comme ton MIX', onPress: handleSave }
+          }
+          onClose={() => setMetaOpen(false)}
         />
       )}
 
@@ -1337,7 +1413,7 @@ function SaveButton({ disabled, onTap, onLongComplete, oneTap = false, status = 
           </Text>
           {!confirmed && !oneTap && (
             <Text style={[styles.btnPrimaryHint, refused && { color: '#FF5454' }]} numberOfLines={1}>
-              {refused ? 'Change le nom du mix' : 'Maintiens 2s = nouveau'}
+              {refused ? 'Change le nom du mix' : 'Maintiens 3s = couleur'}
             </Text>
           )}
         </View>
@@ -1347,7 +1423,9 @@ function SaveButton({ disabled, onTap, onLongComplete, oneTap = false, status = 
   );
 }
 
-function AddBlockSheet({ screenH, onClose, onPick }) {
+const REST_COLOR = getBlockType('rest').color;
+
+function AddBlockSheet({ screenH, onClose, onPick, autoRestCount = 0, draftBlockCount = 0, onAutoRest }) {
   const haptic = useHaptic();
   // La feuille reste touchable pendant son animation de fermeture : sans ce
   // verrou, un double tap ajouterait deux blocs.
@@ -1398,7 +1476,37 @@ function AddBlockSheet({ screenH, onClose, onPick }) {
                 <Text style={[sheetStyles.gridHint, { color: t.color }]}>{t.hint}</Text>
               </Pressable>
             ))}
-            <View style={[sheetStyles.gridCell, { opacity: 0 }]} pointerEvents="none" />
+            {/* La case libre de la grille : « Repos auto » ajoute un repos entre
+                tous les blocs voisins qui n'en ont pas encore. Grisée quand il
+                n'y a rien à insérer (moins de deux blocs, ou déjà tous séparés). */}
+            <Pressable
+              disabled={autoRestCount === 0}
+              onPress={() => {
+                if (pickedRef.current) return;
+                pickedRef.current = true;
+                onAutoRest();
+                close();
+              }}
+              accessibilityLabel="Repos auto : ajouter un repos entre tous les blocs"
+              style={({ pressed }) => [
+                sheetStyles.gridCell,
+                autoRestCount === 0 && { opacity: 0.4 },
+                pressed && { opacity: 0.85, transform: [{ scale: 0.96 }] },
+              ]}
+            >
+              <View style={[sheetStyles.gridBlob, { backgroundColor: REST_COLOR }]} pointerEvents="none" />
+              <View style={[sheetStyles.gridIcon, { backgroundColor: `${REST_COLOR}22` }]}>
+                <AppIcon name="reset" size={20} color={REST_COLOR} />
+              </View>
+              <Text style={sheetStyles.gridName}>Repos auto</Text>
+              <Text style={[sheetStyles.gridHint, { color: REST_COLOR }]}>
+                {autoRestCount > 0
+                  ? `+${autoRestCount} entre les blocs`
+                  : draftBlockCount < 2
+                    ? 'Il faut 2 blocs'
+                    : 'Déjà séparés'}
+              </Text>
+            </Pressable>
           </View>
         </View>
       )}
@@ -1411,6 +1519,8 @@ function EditBlockSheet({ screenH, block, onClose, onUpdate }) {
   const [labelDraft, setLabelDraft] = useState(block?.label || '');
   const [noteDraft, setNoteDraft] = useState(block?.note || '');
   const [importOpen, setImportOpen] = useState(false);
+  // AMRAP : durée saisie au clavier numérique plutôt qu'à la roue.
+  const [typingDuration, setTypingDuration] = useState(false);
   const roleScrollRef = useRef(null);
   const roleRevealedFor = useRef(null);
 
@@ -1426,6 +1536,7 @@ function EditBlockSheet({ screenH, block, onClose, onUpdate }) {
     setLabelDraft(block?.label || '');
     setNoteDraft(block?.note || '');
     setImportOpen(false);
+    setTypingDuration(false);
     roleRevealedFor.current = null;
   }, [block?.id]);
 
@@ -1521,14 +1632,42 @@ function EditBlockSheet({ screenH, block, onClose, onUpdate }) {
                     : block.type === 'emom' ? 'INTERVALLE'
                     : 'TRAVAIL'}
                 </Text>
-                <WheelPicker
-                  values={ranges.duration}
-                  selectedValue={block.duration}
-                  type="seconds"
-                  accentColor={type.color}
-                  onChange={(v) => onUpdate({ duration: v })}
-                  visibleItems={wheelItems}
-                />
+                {typingDuration ? (
+                  // AMRAP : durée tapée au clavier numérique (minutes + secondes).
+                  // Seule une valeur valide remplace le réglage du bloc.
+                  <DurationKeypad
+                    seconds={block.duration}
+                    withSeconds
+                    minTotalSeconds={10}
+                    maxMinutes={60}
+                    color={type.color}
+                    onChange={(total, valid) => {
+                      if (valid) onUpdate({ duration: total });
+                    }}
+                  />
+                ) : (
+                  <WheelPicker
+                    values={ranges.duration}
+                    selectedValue={block.duration}
+                    type="seconds"
+                    accentColor={type.color}
+                    onChange={(v) => onUpdate({ duration: v })}
+                    visibleItems={wheelItems}
+                  />
+                )}
+                {block.type === 'amrap' && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon={typingDuration ? 'back' : 'plus'}
+                    label={typingDuration ? 'Revenir à la roue' : 'Saisir au clavier'}
+                    onPress={() => {
+                      if (typingDuration) Keyboard.dismiss();
+                      setTypingDuration((v) => !v);
+                    }}
+                    style={sheetStyles.keypadToggle}
+                  />
+                )}
               </View>
             )}
 
@@ -1867,11 +2006,36 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   heroLeft: { flex: 1, minWidth: 0 },
+  heroKickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+  },
   heroKicker: {
     fontFamily: fonts.sansBold,
     fontSize: 10,
     letterSpacing: 3,
     color: ACCENT,
+  },
+  // Pastille du code couleur : un cercle plein de la teinte choisie, ou un
+  // cercle vide en pointillé tant qu'aucune n'est posée.
+  heroSwatch: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 1.5,
+  },
+  heroSwatchEmpty: {
+    borderColor: 'rgba(255,255,255,0.35)',
+    borderStyle: 'dashed',
+    backgroundColor: 'transparent',
+  },
+  heroNote: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
+    lineHeight: 16,
+    color: 'rgba(255,255,255,0.55)',
     marginBottom: 6,
   },
   heroName: {
@@ -2297,6 +2461,10 @@ const sheetStyles = StyleSheet.create({
     flexDirection: 'row',
     gap: 4,
     marginBottom: 16,
+  },
+  keypadToggle: {
+    alignSelf: 'center',
+    marginTop: 6,
   },
   pickerCol: {
     flex: 1,

@@ -8,6 +8,7 @@ import AppIcon from './AppIcon';
 import { getMixTotalDuration, hasEstimatedDuration } from '../../lib/mix-blocks';
 import { isFeedMix } from '../../lib/mixes';
 import { assignPublications, FREE_PUBLISHED_MIXES } from '../../lib/publicMixShape';
+import { cleanMixColor } from '../../lib/mixMeta';
 import { formatMixClock } from '../../lib/formatters';
 import { unpublishMix } from '../../lib/publicMixes';
 import { useTimers } from '../../contexts/TimersContext';
@@ -46,8 +47,13 @@ export default function MixLibrarySheet({
   onLoad,
   onDelete,
   onShare,
-  hint = 'Tap = charger · 2s sur Enregistrer = nouveau mix',
-  emptyText = 'Aucun mix sauvegardé. Maintiens "Enregistrer" 2s dans le constructeur pour en archiver un.',
+  // Mode « lancement » (Planning) : toucher un mix le LANCE ; ni partage ni
+  // suppression ici, on ne fait que choisir quoi lancer.
+  launchMode = false,
+  hint = launchMode ? 'Tap = lancer ce mix' : 'Tap = charger · 3s sur Enregistrer = couleur et note',
+  emptyText = launchMode
+    ? 'Aucun mix enregistré pour l’instant. Crée-en un dans le constructeur.'
+    : 'Aucun mix sauvegardé. Maintiens "Enregistrer" 3s dans le constructeur pour en ajouter un.',
 }) {
   const haptic = useHaptic();
   const pubs = useMyPublications();
@@ -127,6 +133,11 @@ export default function MixLibrarySheet({
     const author = feed ? m.fromFeed?.author : null;
     return (
       <View key={m.id} style={styles.libRow}>
+        {/* Code couleur du mix (Constructeur › maintien de « Enregistrer ») :
+            une petite barre sur le bord gauche de la carte. */}
+        {!!cleanMixColor(m.color) && (
+          <View pointerEvents="none" style={[styles.colorBar, { backgroundColor: cleanMixColor(m.color) }]} />
+        )}
         <Pressable
           onPress={async () => {
             const r = await onLoad(m.id);
@@ -161,28 +172,41 @@ export default function MixLibrarySheet({
               {formatMixClock(total)}
               {author ? ` · par ${author}` : ''}
             </Text>
+            {!!m.note && (
+              <Text style={styles.libNote} numberOfLines={1}>
+                {m.note}
+              </Text>
+            )}
           </View>
         </Pressable>
-        <Pressable
-          onPress={() => {
-            haptic.light();
-            shareAfterCloseRef.current = m;
-            close.current?.();
-          }}
-          style={({ pressed }) => [styles.libShare, pressed && { opacity: 0.7 }]}
-          hitSlop={10}
-        >
-          <AppIcon name="share" size={14} color="rgba(255,255,255,0.55)" />
-        </Pressable>
-        <Pressable
-          onPress={() => handleDelete(m, published)}
-          style={({ pressed }) => [styles.libDelete, pressed && { opacity: 0.7 }]}
-          hitSlop={10}
-        >
-          <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
-            <Path d="M3 3l8 8M11 3l-8 8" stroke="#FF5454" strokeWidth={2} strokeLinecap="round" />
-          </Svg>
-        </Pressable>
+        {launchMode ? (
+          <View style={styles.libPlay} pointerEvents="none">
+            <AppIcon name="play" size={14} color="#FFFFFF" />
+          </View>
+        ) : (
+          <>
+            <Pressable
+              onPress={() => {
+                haptic.light();
+                shareAfterCloseRef.current = m;
+                close.current?.();
+              }}
+              style={({ pressed }) => [styles.libShare, pressed && { opacity: 0.7 }]}
+              hitSlop={10}
+            >
+              <AppIcon name="share" size={14} color="rgba(255,255,255,0.55)" />
+            </Pressable>
+            <Pressable
+              onPress={() => handleDelete(m, published)}
+              style={({ pressed }) => [styles.libDelete, pressed && { opacity: 0.7 }]}
+              hitSlop={10}
+            >
+              <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
+                <Path d="M3 3l8 8M11 3l-8 8" stroke="#FF5454" strokeWidth={2} strokeLinecap="round" />
+              </Svg>
+            </Pressable>
+          </>
+        )}
       </View>
     );
   };
@@ -195,7 +219,7 @@ export default function MixLibrarySheet({
           <View>
             <View style={styles.headerRow}>
               <View>
-                <Text style={styles.kicker}>MES MIX</Text>
+                <Text style={styles.kicker}>{launchMode ? 'LANCER UN MIX' : 'MES MIX'}</Text>
                 <Text style={styles.title}>
                   {library.length} enregistré{library.length > 1 ? 's' : ''}
                 </Text>
@@ -401,6 +425,20 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.55)',
     marginTop: 2,
   },
+  colorBar: {
+    position: 'absolute',
+    left: 6,
+    top: 10,
+    bottom: 10,
+    width: 3,
+    borderRadius: 2,
+  },
+  libNote: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.45)',
+    marginTop: 3,
+  },
   libShare: {
     width: 36,
     height: 36,
@@ -409,6 +447,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 6,
+  },
+  libPlay: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: 'rgba(149,117,255,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   libDelete: {
     width: 36,

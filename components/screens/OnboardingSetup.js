@@ -5,6 +5,7 @@ import Button from '../common/Button';
 import { useSettings } from '../../contexts/SettingsContext';
 import { haptic, setHapticEnabled, setHapticStrength } from '../../hooks/useHaptic';
 import { RAIN_OPTIONS, RAIN_SUBS } from '../../lib/rainMode';
+import { markSeasonNudgeSeen } from '../../lib/seasonNudge';
 import { fonts } from '../../lib/fonts';
 
 /**
@@ -62,6 +63,9 @@ export default function OnboardingSetup({ width, onSkip }) {
   const pickAmbiance = (v) => {
     haptic.selection();
     update('ambianceMode', v);
+    // Un choix fait ici est délibéré : l'alerte « ambiance de saison » de
+    // l'accueil (lib/seasonNudge.js) n'a plus lieu d'être.
+    markSeasonNudgeSeen();
   };
   const pickCoach = (v) => {
     haptic.selection();

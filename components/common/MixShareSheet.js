@@ -9,6 +9,7 @@ import IconButton from './IconButton';
 import PressTap from './PressTap';
 import AppIcon from './AppIcon';
 import ShareTipCard from './ShareTipCard';
+import MixColorBar from './MixColorBar';
 import { BlockStrip } from './MixPublicSheet';
 import { haptic } from '../../hooks/useHaptic';
 import { useAuth } from '../../contexts/AuthContext';
@@ -346,7 +347,10 @@ function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
         <Text style={styles.fieldLabel}>CE MIX SERA PUBLIÉ</Text>
         <View style={styles.targetRow}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.targetName} numberOfLines={1}>{mix?.name || 'Sans nom'}</Text>
+            <View style={styles.targetNameRow}>
+              <MixColorBar color={mix?.color} height={16} style={styles.targetBar} />
+              <Text style={[styles.targetName, { flexShrink: 1 }]} numberOfLines={1}>{mix?.name || 'Sans nom'}</Text>
+            </View>
             <Text style={styles.targetMeta}>
               {mix?.blocks?.length || 0} bloc{(mix?.blocks?.length || 0) > 1 ? 's' : ''} ·{' '}
               {formatFeedDuration(getMixTotalDuration(mix?.blocks || []), hasEstimatedDuration(mix?.blocks || []))}
@@ -1082,6 +1086,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
+  targetNameRow: { flexDirection: 'row', alignItems: 'center' },
+  targetBar: { marginRight: 8 },
   targetName: {
     fontFamily: fonts.sansExtraBold,
     fontSize: 15,

@@ -9,6 +9,7 @@ import MiniToast from './MiniToast';
 import PressTap from './PressTap';
 import AppIcon from './AppIcon';
 import MixCommentsView from './MixCommentsView';
+import MixColorBar from './MixColorBar';
 import TouchShield from './TouchShield';
 import { useSubmitGuard } from '../../hooks/useSubmitGuard';
 import { useBlockedUsers } from '../../hooks/useBlockedUsers';
@@ -116,8 +117,14 @@ function FeedCard({
           <Text style={[styles.avatarText, { color: tint }]}>{initialsOf(item.author || '?')}</Text>
         </View>
         <View style={styles.cardTitleWrap}>
-          <Text style={styles.cardName} numberOfLines={1}>{item.name}</Text>
+          <View style={styles.cardNameRow}>
+            <MixColorBar color={item.color} height={15} style={styles.cardBar} />
+            <Text style={[styles.cardName, styles.cardNameText]} numberOfLines={1}>{item.name}</Text>
+          </View>
           <Text style={styles.cardAuthor} numberOfLines={1}>par {item.author || 'Athlète'}</Text>
+          {!!item.note && (
+            <Text style={styles.cardNote} numberOfLines={2}>{item.note}</Text>
+          )}
         </View>
         <View style={styles.tag}>
           <AppIcon name={discipline.icon} size={11} color="rgba(255,255,255,0.70)" />
@@ -1037,6 +1044,16 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansExtraBold,
     fontSize: 15,
     color: '#FFFFFF',
+  },
+  cardNameRow: { flexDirection: 'row', alignItems: 'center' },
+  cardNameText: { flexShrink: 1 },
+  cardBar: { marginRight: 8 },
+  cardNote: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 11.5,
+    lineHeight: 15,
+    color: 'rgba(255,255,255,0.50)',
+    marginTop: 4,
   },
   cardAuthor: {
     fontFamily: fonts.sansMedium,

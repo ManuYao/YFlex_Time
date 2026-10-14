@@ -17,6 +17,26 @@ import {
  * aucune (réglage « Aucune »). Recalculée quand l'app revient au premier plan, pour que
  * le changement de jour (ou de saison) soit pris en compte sans relancer l'app.
  */
+// Ambiance du jour, calculée UNE fois par (réglage, jour) pour toute l'app : une
+// douzaine de composants la lisent (chaque bouton rond, les décors…), et elle ne
+// dépend que de la date du calendrier. Sans ce partage, chacun refaisait le
+// mélange de fin de saison et obtenait un objet neuf à chaque retour au premier
+// plan, ce qui relançait leurs effets pour rien.
+const dayKeyOf = (d) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+const computed = new Map();
+const ambianceFor = (mode, today) => {
+  const key = `${mode}|${dayKeyOf(today)}`;
+  const hit = computed.get(key);
+  if (hit) return hit;
+  const id = ambianceIdFor(mode, today);
+  // En fin de saison, la suivante se glisse peu à peu (lib/ambiance.js).
+  const base = getAmbiance(id);
+  const value = { mode, id, ambiance: blendAmbiance(base, seasonDrift(today)) };
+  if (computed.size > 12) computed.clear();
+  computed.set(key, value);
+  return value;
+};
+
 export default function useAmbiance() {
   const { settings } = useSettings();
   const mode = normalizeAmbianceMode(settings.ambianceMode);
@@ -24,18 +44,16 @@ export default function useAmbiance() {
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') setToday(new Date());
+      // Même jour : on garde la date, rien à recalculer ni à re-rendre.
+      if (state === 'active') {
+        const now = new Date();
+        setToday((prev) => (dayKeyOf(prev) === dayKeyOf(now) ? prev : now));
+      }
     });
     return () => sub.remove();
   }, []);
 
-  return useMemo(() => {
-    const id = ambianceIdFor(mode, today);
-    // En fin de saison, la suivante se glisse peu à peu (jamais plus de 35 %).
-    const base = getAmbiance(id);
-    const ambiance = blendAmbiance(base, seasonDrift(today));
-    return { mode, id, ambiance };
-  }, [mode, today]);
+  return useMemo(() => ambianceFor(mode, today), [mode, today]);
 }
 
 /**

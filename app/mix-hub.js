@@ -367,7 +367,7 @@ export default function MixHub() {
           }}
           onShare={(m) => setSheet({ type: 'share', tab: 'send', mix: m })}
           hint="Tap = en faire ton MIX · croix = supprimer"
-          emptyText="Aucun mix enregistré. Dans le constructeur, maintiens « Enregistrer » 2 s pour en archiver un."
+          emptyText="Aucun mix enregistré. Dans le constructeur, maintiens « Enregistrer » 3 s pour en ajouter un à Mes mix."
         />
       )}
 

@@ -7,6 +7,7 @@ import GradientBackground from '../components/common/GradientBackground';
 import Button from '../components/common/Button';
 import IconButton from '../components/common/IconButton';
 import AppIcon from '../components/common/AppIcon';
+import MixColorBar from '../components/common/MixColorBar';
 import { blockDisplayName, getBlockType, getMixTotalDuration, formatBlockSubtitle, hasEstimatedDuration } from '../lib/mix-blocks';
 import { deserializeMix, sanitizeImportedPayload } from '../lib/mixShare';
 import { findLibraryMatch } from '../lib/mixIdentity';
@@ -110,10 +111,14 @@ export default function ImportMix() {
         </View>
 
         <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-          <Text style={styles.name} numberOfLines={2}>{mix.name}</Text>
+          <View style={styles.nameRow}>
+            <MixColorBar color={mix.color} height={26} style={styles.nameBar} />
+            <Text style={[styles.name, styles.nameText]} numberOfLines={2}>{mix.name}</Text>
+          </View>
           <Text style={styles.meta}>
             {mix.blocks.length} bloc{mix.blocks.length > 1 ? 's' : ''} · {hasEstimatedDuration(mix.blocks) ? '~' : ''}{formatMixClock(total)}
           </Text>
+          {!!mix.note && <Text style={styles.mixNote}>{mix.note}</Text>}
 
           {match?.status === 'same' && (
             <Text style={styles.matchNote}>
@@ -205,6 +210,16 @@ const styles = StyleSheet.create({
     fontFamily: fonts.display,
     fontSize: 30,
     color: '#FFFFFF',
+  },
+  nameRow: { flexDirection: 'row', alignItems: 'center' },
+  nameText: { flexShrink: 1 },
+  nameBar: { marginRight: 10 },
+  mixNote: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 13,
+    lineHeight: 18,
+    color: 'rgba(255,255,255,0.60)',
+    marginTop: 6,
   },
   meta: {
     fontFamily: fonts.monoBold,

@@ -270,6 +270,8 @@ export default function Settings() {
         // Popup de découverte du coach vocal (lib/coachNudge.js) : redevient
         // proposable après un reset, comme les autres rappels ci-dessus.
         'flexTimer_coachNudge',
+        // Alerte « ambiance de saison » (lib/seasonNudge.js) : redevient proposable.
+        'flexTimer_seasonNudge',
         // Tutoriel de démarrage (lib/tutorial.js) : après un reset la personne
         // repart de zéro, le pop-up qui le propose peut revenir.
         'flexTimer_tutorial',
