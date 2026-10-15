@@ -14,6 +14,7 @@ import { useTimers } from '../contexts/TimersContext';
 import { usePremium } from '../hooks/usePremium';
 import { useScreenReady } from '../hooks/useScreenReady';
 import { haptic } from '../hooks/useHaptic';
+import { goBackSafe } from '../lib/navigation';
 import { fonts } from '../lib/fonts';
 import { GOLD } from '../lib/buttonTokens';
 import { computeProfileStats } from '../lib/profileStats';
@@ -64,7 +65,7 @@ export default function Analysis() {
       <GradientBackground colors={['#1A1A1A', '#0A0A0A', '#000000']} ambient>
         <View style={[styles.safe, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
           <View style={styles.topBar}>
-            <IconButton icon="back" haptic={haptic.light} onPress={() => router.back()} accessibilityLabel="Retour" />
+            <IconButton icon="back" haptic={haptic.light} onPress={() => goBackSafe(router)} accessibilityLabel="Retour" />
             <View style={styles.titleWrap}>
               <AppIcon name="crown" size={13} color={GOLD} />
               <Text style={styles.topTitle}>Analyse avancée</Text>

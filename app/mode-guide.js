@@ -6,6 +6,7 @@ import GradientBackground from '../components/common/GradientBackground';
 import AppIcon from '../components/common/AppIcon';
 import IconButton from '../components/common/IconButton';
 import { TIMERS, getModeGuide } from '../lib/timers-config';
+import { goBackSafe } from '../lib/navigation';
 import { fonts } from '../lib/fonts';
 import { getTokens } from '../lib/tokens';
 import { useHaptic } from '../hooks/useHaptic';
@@ -33,7 +34,7 @@ export default function ModeGuide() {
             icon="back"
             tone={timer.textMode}
             haptic={haptic.light}
-            onPress={() => router.back()}
+            onPress={() => goBackSafe(router)}
             accessibilityLabel="Retour"
           />
           <View style={styles.topBarGhost} />

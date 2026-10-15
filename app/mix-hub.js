@@ -19,6 +19,7 @@ import { useCooldown } from '../hooks/useCooldown';
 import { usePremium } from '../hooks/usePremium';
 import { useMixLauncher } from '../hooks/useMixLauncher';
 import { haptic } from '../hooks/useHaptic';
+import { goBackSafe } from '../lib/navigation';
 import { fonts } from '../lib/fonts';
 import { D, slideInY } from '../lib/animations';
 import { getBlockType, getBlockDuration, getMixTotalDuration, hasEstimatedDuration } from '../lib/mix-blocks';
@@ -154,7 +155,7 @@ export default function MixHub() {
           <IconButton
             icon="back"
             haptic={haptic.light}
-            onPress={() => router.back()}
+            onPress={() => goBackSafe(router)}
             accessibilityLabel="Retour"
           />
           <Text style={styles.topTitle}>Mix et Partage</Text>
@@ -340,9 +341,12 @@ export default function MixHub() {
               <View style={styles.planningText}>
                 <Text style={styles.planningTitle}>Depuis ton planning</Text>
                 <Text style={styles.planningSub}>
-                  Maintiens un bloc 2 s : il devient un MIX prêt à lancer.
+                  {isPremium
+                    ? 'Maintiens un bloc 2 s : il devient un MIX prêt à lancer.'
+                    : 'Réservé à Premium : un bloc du planning devient un MIX prêt à lancer.'}
                 </Text>
               </View>
+              {!isPremium && <AppIcon name="crown" size={14} color="#F0C954" />}
               <Text style={styles.chevron}>›</Text>
             </PressTap>
           </Animated.View>

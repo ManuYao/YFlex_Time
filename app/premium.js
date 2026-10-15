@@ -9,12 +9,18 @@ import Button from '../components/common/Button';
 import IconButton from '../components/common/IconButton';
 import { usePremium } from '../hooks/usePremium';
 import { useHaptic } from '../hooks/useHaptic';
+import { goBackSafe } from '../lib/navigation';
 import { fonts } from '../lib/fonts';
 import { ROUND_SIZE } from '../lib/buttonTokens';
 
 const GOLD = '#F0C954';
 
 const BENEFITS = [
+  {
+    icon: 'calendar',
+    title: 'Le planning de ta semaine',
+    desc: 'Organise tes séances jour par jour, lance un bloc en MIX d\'un maintien, retrouve tes archives. En gratuit, le planning n\'est pas disponible.',
+  },
   {
     icon: 'infinity',
     title: 'Une bibliothèque de mix sans limite',
@@ -23,7 +29,7 @@ const BENEFITS = [
   {
     icon: 'globe',
     title: 'Publie plus de mix',
-    desc: 'En gratuit : 4 mix publiés en même temps dans le fil public. En Pro : jusqu\'à 30.',
+    desc: 'En gratuit : 3 mix publiés en même temps dans le fil public. En Pro : jusqu\'à 30.',
   },
   {
     icon: 'pulse',
@@ -62,7 +68,7 @@ export default function Premium() {
           <IconButton
             icon="back"
             haptic={haptic.light}
-            onPress={() => router.back()}
+            onPress={() => goBackSafe(router)}
             accessibilityLabel="Retour"
           />
           <Text style={styles.topTitle}>Premium</Text>
@@ -75,8 +81,8 @@ export default function Premium() {
             <Text style={styles.heroTitle}>Flex Timer PRO</Text>
             <Text style={styles.heroSub}>
               {isPremium || justUnlocked
-                ? 'Pro débloqué : plus de mix, plus de statistiques. Merci !'
-                : 'Plus de mix, plus de statistiques, pour aller plus loin.'}
+                ? 'Pro débloqué : le planning, plus de mix, plus de statistiques. Merci !'
+                : 'Le planning, plus de mix, plus de statistiques, pour aller plus loin.'}
             </Text>
           </View>
 

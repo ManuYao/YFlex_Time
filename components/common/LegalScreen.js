@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 
 import GradientBackground from './GradientBackground';
 import IconButton from './IconButton';
+import { goBackSafe } from '../../lib/navigation';
 import { fonts } from '../../lib/fonts';
 import { ROUND_SIZE } from '../../lib/buttonTokens';
 import { haptic } from '../../hooks/useHaptic';
@@ -18,7 +19,7 @@ export default function LegalScreen({ title, updatedAt, sections }) {
           <IconButton
             icon="back"
             haptic={haptic.light}
-            onPress={() => router.back()}
+            onPress={() => goBackSafe(router)}
             accessibilityLabel="Retour"
           />
           <Text style={styles.topTitle}>{title}</Text>

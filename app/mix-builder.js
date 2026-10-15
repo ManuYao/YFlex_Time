@@ -60,7 +60,7 @@ import {
   getRangesForType,
 } from '../lib/mix-blocks';
 import { makeDefaultMix, isDefaultMix, mixSignature } from '../lib/mixes';
-import { findLibraryMatch, withFreshUid } from '../lib/mixIdentity';
+import { findLibraryMatch, generateMixUid, withFreshUid } from '../lib/mixIdentity';
 import { loadProfile } from '../lib/profile';
 import { getPreviewMix } from '../lib/previewMix';
 import { updatePublishedMix } from '../lib/publicMixes';
@@ -68,6 +68,7 @@ import { DISCIPLINES } from '../lib/disciplines';
 import { formatHoursMinutes } from '../lib/formatters';
 import { DAYS, loadPlanning, formatBlockAsText } from '../lib/planning';
 import { BLOCK_ROLES, getBlockRole, resolveBlockRole } from '../lib/blockRoles';
+import { goBackSafe } from '../lib/navigation';
 import { fonts } from '../lib/fonts';
 import { easeImpact, springBouncy, springEnergetic } from '../lib/animations';
 import {
@@ -82,6 +83,7 @@ import { useLayoutLevel } from '../lib/responsive';
 import { useTimers } from '../contexts/TimersContext';
 import { useHaptic } from '../hooks/useHaptic';
 import { useMixLauncher } from '../hooks/useMixLauncher';
+import { usePremium } from '../hooks/usePremium';
 import { useAuth } from '../contexts/AuthContext';
 
 const ACCENT = '#9575FF';
@@ -133,6 +135,9 @@ export default function MixBuilder() {
   const toastTimer = useRef(null);
   const saveStatusTimer = useRef(null);
   const resetUndoRef = useRef(null);
+  // Dernier brouillon rendu : lu par « Annuler » (undoReset), dont la copie du
+  // brouillon est figée au moment du « Tout vider ».
+  const draftLatestRef = useRef(null);
   const launchMix = useMixLauncher();
   const { user } = useAuth();
   const params = useLocalSearchParams();
@@ -207,6 +212,8 @@ export default function MixBuilder() {
       </GradientBackground>
     );
   }
+
+  draftLatestRef.current = draft;
 
   const totalSec = getMixTotalDuration(draft.blocks);
   const totalIsEstimate = hasEstimatedDuration(draft.blocks);
@@ -308,6 +315,12 @@ export default function MixBuilder() {
   // qui garde son ancien nom, c'est à moitié vidé) ; « Mes mix » et les
   // publications ne bougent pas. Un « Annuler » de quelques secondes rattrape
   // une erreur de doigt.
+  //
+  // Un builder vidé est un NOUVEAU mix : identifiant et clé unique neufs, plus de
+  // lien avec la publication, de couleur ni de note. Avant, il gardait l'identité
+  // du mix qu'on venait de modifier (chargé depuis « Mes mix ») : renommer et
+  // reconstruire dessus, puis enregistrer, ÉCRASAIT l'ancien mix au lieu d'en
+  // créer un autre (bug signalé le 15/10/2026).
   const undoReset = () => {
     const saved = resetUndoRef.current;
     if (!saved) return;
@@ -316,19 +329,22 @@ export default function MixBuilder() {
     clearTimeout(toastTimer.current);
     setToast(null);
     // On ne restaure que si le brouillon est resté vide : un nom ou un bloc
-    // saisi entre-temps ne doit jamais être écrasé.
-    setDraft((d) =>
-      d.blocks.length === 0 && !(d.name || '').trim()
-        ? { ...d, name: saved.name, blocks: saved.blocks }
-        : d
-    );
+    // saisi entre-temps ne doit jamais être écrasé. Lu dans la ref : cette
+    // fonction a été créée au moment du « Tout vider », sa copie du brouillon
+    // est celle d'avant.
+    const cur = draftLatestRef.current;
+    if (cur && cur.blocks.length === 0 && !(cur.name || '').trim()) {
+      setDraft(saved.draft);
+      setPublishedLink(saved.link);
+    }
   };
 
   const handleReset = () => {
     if (draft.blocks.length === 0) return;
     haptic.warning();
-    resetUndoRef.current = { name: draft.name || '', blocks: draft.blocks };
-    setDraft((d) => ({ ...d, name: '', blocks: [] }));
+    resetUndoRef.current = { draft, link: publishedLink };
+    setDraft({ id: `mix_${Date.now()}`, uid: generateMixUid(), name: '', blocks: [] });
+    setPublishedLink(null);
     showToast({ text: 'Builder vidé', icon: 'reset', actionLabel: 'Annuler', onAction: undoReset }, 6000);
   };
 
@@ -480,7 +496,7 @@ export default function MixBuilder() {
       setUnsaved({ leaving: true });
       return;
     }
-    router.back();
+    goBackSafe(router);
   };
 
   // L'ancien MIX courant, s'il n'est nulle part ailleurs (ni dans Mes mix, ni le
@@ -511,7 +527,7 @@ export default function MixBuilder() {
     if (!pending) return;
     if (pending.leaving) {
       await persistDraft();
-      router.back();
+      goBackSafe(router);
       return;
     }
     // Changer de mix : le brouillon modifié est enregistré dans Mes mix (mis à
@@ -529,7 +545,7 @@ export default function MixBuilder() {
     const pending = unsaved;
     if (!pending) return;
     if (pending.leaving) {
-      router.back();
+      goBackSafe(router);
       return;
     }
     await stashBaseline();
@@ -1521,6 +1537,7 @@ function EditBlockSheet({ screenH, block, onClose, onUpdate }) {
   const [importOpen, setImportOpen] = useState(false);
   // AMRAP : durée saisie au clavier numérique plutôt qu'à la roue.
   const [typingDuration, setTypingDuration] = useState(false);
+  const { isPremium } = usePremium();
   const roleScrollRef = useRef(null);
   const roleRevealedFor = useRef(null);
 
@@ -1706,17 +1723,20 @@ function EditBlockSheet({ screenH, block, onClose, onUpdate }) {
           <View style={sheetStyles.noteSection}>
             <View style={sheetStyles.noteHeaderRow}>
               <Text style={sheetStyles.pickerLabel}>NOTE</Text>
-              <Pressable
-                hitSlop={8}
-                onPress={() => {
-                  haptic.light();
-                  setImportOpen((v) => !v);
-                }}
-              >
-                <Text style={[sheetStyles.noteImportLink, { color: type.color }]}>
-                  {importOpen ? 'Annuler' : 'Importer depuis le Planning'}
-                </Text>
-              </Pressable>
+              {/* Le planning est une fonction Premium : sans lui, pas d'import. */}
+              {isPremium && (
+                <Pressable
+                  hitSlop={8}
+                  onPress={() => {
+                    haptic.light();
+                    setImportOpen((v) => !v);
+                  }}
+                >
+                  <Text style={[sheetStyles.noteImportLink, { color: type.color }]}>
+                    {importOpen ? 'Annuler' : 'Importer depuis le Planning'}
+                  </Text>
+                </Pressable>
+              )}
             </View>
 
             {importOpen ? (

@@ -71,6 +71,7 @@ import { formatDuration } from '../lib/formatters';
 import { getTimerHero, getTimerDescription, getTimerBar } from '../lib/timers-config';
 import PhaseBar from '../components/common/PhaseBar';
 import { loadArchives, loadPlanning } from '../lib/planning';
+import { loadIsPremium } from '../lib/premium';
 import {
   findProgressionSuggestion,
   loadProgressionSeen,
@@ -538,9 +539,15 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
           return;
         }
 
-        const [archives, seen] = await Promise.all([loadArchives(), loadProgressionSeen()]);
+        const [archives, seen, premium] = await Promise.all([
+          loadArchives(),
+          loadProgressionSeen(),
+          loadIsPremium(),
+        ]);
         if (cancelled || overlayBusyRef.current) return;
-        const found = findProgressionSuggestion({ archives, seen });
+        // Le conseil de charge s'appuie sur le planning, réservé à Premium : sans
+        // lui il enverrait vers une page verrouillée.
+        const found = premium ? findProgressionSuggestion({ archives, seen }) : null;
         if (found) {
           setProgression(found);
           return;

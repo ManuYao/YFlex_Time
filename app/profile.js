@@ -28,6 +28,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { usePremium } from '../hooks/usePremium';
 import { useScreenReady } from '../hooks/useScreenReady';
 import { haptic } from '../hooks/useHaptic';
+import { goBackSafe } from '../lib/navigation';
 import { fonts } from '../lib/fonts';
 import { getBadgeProgress } from '../lib/badges';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -235,7 +236,7 @@ export default function Profile() {
               <IconButton
                 icon="back"
                 haptic={haptic.light}
-                onPress={() => router.back()}
+                onPress={() => goBackSafe(router)}
                 accessibilityLabel="Retour"
               />
               <Text style={styles.topTitle}>Profil</Text>

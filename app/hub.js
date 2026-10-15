@@ -16,7 +16,9 @@ import { MIX_COLOR } from '../components/common/MixPill';
 import { useTimers } from '../contexts/TimersContext';
 import useAmbiance from '../hooks/useAmbiance';
 import { haptic } from '../hooks/useHaptic';
+import { usePremium } from '../hooks/usePremium';
 import { rgba } from '../lib/ambiance';
+import { goBackSafe } from '../lib/navigation';
 import { fonts } from '../lib/fonts';
 import { D, slideInY } from '../lib/animations';
 import { loadHistory, computeTotals, computeStreak } from '../lib/history';
@@ -79,12 +81,18 @@ export default function Hub() {
     return streak >= 2 ? `${base} · ${streak} jours de suite` : base;
   }, [sessions]);
 
+  // Le planning est réservé à Premium : sans lui la tuile le dit (et mène à la page
+  // verrouillée, qui montre ce que c'est), au lieu de résumer des blocs inaccessibles.
+  const { isPremium, loaded: premiumLoaded } = usePremium();
+  const planningLocked = premiumLoaded && !isPremium;
   const planningSummary = useMemo(() => {
+    if (!premiumLoaded) return null;
+    if (!isPremium) return 'Réservé à Premium : organise ta semaine';
     if (planning === null) return null;
     const blocks = planning?.[todayKey()]?.blocks ?? [];
     if (blocks.length === 0) return 'Rien de prévu aujourd\'hui';
     return `Aujourd'hui · ${blocks.length} bloc${blocks.length > 1 ? 's' : ''}`;
-  }, [planning]);
+  }, [planning, isPremium, premiumLoaded]);
 
   const blocks = currentMix?.blocks ?? [];
   const hasMix = blocks.length > 0;
@@ -109,7 +117,7 @@ export default function Hub() {
             icon="back"
             halo="left"
             haptic={haptic.light}
-            onPress={() => router.back()}
+            onPress={() => goBackSafe(router)}
             accessibilityLabel="Retour"
           />
           <Text style={styles.topTitle}>Menu</Text>
@@ -220,6 +228,7 @@ export default function Hub() {
                 icon="calendar"
                 title="Mon planning"
                 summary={planningSummary}
+                locked={planningLocked}
                 rim={tileRim}
                 onPress={() => go({ pathname: '/history', params: { page: 'planning' } })}
               />
@@ -232,17 +241,22 @@ export default function Hub() {
 }
 
 // `rim` : liseré teinté de l'ambiance de saison (null = le liseré habituel).
-function HubTile({ icon, title, summary, onPress, rim = null }) {
+function HubTile({ icon, title, summary, onPress, rim = null, locked = false }) {
   return (
     <PressTap
       onPress={onPress}
       tapScale={0.97}
-      accessibilityLabel={title}
+      accessibilityLabel={locked ? `${title}, réservé à Premium` : title}
       containerStyle={styles.tileContainer}
       style={[styles.tile, rim ? { borderColor: rim } : null]}
     >
       <View style={styles.tileIcon}>
         <AppIcon name={icon} size={26} color="#FFFFFF" />
+        {locked && (
+          <View style={styles.tileCrown}>
+            <AppIcon name="crown" size={11} color="#F0C954" />
+          </View>
+        )}
       </View>
       <Text style={styles.tileTitle} numberOfLines={2}>
         {title}
@@ -439,6 +453,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
+  },
+  // Petite couronne sur l'icône d'une tuile réservée à Premium.
+  tileCrown: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#14141A',
+    borderWidth: 1,
+    borderColor: 'rgba(240,201,84,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   tileTitle: {
     fontFamily: fonts.sansExtraBold,

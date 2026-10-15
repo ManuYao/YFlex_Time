@@ -19,6 +19,7 @@ import PageDots from '../common/PageDots';
 import Button from '../common/Button';
 import IconButton from '../common/IconButton';
 import MixPill from '../common/MixPill';
+import { goBackSafe } from '../../lib/navigation';
 import { TIMERS } from '../../lib/timers-config';
 import MixCompositionBar from '../common/MixCompositionBar';
 import {
@@ -187,7 +188,7 @@ function HistoryPage({
           icon="back"
           halo="left"
           haptic={haptic.light}
-          onPress={() => router.back()}
+          onPress={() => goBackSafe(router)}
           accessibilityLabel="Retour"
         />
 

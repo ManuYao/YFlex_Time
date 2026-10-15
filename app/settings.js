@@ -49,6 +49,7 @@ import { haptic, setHapticStrength } from '../hooks/useHaptic';
 import { playDenied, playSound, previewVolumeTap } from '../lib/sounds';
 import { detectVoices } from '../lib/voiceCoach';
 import { RAIN_OPTIONS, RAIN_SUBS } from '../lib/rainMode';
+import { goBackSafe } from '../lib/navigation';
 import { fonts } from '../lib/fonts';
 import { DANGER, ROUND_SIZE } from '../lib/buttonTokens';
 
@@ -369,7 +370,7 @@ export default function Settings() {
           <IconButton
             icon="back"
             haptic={haptic.light}
-            onPress={() => router.back()}
+            onPress={() => goBackSafe(router)}
             accessibilityLabel="Retour"
           />
           <Text style={styles.topTitle}>Paramètres</Text>

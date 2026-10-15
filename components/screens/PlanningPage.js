@@ -16,9 +16,12 @@ import BlockSheet from '../common/BlockSheet';
 import ExerciseLibrarySheet from '../common/ExerciseLibrarySheet';
 import ExerciseDetailSheet from '../common/ExerciseDetailSheet';
 import MixLibrarySheet from '../common/MixLibrarySheet';
+import PlanningLocked from './PlanningLocked';
+import { usePremium } from '../../hooks/usePremium';
 import SaveFlashRing from '../common/SaveFlashRing';
 import ShineSweep from '../common/ShineSweep';
 import MiniToast from '../common/MiniToast';
+import { goBackSafe } from '../../lib/navigation';
 import { fonts } from '../../lib/fonts';
 import { categoryChip } from '../../lib/exercises';
 import { loadHistory } from '../../lib/history';
@@ -77,7 +80,7 @@ const NOTE_SCROLL_OFFSET = 16;
 const NOTE_KEYBOARD_GAP = 12;
 const NOTE_MIN_H = 44;
 
-export default function PlanningPage({
+function PlanningContent({
   width,
   height,
   screenH,
@@ -324,7 +327,7 @@ export default function PlanningPage({
           icon="back"
           halo="left"
           haptic={haptic.light}
-          onPress={() => router.back()}
+          onPress={() => goBackSafe(router)}
           accessibilityLabel="Retour"
         />
 
@@ -626,6 +629,29 @@ export default function PlanningPage({
       )}
     </View>
   );
+}
+
+/**
+ * Le planning est une fonction PREMIUM (décision du 15/10/2026). Sans Premium la
+ * page montre un aperçu verrouillé (PlanningLocked), jamais le planning ; les
+ * blocs déjà créés restent stockés et reviennent avec Premium. Tant que le
+ * réglage n'est pas lu, une page vide : jamais un éclair de planning chez
+ * quelqu'un qui n'y a pas droit.
+ */
+export default function PlanningPage(props) {
+  const { isPremium, loaded } = usePremium();
+  if (!loaded) return <View style={{ width: props.width, height: props.height }} />;
+  if (!isPremium) {
+    return (
+      <PlanningLocked
+        width={props.width}
+        height={props.height}
+        pageIndex={props.pageIndex}
+        onSelectPage={props.onSelectPage}
+      />
+    );
+  }
+  return <PlanningContent {...props} />;
 }
 
 function BlockCard({
