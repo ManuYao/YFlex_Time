@@ -28,14 +28,15 @@ const SECTIONS = [
     paragraphs: [
       "Ce que tu publies (nom du MIX, contenu, notes de blocs, pseudo) est visible par tous. Tu es responsable de ce que tu publies : pas de contenu illégal, injurieux, haineux, trompeur ou dangereux, et pas de pseudo qui usurpe l'identité d'une autre personne.",
       "Tu gardes tes droits sur tes MIX. En les publiant, tu autorises les autres utilisateurs à les voir, les tester et les copier dans leur application. Tu peux les retirer du fil quand tu veux.",
-      "Un MIX signalé par trois personnes est masqué automatiquement. L'éditeur peut aussi retirer un contenu ou fermer un compte en cas d'abus.",
+      "Les commentaires sous un MIX publié sont visibles par tous et suivent les mêmes règles que le reste : pas de contenu illégal, injurieux, haineux, trompeur ou dangereux. Tu peux signaler un MIX ou un commentaire, et bloquer un auteur (ses mix et ses commentaires sont alors masqués pour toi seulement).",
+      "Un MIX ou un commentaire signalé par trois personnes est masqué automatiquement. L'auteur d'un MIX peut retirer un commentaire sur son MIX : le retrait est indiqué à l'écran. Un commentaire qui reçoit trois likes ou plus est « approuvé par la communauté » : l'auteur du MIX ne peut alors plus le retirer (il reste signalable). L'éditeur peut aussi retirer un contenu ou fermer un compte en cas d'abus.",
       "Les MIX du fil sont créés par des utilisateurs : l'éditeur ne les vérifie pas et n'est pas responsable de leur contenu ni de leur intensité. Vérifie qu'un MIX te convient avant de le suivre.",
     ],
   },
   {
     heading: '5. Fonctionnalités Pro',
     paragraphs: [
-      "Certains modes (TABATA, MIX) ont un nombre de lancements gratuits limité par semaine (4 pour TABATA, 3 pour MIX), qui revient chaque lundi. Un accès Pro illimité est prévu, avec un vrai paiement via le Google Play Store à la sortie officielle de l'application.",
+      "Tous les modes (AMRAP, BASIC, EMOM, TABATA, MIX) se lancent gratuitement, sans limite et sans publicité. La bibliothèque « Mes mix » est limitée en gratuit : 3 mix créés par toi et 5 mix pris chez les autres (fil public ou lien), plus 3 mix publiés en même temps dans le fil public. Le planning de la semaine est gratuit ; lancer un bloc ou un mix directement depuis le planning est réservé au Pro. Un accès Pro, sans ces limites, est prévu, avec un vrai paiement via le Google Play Store à la sortie officielle de l'application.",
     ],
   },
   {
@@ -62,7 +63,7 @@ export default function Terms() {
   return (
     <LegalScreen
       title="Conditions d'utilisation"
-      updatedAt="30 septembre 2026 · version bêta"
+      updatedAt="15 octobre 2026 · version bêta"
       sections={SECTIONS}
     />
   );

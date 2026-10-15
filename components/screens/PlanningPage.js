@@ -15,9 +15,12 @@ import IconButton from '../common/IconButton';
 import BlockSheet from '../common/BlockSheet';
 import ExerciseLibrarySheet from '../common/ExerciseLibrarySheet';
 import ExerciseDetailSheet from '../common/ExerciseDetailSheet';
+import MixLibrarySheet from '../common/MixLibrarySheet';
+import { usePremium } from '../../hooks/usePremium';
 import SaveFlashRing from '../common/SaveFlashRing';
 import ShineSweep from '../common/ShineSweep';
 import MiniToast from '../common/MiniToast';
+import { goBackSafe } from '../../lib/navigation';
 import { fonts } from '../../lib/fonts';
 import { categoryChip } from '../../lib/exercises';
 import { loadHistory } from '../../lib/history';
@@ -28,6 +31,7 @@ import { springEnergetic } from '../../lib/animations';
 import { haptic } from '../../hooks/useHaptic';
 import { useKeyboardHeight, scrollToFocusedInput } from '../../hooks/useKeyboardHeight';
 import { useTimers } from '../../contexts/TimersContext';
+import { useMixLauncher } from '../../hooks/useMixLauncher';
 import ChipRow from '../common/ChipRow';
 import {
   DAYS,
@@ -75,7 +79,7 @@ const NOTE_SCROLL_OFFSET = 16;
 const NOTE_KEYBOARD_GAP = 12;
 const NOTE_MIN_H = 44;
 
-export default function PlanningPage({
+function PlanningContent({
   width,
   height,
   screenH,
@@ -86,10 +90,12 @@ export default function PlanningPage({
   // progressive de l'accueil (lib/progression.js) — on se place sur le jour
   // et on ouvre la fiche de l'étiquette pour ajuster la charge.
   focus = null,
+  isPremium = false,
 }) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { saveCurrentMix } = useTimers();
+  const { saveCurrentMix, library } = useTimers();
+  const launchMix = useMixLauncher();
   const [planning, setPlanning] = useState(emptyPlanning);
   const [dayKey, setDayKey] = useState(() =>
     focus?.dayKey && DAYS.some((d) => d.key === focus.dayKey) ? focus.dayKey : todayKey()
@@ -128,6 +134,13 @@ export default function PlanningPage({
     setToast(next);
     toastTimer.current = setTimeout(() => setToast(null), TOAST_MS);
   };
+  // Lancer depuis le planning est réservé à Premium : le message dit CE qu'on ne
+  // peut pas faire (et que le reste du planning est libre), « Voir » ouvre Premium.
+  const showPremiumToast = () =>
+    showToast({
+      premium: true,
+      text: 'Lancer depuis le planning : Premium. Le reste est libre.',
+    });
 
   // Sauvegarde de la note du jour. `notePending` = le texte pas encore écrit
   // ({ dayKey, text }) : il porte SON jour, donc une sauvegarde qui part après
@@ -319,8 +332,9 @@ export default function PlanningPage({
       <View style={styles.topBar}>
         <IconButton
           icon="back"
+          halo="left"
           haptic={haptic.light}
-          onPress={() => router.back()}
+          onPress={() => goBackSafe(router)}
           accessibilityLabel="Retour"
         />
 
@@ -328,6 +342,7 @@ export default function PlanningPage({
 
         <IconButton
           icon="gear"
+          halo="right"
           haptic={haptic.light}
           onPress={() => router.push('/settings')}
           accessibilityLabel="Réglages"
@@ -438,7 +453,15 @@ export default function PlanningPage({
                   haptic.warning();
                   setPlanning(await removeBlock(planning, dayKey, block.id));
                 }}
+                premiumLocked={!isPremium}
                 onLaunch={async () => {
+                  // Le maintien va jusqu'au bout même sans Premium : il explique
+                  // au lieu de lancer.
+                  if (!isPremium) {
+                    haptic.warning();
+                    showPremiumToast();
+                    return;
+                  }
                   const mix = buildMixFromBlock(block, dayKey);
                   if (!mix) return;
                   await saveCurrentMix(mix);
@@ -474,17 +497,43 @@ export default function PlanningPage({
             }}
           />
         ) : (
-          <Button
-            variant="solid"
-            size="lg"
-            fullWidth
-            icon="plus"
-            label="Nouveau bloc"
-            onPress={() => {
-              haptic.light();
-              openSheet({ type: 'block' });
-            }}
-          />
+          // Le planning est libre pour tous. À côté de « Nouveau bloc », « Mes
+          // mix » lance un mix déjà enregistré sans passer par le constructeur :
+          // Premium seulement (couronne + message pour les autres, qui voient
+          // ainsi ce qu'ils pourraient faire).
+          <View style={styles.bottomRow}>
+            {(library.length > 0 || !isPremium) && (
+              <Button
+                variant="glass"
+                size="lg"
+                icon={isPremium ? 'play' : 'crown'}
+                label="Mes mix"
+                accessibilityLabel={
+                  isPremium ? 'Lancer un mix enregistré' : 'Lancer un mix enregistré (Premium)'
+                }
+                onPress={() => {
+                  if (!isPremium) {
+                    haptic.warning();
+                    showPremiumToast();
+                    return;
+                  }
+                  haptic.light();
+                  openSheet({ type: 'mixes' });
+                }}
+              />
+            )}
+            <Button
+              variant="solid"
+              size="lg"
+              icon="plus"
+              label="Nouveau bloc"
+              style={styles.newBlockBtn}
+              onPress={() => {
+                haptic.light();
+                openSheet({ type: 'block' });
+              }}
+            />
+          </View>
         )}
 
         <PageDots count={2} activeIndex={pageIndex} onSelect={onSelectPage} />
@@ -532,6 +581,23 @@ export default function PlanningPage({
         />
       )}
 
+      {sheet?.type === 'mixes' && screenH > 0 && (
+        <MixLibrarySheet
+          screenH={screenH}
+          library={library}
+          launchMode
+          onClose={closeSheet}
+          onLoad={async (id) => {
+            const mix = library.find((m) => m.id === id);
+            if (!mix?.blocks?.length) return false;
+            // Même porte que partout : useMixLauncher applique le quota, puis
+            // enchaîne sur le 3-2-1 (le mix devient le MIX courant).
+            const started = await launchMix({ ...mix, blocks: mix.blocks.map((b) => ({ ...b })) });
+            return started ? undefined : false;
+          }}
+        />
+      )}
+
       {sheet?.type === 'library' && screenH > 0 && (
         <ExerciseLibrarySheet
           screenH={screenH}
@@ -573,10 +639,16 @@ export default function PlanningPage({
         <View pointerEvents="box-none" style={[styles.toastLayer, { bottom: bottomBarH.current + 4 }]}>
           <MiniToast
             text={toast.text}
-            icon="move"
-            actionLabel="Voir"
+            icon={toast.premium ? 'crown' : 'move'}
+            actionLabel={toast.premium ? 'Voir Premium' : 'Voir'}
             onAction={() => {
               haptic.selection();
+              if (toast.premium) {
+                clearTimeout(toastTimer.current);
+                setToast(null);
+                router.push('/premium');
+                return;
+              }
               setDayKey(toast.dayKey);
               clearTimeout(toastTimer.current);
               setToast(null);
@@ -588,6 +660,19 @@ export default function PlanningPage({
   );
 }
 
+/**
+ * Le planning est GRATUIT pour tout le monde (décision du 16/10/2026, qui annule
+ * le verrouillage total de la 16.25.0) : on organise sa semaine librement.
+ * Premium = LANCER depuis le planning (bouton « Mes mix », maintien 2 s sur un
+ * bloc). Tant que le réglage n'est pas lu, une page vide : jamais un éclair de
+ * bouton déverrouillé chez quelqu'un qui n'y a pas droit.
+ */
+export default function PlanningPage(props) {
+  const { isPremium, loaded } = usePremium();
+  if (!loaded) return <View style={{ width: props.width, height: props.height }} />;
+  return <PlanningContent {...props} isPremium={isPremium} />;
+}
+
 function BlockCard({
   block,
   dayArchived,
@@ -596,6 +681,7 @@ function BlockCard({
   onOpenTag,
   onDelete,
   onLaunch,
+  premiumLocked = false,
 }) {
   const swipeRef = useRef(null);
   const blockArchived = !!block.archivedAt;
@@ -718,9 +804,11 @@ function BlockCard({
 
       {launchable && (
         <View style={styles.launchHintRow} pointerEvents="none">
-          <AppIcon name="mix" size={13} color={MIX_COLOR} />
-          <Text style={styles.launchHint}>
-            MAINTIENS {LAUNCH_HOLD_MS / 1000} S POUR LANCER EN MIX
+          <AppIcon name={premiumLocked ? 'crown' : 'mix'} size={13} color={premiumLocked ? '#F0C954' : MIX_COLOR} />
+          <Text style={[styles.launchHint, premiumLocked && styles.launchHintLocked]}>
+            {premiumLocked
+              ? 'LANCER EN MIX DEPUIS LE PLANNING : PREMIUM'
+              : `MAINTIENS ${LAUNCH_HOLD_MS / 1000} S POUR LANCER EN MIX`}
           </Text>
         </View>
       )}
@@ -1077,6 +1165,9 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     color: `${MIX_COLOR}CC`,
   },
+  launchHintLocked: {
+    color: '#F0C954CC',
+  },
   deleteAction: {
     width: 96,
     backgroundColor: '#FF5454',
@@ -1182,6 +1273,13 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 8,
     gap: 10,
+  },
+  bottomRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  newBlockBtn: {
+    flex: 1,
   },
 
   // Calque du message « Bloc déplacé » : MiniToast se pose en bas de son

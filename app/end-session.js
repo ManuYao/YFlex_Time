@@ -18,6 +18,8 @@ import Animated, {
 import TickRing from '../components/common/TickRing';
 import GradientBackground from '../components/common/GradientBackground';
 import Confetti from '../components/common/Confetti';
+import AmbianceBackdrop from '../components/common/AmbianceBackdrop';
+import useAmbiance from '../hooks/useAmbiance';
 import ConfirmSheet from '../components/common/ConfirmSheet';
 import Button from '../components/common/Button';
 import {
@@ -31,7 +33,9 @@ import {
   openNotificationSettings,
 } from '../lib/notificationPrompt';
 import { useTimers } from '../contexts/TimersContext';
-import { computeSessionStats, computeExpectedDuration } from '../lib/timer-engine';
+import { computeSessionStats } from '../lib/timer-engine';
+import { buildHistoryEntry, clearSessionDraft } from '../lib/sessionDraft';
+import { goHomeClean } from '../lib/navigation';
 import { formatDuration } from '../lib/formatters';
 import { fonts } from '../lib/fonts';
 import { BOTTOM_GAP, PAIR_GAP, SIDE_GAP } from '../lib/buttonTokens';
@@ -41,7 +45,7 @@ import { loadCooldownMap, getCooldownStatus } from '../lib/cooldown';
 import { loadIsPremium } from '../lib/premium';
 import BadgeUnlockSheet from '../components/common/BadgeUnlockSheet';
 import { pendingBadges, markBadgeSeen } from '../lib/badgeCelebration';
-import { countSessionsByTimer, isEarlyQuit, notifyHistoryChanged } from '../lib/history';
+import { countSessionsByTimer, notifyHistoryChanged } from '../lib/history';
 
 const springEnergetic = { stiffness: 380, damping: 22, mass: 1 };
 
@@ -56,6 +60,12 @@ export default function EndSession() {
   const savedRef = useRef(false);
   const { height: screenH } = useWindowDimensions();
   const ui = useUiScale();
+  // Ambiance de saison : null si l'utilisateur l'a désactivée (« Aucune ») — l'écran reste alors
+  // exactement comme avant (confettis aux 4 couleurs des modes, pas de décor).
+  const { ambiance } = useAmbiance();
+  const confettiColors = ambiance
+    ? [ambiance.accent, ambiance.accent2, '#FFFFFF', ambiance.accent]
+    : undefined;
 
   // (V) Mise en page réduite — voir lib/responsive.js. Le bilan de séance
   // empile beaucoup (badge, BRAVO, anneau, 3 stats) au-dessus de boutons
@@ -142,23 +152,13 @@ export default function EndSession() {
       try {
         const raw = await AsyncStorage.getItem(HISTORY_KEY);
         const list = raw ? JSON.parse(raw) : [];
-        list.push({
-          id: Date.now().toString(),
-          timerId: timer.id,
-          name: timer.name,
-          color: timer.color,
-          intensity: timer.tag,
-          durationSeconds: elapsedNum,
-          completedRounds: stats.completedRounds,
-          totalRounds: stats.totalRounds,
-          workTotal: stats.workTotal,
-          ...(stats.blockBreakdown ? { blockBreakdown: stats.blockBreakdown } : {}),
-          ...(Number.isFinite(stats.exerciseCount) ? { exerciseCount: stats.exerciseCount } : {}),
-          restTotal: stats.restTotal,
-          date: new Date().toISOString(),
-          ...(isEarlyQuit(elapsedNum, computeExpectedDuration(timer)) ? { pendingDelete: true } : {}),
-        });
+        // Même construction que la récupération d'une séance interrompue
+        // (lib/sessionDraft.js) : une seule définition de l'entrée d'historique.
+        list.push(buildHistoryEntry({ timer, elapsed: elapsedNum, ctx }));
         await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(list));
+        // La séance est enregistrée : le brouillon n'a plus lieu d'être (sinon
+        // elle serait récupérée une deuxième fois au prochain démarrage).
+        await clearSessionDraft();
         notifyHistoryChanged();
 
         // Paliers de badge franchis PAR cette séance : le comptage se fait
@@ -322,7 +322,9 @@ export default function EndSession() {
       textMode="light"
       ambient
     >
-      <Confetti />
+      {/* Décor de la saison derrière le bilan (rien si l'ambiance est désactivée) */}
+      {ambiance ? <AmbianceBackdrop tone="light" /> : null}
+      <Confetti colors={confettiColors} />
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.statusBar}>
           <Animated.Text style={[styles.statusText, statusStyle]}>
@@ -421,9 +423,7 @@ export default function EndSession() {
           variant="glass"
           label="Accueil"
           haptic={haptic.light}
-          onPress={() =>
-            router.replace({ pathname: '/home', params: { lastTimerId: timer.id } })
-          }
+          onPress={() => goHomeClean(router, { lastTimerId: timer.id })}
         />
         <Button
           variant="accent"
@@ -500,6 +500,17 @@ function StatCell({ index, label, value, color }) {
       <Text style={[styles.statCellValue, { color }]}>{value}</Text>
     </Animated.View>
   );
+}
+
+// Apparition en fondu après les stats (même rythme que StatCell), pour que la
+// rangée ne soit pas déjà là pendant que le reste du bilan se met en place.
+function LateFade({ delay, style, children }) {
+  const opacity = useSharedValue(0);
+  useEffect(() => {
+    opacity.value = withDelay(delay, withTiming(1, { duration: 400 }));
+  }, []);
+  const animStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  return <Animated.View style={[style, animStyle]}>{children}</Animated.View>;
 }
 
 /* (V) Le bilan défile en fenêtre réduite, pas en plein écran : centré et

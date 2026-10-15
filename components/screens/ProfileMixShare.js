@@ -33,7 +33,7 @@ function NavRow({ icon, title, sub, onPress, children }) {
  * facultatif : lire ne demande rien). `refreshKey` change quand la feuille du
  * fil se referme, pour que le compte et la bande de couleurs suivent.
  */
-export default function ProfileMixShare({ onOpenPublic, onOpenHub, refreshKey = 0 }) {
+export default function ProfileMixShare({ onOpenPublic, onOpenHub, onPublish, refreshKey = 0 }) {
   const [state, setState] = useState({ status: 'loading', items: [] });
 
   useEffect(() => {
@@ -78,10 +78,22 @@ export default function ProfileMixShare({ onOpenPublic, onOpenHub, refreshKey = 
             <View style={styles.divider} />
           </>
         )}
+        {/* Règle des trois fois : publier un mix est aussi à un tap d'ici. */}
+        {onPublish && (
+          <>
+            <NavRow
+              icon="globe"
+              title="Publier un de mes mix"
+              sub="Mets une de tes séances dans le fil public pour la communauté."
+              onPress={onPublish}
+            />
+            <View style={styles.divider} />
+          </>
+        )}
         <NavRow
           icon="share"
           title="Fil public"
-          sub="Les mixes des autres, à tester en un geste."
+          sub="Teste ou enregistre les mix des autres, en un geste."
           onPress={onOpenPublic}
         >
           <Text style={styles.countText}>{countLabel}</Text>

@@ -1,24 +1,32 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  BackHandler,
+  Keyboard,
   View,
   Text,
   Pressable,
   FlatList,
+  InteractionManager,
   ScrollView,
   Dimensions,
   StyleSheet,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { BlurView, BlurTargetView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path, Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
 import Animated, {
   FadeIn,
   FadeOut,
+  Easing,
   cancelAnimation,
   interpolate,
   runOnJS,
+  useAnimatedReaction,
+  useAnimatedScrollHandler,
   useAnimatedStyle,
+  useDerivedValue,
   useSharedValue,
   withDelay,
   withRepeat,
@@ -28,9 +36,18 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import GradientBackground from '../components/common/GradientBackground';
+import AmbianceBackdrop from '../components/common/AmbianceBackdrop';
+import LaunchTransition from '../components/common/LaunchTransition';
+import { WIND_SPRING } from '../components/common/AmbianceHalo';
+import useAmbiance from '../hooks/useAmbiance';
+import useSeasonIcon from '../hooks/useSeasonIcon';
+import { AMBIANCE_WIND_MAX, ambianceWind } from '../lib/ambianceMotion';
 import HomeSkeleton from '../components/screens/HomeSkeleton';
 import TickRing from '../components/common/TickRing';
 import WheelPicker from '../components/common/WheelPicker';
+import DurationKeypad from '../components/common/DurationKeypad';
+import NumberKeypad from '../components/common/NumberKeypad';
+import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
 import PressTap from '../components/common/PressTap';
 import Button from '../components/common/Button';
 import IconButton from '../components/common/IconButton';
@@ -41,6 +58,8 @@ import { playSound } from '../lib/sounds';
 import ProgressionSheet from '../components/common/ProgressionSheet';
 import BadgeUnlockSheet from '../components/common/BadgeUnlockSheet';
 import CoachNudgeSheet from '../components/common/CoachNudgeSheet';
+import SeasonNudgeSheet from '../components/common/SeasonNudgeSheet';
+import { loadSeasonNudgeSeen, markSeasonNudgeSeen, shouldShowSeasonNudge } from '../lib/seasonNudge';
 import TutorialInviteSheet from '../components/common/TutorialInviteSheet';
 import ModePickerSheet from '../components/common/ModePickerSheet';
 import ConfirmSheet from '../components/common/ConfirmSheet';
@@ -48,9 +67,13 @@ import PermissionPrimer from '../components/common/PermissionPrimer';
 import { shouldShowPermissionPrimer } from '../lib/permissionPrimer';
 import { pendingBadges, markBadgeSeen } from '../lib/badgeCelebration';
 import { loadHistory, countSessionsByTimer } from '../lib/history';
+import { ensureSessionRecovered } from '../lib/sessionDraft';
+import MiniToast from '../components/common/MiniToast';
+import { formatDuration } from '../lib/formatters';
 import { getTimerHero, getTimerDescription, getTimerBar } from '../lib/timers-config';
 import PhaseBar from '../components/common/PhaseBar';
 import { loadArchives, loadPlanning } from '../lib/planning';
+import { loadIsPremium } from '../lib/premium';
 import {
   findProgressionSuggestion,
   loadProgressionSeen,
@@ -70,6 +93,10 @@ import {
   shouldInviteTutorial,
 } from '../lib/tutorial';
 import { onSplashCleared } from '../lib/splash';
+import { markAppReady } from '../lib/appReady';
+import useIntroReveal from '../hooks/useIntroReveal';
+import { pendingSeasonKey } from '../lib/seasonRecap';
+import { loadSeenSeasons } from '../lib/seasonRecapState';
 import { waitForUpdateGateSettled } from '../lib/updateGateSignal';
 import { formatValue } from '../lib/formatters';
 import { getTimeRange } from '../lib/timeRanges';
@@ -107,15 +134,6 @@ import {
 // Dimensions.get n'est lu qu'une fois, comme valeur de depart pour rootW/rootH
 // ci-dessous : la source de verite reactive est l'onLayout de la racine (Q9).
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
-
-// Le morph part de la forme exacte du bouton Lancer : une capsule
-// (lib/buttonTokens.js), rayon = moitié de sa hauteur.
-const MORPH_R_INIT = BUTTON_HEIGHT.lg / 2;
-const MORPH_W_FINAL = 340;
-const MORPH_H_FINAL = 340;
-const MORPH_R_FINAL = 170;
-
-const LAUNCH_TOTAL_MS = 2400;
 
 // Badge streak (F) — à partir de ce nombre de lancements sur 7 jours
 // glissants, la carte affiche une flamme + compteur. Voir lib/history.js.
@@ -182,8 +200,13 @@ export default function Home() {
     );
   }
 
+  // Fin de l'intro de démarrage : le vrai écran apparaît avec un petit zoom (lib/introReveal.js).
+  // La valeur vaut 1 en temps normal (aucun effet) ; l'intro la fait passer de 0 à 1 une fois les
+  // éléments disparus et le vide installé.
+  const revealStyle = useIntroReveal();
+
   return (
-    <View style={styles.root}>
+    <Animated.View style={[styles.root, revealStyle]}>
       {ready && (
         <HomeScreen initialIndex={startIndexRef.current ?? 0} heatMap={heatMap} statsMap={statsMap} />
       )}
@@ -192,11 +215,46 @@ export default function Home() {
           <HomeSkeleton />
         </Animated.View>
       )}
-    </View>
+    </Animated.View>
   );
 }
 
+// Durée de la révélation du chrome une fois la page posée (voir HomeScreen).
+const REVEAL_MS = 950;
+
+// Style d'un élément du chrome : opacité = (creux guidé par le doigt) ×
+// (révélation dans le temps, fenêtre [start, end] de 0 à 1, sortie douce).
+// `rise` = petit glissement vertical, `shrink` = départ légèrement rétréci.
+function useChromeReveal(scrollX, pageW, appear, start, end, rise, shrink) {
+  return useAnimatedStyle(() => {
+    const p = scrollX.value / pageW.value;
+    const d = Math.abs(p - Math.round(p));
+    const x = Math.min(1, Math.max(0, (0.34 - d) / 0.2));
+    const gate = x * x * (3 - 2 * x);
+    const a = Math.min(1, Math.max(0, (appear.value - start) / (end - start)));
+    const e = 1 - (1 - a) * (1 - a) * (1 - a);
+    if (rise === 0 && shrink === 0) return { opacity: gate * e };
+    return {
+      opacity: gate * e,
+      transform: [{ translateY: (1 - e) * rise }, { scale: 1 - (1 - e) * shrink }],
+    };
+  });
+}
+
 function HomeScreen({ initialIndex, heatMap, statsMap }) {
+  useSeasonIcon(); // icône du lanceur selon la saison (hooks/useSeasonIcon.js)
+  // L'accueil est monté, mesuré et posé : l'intro de démarrage peut se refermer sur un écran déjà
+  // prêt (lib/appReady.js). Après les interactions et une image, pas au premier rendu.
+  useEffect(() => {
+    let raf = null;
+    const task = InteractionManager.runAfterInteractions(() => {
+      raf = requestAnimationFrame(() => markAppReady());
+    });
+    return () => {
+      task.cancel?.();
+      if (raf != null) cancelAnimationFrame(raf);
+    };
+  }, []);
   // Taille reelle de la racine : SCREEN_W/H (Dimensions window) ne correspond
   // pas forcement a la zone qu'occupe l'app (barres systeme, overlay Expo Go,
   // fenetre redimensionnee en split-screen/tablette pliable...). onLayout se
@@ -209,8 +267,12 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   const blurTargetRef = useRef(null);
   const ctaRef = useRef(null);
   const [ctaRect, setCtaRect] = useState(null);
+  // L'anneau de la carte active, mesuré au tap : point de départ de l'anneau qui voyage jusqu'au
+  // décompte (components/common/LaunchTransition.js).
+  const ringRef = useRef(null);
+  const [ringRect, setRingRect] = useState(null);
   const { timers, updateStat, hydrated } = useTimers();
-  const { settings } = useSettings();
+  const { settings, update: updateSetting } = useSettings();
   const { getStatus: getCooldownStatusRaw } = useCooldown();
   const { isPremium } = usePremium();
   // Premium débloque tout, sans jamais toucher au calcul de quota/lockout
@@ -232,7 +294,71 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
     },
     [isPremium, getCooldownStatusRaw]
   );
+  // activeIndex = page « visible » : bascule dès la mi-course du glissement
+  // (fond, bouton Lancer, points et couleurs suivent ensemble). settledIndex =
+  // page posée : ne change qu'à la fin du geste, il sert aux cartes (anneau
+  // qui respire…) pour ne pas les re-rendre en plein milieu du doigt.
   const [activeIndex, setActiveIndex] = useState(initialIndex);
+  const [settledIndex, setSettledIndex] = useState(initialIndex);
+  // Position horizontale du carrousel, lue sur le fil d'interface : sert à
+  // piloter le fond (ScrollInkBackground) sans passer par le JavaScript.
+  const scrollX = useSharedValue(initialIndex * SCREEN_W);
+  // Largeur d'une page, côté fil d'interface (déclarée avant le gestionnaire de
+  // défilement, qui la lit pour calculer le vent de l'ambiance).
+  const pageW = useSharedValue(rootW || 1);
+  // Vent de l'ambiance de saison : tant que 0, rien n'est écrit. Allumé 800 ms après
+  // le montage (voir plus bas) pour ignorer le saut de positionnement du carrousel.
+  const windOn = useSharedValue(0);
+  const scrollHandler = useAnimatedScrollHandler({
+    onScroll: (e) => {
+      const x = e.contentOffset.x;
+      scrollX.value = x;
+      if (windOn.value === 1) {
+        // Écart du carrousel par rapport à la page la plus proche, en dp : positif quand
+        // le contenu part vers la droite (le doigt tire vers la droite). Retombe tout seul
+        // à 0 quand le carrousel se pose, puisque l'écart est alors nul.
+        const w = pageW.value;
+        const dx = -(x - Math.round(x / w) * w);
+        ambianceWind.value = Math.max(-AMBIANCE_WIND_MAX, Math.min(AMBIANCE_WIND_MAX, dx));
+      }
+    },
+  });
+  // « Chrome » = tout ce qui dépend du timer affiché (étiquette du haut,
+  // points, bouton Lancer, braises). DISPARITION : guidée par le doigt, il
+  // s'éteint quand on s'éloigne d'une page (c'est là que son contenu change).
+  // RÉAPPARITION : une vraie animation dans le temps, lancée seulement quand
+  // la page est posée, élément par élément (le haut, puis les points, puis le
+  // gros bouton en dernier, plus lentement). Un glissé rapide ne le rallume
+  // donc jamais à moitié : il attend l'arrêt, puis revient calmement.
+  const appear = useSharedValue(1);
+  const appearing = useSharedValue(0);
+  useAnimatedReaction(
+    () => {
+      const p = scrollX.value / pageW.value;
+      return Math.abs(p - Math.round(p));
+    },
+    (d) => {
+      if (d >= 0.34) {
+        // Zone cachée : on remet la révélation à zéro (invisible à cet instant).
+        if (appear.value !== 0 || appearing.value !== 0) {
+          cancelAnimation(appear);
+          appear.value = 0;
+          appearing.value = 0;
+        }
+      } else if (d < 0.01 && appear.value < 1 && appearing.value === 0) {
+        appearing.value = 1;
+        appear.value = withDelay(
+          180,
+          withTiming(1, { duration: REVEAL_MS, easing: Easing.linear })
+        );
+      }
+    }
+  );
+  const topReveal = useChromeReveal(scrollX, pageW, appear, 0, 0.55, -6, 0, 1);
+  const dotsReveal = useChromeReveal(scrollX, pageW, appear, 0.12, 0.62, 8, 0, 1);
+  const ctaReveal = useChromeReveal(scrollX, pageW, appear, 0.32, 1, 16, 0.06, 1);
+  const hintReveal = useChromeReveal(scrollX, pageW, appear, 0.55, 1, 0, 0, 1);
+  const emberReveal = useChromeReveal(scrollX, pageW, appear, 0.3, 1, 0, 0, 0);
   const [picker, setPicker] = useState(null);
   const [statsOpen, setStatsOpen] = useState(false);
   // Aperçu rapide des 5 formats (components/common/ModePickerSheet.js) —
@@ -240,11 +366,32 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   // directement (demande utilisateur, v14.15.0).
   const [modePickerOpen, setModePickerOpen] = useState(false);
   const [isLaunching, setIsLaunching] = useState(false);
+  // Au lancement, tout le contenu de l'accueil (barres, carte) s'efface en fondu pendant que la
+  // transition (LaunchTransition) prend la place sur le fond, qui lui reste en place : l'ambiance
+  // continue de flotter derrière, et rien ne disparaît d'un coup.
+  const contentFade = useSharedValue(1);
+  const contentFadeStyle = useAnimatedStyle(() => ({ opacity: contentFade.value }));
+  // Retour Android pendant la transition de lancement : on ANNULE le lancement (rien n'est consommé,
+  // le quota ne l'est qu'après 40 s de chrono) au lieu de quitter l'accueil — c'était une cause du
+  // « parfois je me retrouve dans le Profil » : le retour remontait la pile.
+  useEffect(() => {
+    if (!isLaunching) return undefined;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      haptic.warning();
+      setIsLaunching(false);
+      contentFade.value = withTiming(1, { duration: 300, easing: Easing.out(Easing.cubic) });
+      return true;
+    });
+    return () => sub.remove();
+  }, [isLaunching, haptic]);
   const [progression, setProgression] = useState(null);
   // Popup de découverte du coach vocal (lib/coachNudge.js) — proposée tant
   // que settings.voiceCoach est faux, avec un délai de 7 jours entre deux
   // propositions et un dismiss permanent séparé.
   const [showCoachNudge, setShowCoachNudge] = useState(false);
+  // Alerte unique « ambiance de saison » (lib/seasonNudge.js) : conseille de la
+  // désactiver sur un téléphone moins puissant.
+  const [showSeasonNudge, setShowSeasonNudge] = useState(false);
   // Lu par handleScrollBeginDrag (callback stable, sans dépendance) pour
   // savoir si un swipe doit interrompre la popup — jamais lu par un render.
   const showCoachNudgeRef = useRef(false);
@@ -254,6 +401,26 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   // Pop-up qui PROPOSE le tutoriel (lib/tutorial.js) — jamais imposé, voir
   // components/common/TutorialInviteSheet.js. Première de la file de démarrage.
   const [showTutorialInvite, setShowTutorialInvite] = useState(false);
+
+  // Séance interrompue au dernier lancement (batterie vide, plantage) :
+  // récupérée depuis le brouillon (lib/sessionDraft.js), annoncée par un petit
+  // message qui disparaît tout seul. La promesse est mémorisée : la même pour
+  // _layout.js et pour les rattrapages de trophées plus bas.
+  const [recoveredSession, setRecoveredSession] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    let hideTimer = null;
+    ensureSessionRecovered().then((entry) => {
+      if (cancelled || !entry) return;
+      setRecoveredSession(entry);
+      // Assez long pour passer le splash éventuel (il recouvre l'accueil).
+      hideTimer = setTimeout(() => setRecoveredSession(null), 8000);
+    });
+    return () => {
+      cancelled = true;
+      if (hideTimer) clearTimeout(hideTimer);
+    };
+  }, []);
   // Page "chrono fiable" avant le 3-2-1 (lib/permissionPrimer.js, moment
   // 'firstSession'). Calculée d'avance pour ne pas retarder le tap Lancer.
   const [primerLaunch, setPrimerLaunch] = useState(null);
@@ -288,7 +455,7 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   const overlayBusyRef = useRef(false);
   overlayBusyRef.current =
     isLaunching || statsOpen || !!picker || badgeQueue.length > 0 || !!primerLaunch ||
-    showCoachNudge || showTutorialInvite || modePickerOpen;
+    showCoachNudge || showSeasonNudge || showTutorialInvite || modePickerOpen;
 
   useEffect(() => {
     shouldShowPermissionPrimer('firstSession').then((due) => {
@@ -311,6 +478,7 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
         if (cancelled || overlayBusyRef.current) return;
         await waitForUpdateGateSettled();
         if (cancelled || overlayBusyRef.current) return;
+        await ensureSessionRecovered(); // une séance interrompue compte dans l'historique lu ici
         const totalRuns = Object.values(countSessionsByTimer(await loadHistory())).reduce((a, b) => a + b, 0);
         const tutorialState = await loadTutorialState();
         if (cancelled || overlayBusyRef.current) return;
@@ -350,6 +518,9 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
         // passent AVANT le conseil de surcharge. Une médaille est un moment
         // gratifiant, le conseil de charge peut attendre le lancement
         // suivant — et surtout on n'empile jamais deux feuilles.
+        // Une séance interrompue (batterie vide, plantage) est d'abord
+        // récupérée : elle compte pour les trophées comme n'importe quelle autre.
+        await ensureSessionRecovered();
         const countsByTimer = countSessionsByTimer(await loadHistory());
         const totalRuns = Object.values(countsByTimer).reduce((a, b) => a + b, 0);
 
@@ -361,11 +532,36 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
           return;
         }
 
-        const [archives, seen] = await Promise.all([loadArchives(), loadProgressionSeen()]);
+        // Bilan de saison (lib/seasonRecap.js) : la saison qui vient de finir,
+        // une seule fois (lib/seasonRecapState.js), après les trophées. C'est un
+        // écran à part entière : on y va, rien d'autre ne passe derrière.
+        const seasonKey = pendingSeasonKey(await loadHistory(), await loadSeenSeasons());
         if (cancelled || overlayBusyRef.current) return;
-        const found = findProgressionSuggestion({ archives, seen });
+        if (seasonKey) {
+          router.push({ pathname: '/season-recap', params: { key: seasonKey } });
+          return;
+        }
+
+        const [archives, seen, premium] = await Promise.all([
+          loadArchives(),
+          loadProgressionSeen(),
+          loadIsPremium(),
+        ]);
+        if (cancelled || overlayBusyRef.current) return;
+        // Le conseil de charge s'appuie sur le planning, réservé à Premium : sans
+        // lui il enverrait vers une page verrouillée.
+        const found = premium ? findProgressionSuggestion({ archives, seen }) : null;
         if (found) {
           setProgression(found);
+          return;
+        }
+
+        // Alerte « ambiance de saison » : une seule fois, avant la découverte du
+        // coach. Elle ne passe jamais si une autre feuille vient de s'ouvrir.
+        const seasonSeen = await loadSeasonNudgeSeen();
+        if (cancelled || overlayBusyRef.current) return;
+        if (shouldShowSeasonNudge({ seen: seasonSeen, ambianceMode: settings.ambianceMode })) {
+          setShowSeasonNudge(true);
           return;
         }
 
@@ -422,6 +618,16 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
     }
   }, [router]);
 
+  // Alerte « ambiance de saison » : marquée vue à la fermeture (quel que soit le
+  // chemin), « Désactiver » coupe l'ambiance tout de suite.
+  const handleSeasonNudgeClose = useCallback(() => {
+    setShowSeasonNudge(false);
+    markSeasonNudgeSeen();
+  }, []);
+  const handleSeasonNudgeDisable = useCallback(() => {
+    updateSetting('ambianceMode', 'none');
+  }, [updateSetting]);
+
   // onClose couvre tout chemin de fermeture de CoachNudgeSheet (voile, retour
   // Android, "Plus tard", "Activer" — close() le déclenche toujours, voir le
   // composant) : c'est le seul endroit qui doit remettre le délai de 7 jours
@@ -459,6 +665,10 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   // (une View simple sans handler de tap, cf TimerCard). On n'accepte donc un
   // changement d'index que s'il suit un vrai geste de l'utilisateur.
   const draggingRef = useRef(false);
+  // Heure de montage : le FlatList fait un saut au démarrage (initialScrollIndex),
+  // on n'écoute pas la position avant qu'il soit posé.
+  const mountedAtRef = useRef(Date.now());
+  const hapticIndexRef = useRef(initialIndex);
   const handleScrollBeginDrag = useCallback(() => {
     draggingRef.current = true;
     // Swiper le carrousel pendant que CoachNudgeSheet est ouverte compte
@@ -471,14 +681,107 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
     }
   }, []);
   const handleMomentumEnd = useCallback((e) => {
+    // Carrousel posé : le vent de l'ambiance retombe à 0 (ceinture et bretelles, le
+    // dernier événement de défilement l'a déjà ramené à 0 dans le cas normal).
+    ambianceWind.value = 0;
     if (!draggingRef.current) return;
     draggingRef.current = false;
     const index = Math.round(e.nativeEvent.contentOffset.x / rootW);
+    setSettledIndex(index);
+    if (index !== hapticIndexRef.current) {
+      hapticIndexRef.current = index;
+      haptic.selection();
+    }
     if (index === activeIndexRef.current) return;
     activeIndexRef.current = index;
-    haptic.selection();
     setActiveIndex(index);
   }, [haptic, rootW]);
+
+  // Bascule à mi-course : dès que la page la plus proche change pendant un
+  // glissement, tout ce qui dépend du timer (bouton Lancer, points, couleurs
+  // du texte) bascule EN MÊME TEMPS que le fond, au lieu d'attendre la fin.
+  useEffect(() => {
+    pageW.value = rootW || 1;
+    scrollX.value = activeIndexRef.current * (rootW || 1);
+  }, [rootW]);
+
+  // Vent de l'ambiance (lib/ambianceMotion.js) : à 0 au montage et au démontage, et
+  // quand l'écran perd le focus (une autre page s'ouvre par-dessus). Allumé 800 ms
+  // après le montage seulement : le carrousel fait alors son saut de positionnement
+  // (initialScrollIndex), qui ne doit pas pousser les décors.
+  useEffect(() => {
+    ambianceWind.value = 0;
+    const timer = setTimeout(() => {
+      windOn.value = 1;
+    }, 800);
+    return () => {
+      clearTimeout(timer);
+      windOn.value = 0;
+      ambianceWind.value = 0;
+    };
+  }, []);
+  useFocusEffect(
+    useCallback(
+      () => () => {
+        ambianceWind.value = 0;
+      },
+      []
+    )
+  );
+  const commitNearest = useCallback((index) => {
+    // Suit TOUJOURS la page la plus proche (geste, saut, enchaînement rapide),
+    // sauf pendant le saut parasite du FlatList au démarrage.
+    if (Date.now() - mountedAtRef.current < 800) return;
+    const clamped = Math.min(timers.length - 1, Math.max(0, index));
+    if (clamped === activeIndexRef.current) return;
+    activeIndexRef.current = clamped;
+    setActiveIndex(clamped);
+  }, [timers.length]);
+  useAnimatedReaction(
+    () => Math.round(scrollX.value / pageW.value),
+    (next, prev) => {
+      if (prev != null && next !== prev) runOnJS(commitNearest)(next);
+    }
+  );
+
+  // Filet de sécurité : dès que le carrousel est posé sur une page (et reste
+  // 150 ms immobile), on relit la position RÉELLE et on remet à l'heure tout
+  // ce qui en dépend (bouton Lancer, points, cartes). Un enchaînement
+  // gauche-droite très rapide peut faire rater ou réordonner des mises à jour :
+  // celle-ci les rattrape, quoi qu'il se soit passé avant.
+  const verifyTimerRef = useRef(null);
+  const verifyPage = useCallback(() => {
+    verifyTimerRef.current = null;
+    if (Date.now() - mountedAtRef.current < 800) return;
+    const p = scrollX.value / pageW.value;
+    const idx = Math.min(timers.length - 1, Math.max(0, Math.round(p)));
+    if (Math.abs(p - idx) > 0.02) return; // pas encore posé
+    if (idx !== activeIndexRef.current) {
+      activeIndexRef.current = idx;
+      setActiveIndex(idx);
+    }
+    setSettledIndex((prev) => (prev === idx ? prev : idx));
+    if (idx !== hapticIndexRef.current) {
+      hapticIndexRef.current = idx;
+      haptic.selection();
+    }
+  }, [timers.length, haptic]);
+  const scheduleVerify = useCallback(() => {
+    if (verifyTimerRef.current) clearTimeout(verifyTimerRef.current);
+    verifyTimerRef.current = setTimeout(verifyPage, 150);
+  }, [verifyPage]);
+  useEffect(() => () => {
+    if (verifyTimerRef.current) clearTimeout(verifyTimerRef.current);
+  }, []);
+  useAnimatedReaction(
+    () => {
+      const p = scrollX.value / pageW.value;
+      return Math.abs(p - Math.round(p)) < 0.01 ? Math.round(p) : -1;
+    },
+    (page) => {
+      if (page >= 0) runOnJS(scheduleVerify)();
+    }
+  );
 
   // getItemLayout doit annoncer au FlatList la meme largeur que celle
   // reellement rendue par chaque carte (styles.card, override par rootW plus
@@ -505,21 +808,60 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
     // CTA du bas (ex. le panneau stats/badges) — évite que le morph parte
     // toujours du bouton de la BottomBar alors que l'utilisateur a tapé
     // ailleurs à l'écran.
+    // L'anneau de la carte est mesuré en même temps : la transition part de lui, pas d'un
+    // emplacement deviné. Sans anneau (fenêtre minuscule) : null, la transition s'adapte.
+    const startWith = (cta) => {
+      const ringNode = ringRef.current;
+      let started = false;
+      const go = (rect) => {
+        if (started) return;
+        started = true;
+        setRingRect(rect);
+        setCtaRect(cta);
+        setIsLaunching(true);
+      };
+      if (ringNode && ringNode.measureInWindow) {
+        // Filet de sécurité : si la mesure ne répondait jamais, la séance part quand même.
+        const guard = setTimeout(() => go(null), 250);
+        ringNode.measureInWindow((rx, ry, rw, rh) => {
+          clearTimeout(guard);
+          // x forcé au centre : les cartes sont des pages pleine largeur, l'anneau de la page posée
+          // est toujours centré. Juste après un glissé, `ringRef` pointe encore sur l'anneau de la
+          // carte VOISINE (hors écran, ± une largeur) tant que la carte active n'est pas
+          // rafraîchie : l'animation partait alors de côté. y et la taille sont les mêmes d'une
+          // carte à l'autre.
+          go(rw > 0 && rh > 0 ? { x: (rootW - rw) / 2, y: ry, width: rw, height: rh } : null);
+        });
+      } else {
+        go(null);
+      }
+    };
     if (sourceRect) {
-      setCtaRect(sourceRect);
-      setIsLaunching(true);
+      startWith(sourceRect);
       return;
     }
     // Mesure la position ecran reelle du bouton CTA au moment du tap, plutot
     // que de deviner un offset fixe (ex-MORPH_BOTTOM_OFFSET) : reste juste
     // quelle que soit la taille d'ecran ou la mise en page du bouton.
     ctaRef.current?.measureInWindow((x, y, width, height) => {
-      setCtaRect({ x, y, width, height });
-      setIsLaunching(true);
+      startWith({ x, y, width, height });
     });
-  }, [active, haptic]);
+  }, [active, haptic, rootW]);
 
   const handleLaunch = useCallback((sourceRect) => {
+    // Garde : le bouton touché doit correspondre à la page réellement posée.
+    // Carrousel encore en mouvement : on ignore l'appui. Page posée mais
+    // affichage en retard (enchaînement très rapide) : on remet à l'heure
+    // et on ne lance rien — jamais le mauvais timer.
+    const livePos = scrollX.value / pageW.value;
+    const livePage = Math.min(timers.length - 1, Math.max(0, Math.round(livePos)));
+    if (Math.abs(livePos - livePage) > 0.05) return;
+    if (livePage !== activeIndexRef.current) {
+      activeIndexRef.current = livePage;
+      setActiveIndex(livePage);
+      setSettledIndex(livePage);
+      return;
+    }
     // Éditer un mix vide n'est pas un "lancement" — toujours autorisé même
     // si MIX est en cooldown, sinon l'utilisateur ne pourrait plus du tout
     // construire son circuit pendant le verrou.
@@ -543,7 +885,7 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
       return;
     }
     proceedLaunch(sourceRect);
-  }, [active, haptic, router, getCooldownStatus, proceedLaunch]);
+  }, [active, haptic, router, getCooldownStatus, proceedLaunch, timers.length]);
 
   // Retour Android = on annule le lancement ; « Plus tard » ou « Activer »
   // enchaînent sur la séance demandée.
@@ -568,12 +910,20 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   // (draggingRef, v14.9.0) — un scrollToIndex() ne déclenche jamais
   // onScrollBeginDrag, donc handleMomentumEnd l'aurait ignoré.
   const handleDotPress = useCallback((index) => {
-    if (index !== activeIndexRef.current) {
-      activeIndexRef.current = index;
+    if (index !== hapticIndexRef.current) {
+      hapticIndexRef.current = index;
       haptic.selection();
-      setActiveIndex(index);
     }
+    setSettledIndex(index);
+    // Le contenu change à mi-course, comme pour un glissement ; filet de
+    // sécurité : à l'arrivée, l'index est de toute façon le bon.
     flatListRef.current?.scrollToIndex({ index, animated: true });
+    setTimeout(() => {
+      if (activeIndexRef.current !== index) {
+        activeIndexRef.current = index;
+        setActiveIndex(index);
+      }
+    }, 700);
   }, [haptic]);
 
   // Tap sur les points de pagination : ouvre l'aperçu des 5 formats au lieu
@@ -621,10 +971,11 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
     ({ item, index }) => (
       <TimerCard
         timer={item}
-        isActive={index === activeIndex}
+        isActive={index === settledIndex}
         cardWidth={rootW}
         heatCount={heatMap[item.id] || 0}
         cooldown={getCooldownStatus(item.id)}
+        ringRef={ringRef}
         onStatPress={handleStatPress}
         onMixEdit={handleMixEdit}
         onStatHaptic={haptic.light}
@@ -632,7 +983,7 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
         onGoPremium={handleGoPremium}
       />
     ),
-    [activeIndex, rootW, heatMap, getCooldownStatus, handleStatPress, handleMixEdit, haptic, handleOpenStats, handleGoPremium]
+    [settledIndex, rootW, heatMap, getCooldownStatus, handleStatPress, handleMixEdit, haptic, handleOpenStats, handleGoPremium]
   );
 
   if (!hydrated) {
@@ -651,33 +1002,41 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
       {/* (A) Fond + contenu — regroupés dans une BlurTargetView pour que le
           BlurView Android (dimezisBlurView) ait quelque chose à flouter */}
       <BlurTargetView ref={blurTargetRef} style={styles.root}>
-        <CrossfadeBackground
-          colors={active.bgColors}
-          textMode={active.textMode}
-          timerId={active.id}
-        />
+        <ScrollInkBackground timers={timers} scrollX={scrollX} width={rootW} />
+
+        {/* Ambiance de saison : lueur, motifs qui flottent, passage rare. Derrière le
+            contenu, sans toucher ni à la mise en page ni aux gestes (rend null avec
+            le réglage « Aucune »). Motifs noirs quand le texte du mode actif est noir. */}
+        <AmbianceBackdrop tone={active.textMode === 'dark' ? 'dark' : 'light'} />
 
         {activeHeat >= STREAK_THRESHOLD && (
-          <EmberField key={active.id} color={active.color} heatCount={activeHeat} />
+          <Animated.View style={[StyleSheet.absoluteFill, emberReveal]} pointerEvents="none">
+            <EmberField key={active.id} color={active.color} heatCount={activeHeat} />
+          </Animated.View>
         )}
 
+        <Animated.View style={[styles.safe, contentFadeStyle]}>
         <SafeAreaView style={styles.safe} edges={['top', 'bottom']} pointerEvents={hideChrome ? 'none' : 'auto'}>
-          <TopBar
-            tag={active.tag}
-            tokens={t}
-            tone={active.textMode}
-            onProfile={() => router.push('/profile')}
-            onHub={() => router.push('/hub')}
-            onTapHaptic={haptic.light}
-            isLaunching={hideChrome}
-          />
+          <Animated.View style={topReveal}>
+            <TopBar
+              tag={active.tag}
+              tokens={t}
+              tone={active.textMode}
+              onProfile={() => router.push('/profile')}
+              onHub={() => router.push('/hub')}
+              onTapHaptic={haptic.light}
+              isLaunching={statsOpen}
+            />
+          </Animated.View>
 
-          <FlatList
+          <Animated.FlatList
             ref={flatListRef}
             data={timers}
             horizontal
             pagingEnabled
             showsHorizontalScrollIndicator={false}
+            onScroll={scrollHandler}
+            scrollEventThrottle={16}
             onScrollBeginDrag={handleScrollBeginDrag}
             onMomentumScrollEnd={handleMomentumEnd}
             keyExtractor={keyExtractor}
@@ -698,45 +1057,27 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
             onOpenModePicker={handleOpenModePicker}
             onLaunch={handleLaunch}
             isLaunching={hideChrome}
+            dotsReveal={dotsReveal}
+            ctaReveal={ctaReveal}
+            hintReveal={hintReveal}
           />
         </SafeAreaView>
+        </Animated.View>
       </BlurTargetView>
 
-      {/* (Q0) Blur backdrop pendant le launch morph */}
-      {isLaunching && (
-        <Animated.View
-          entering={FadeIn.duration(300)}
-          exiting={FadeOut.duration(200)}
-          pointerEvents="none"
-          style={StyleSheet.absoluteFill}
-        >
-          <BlurView
-            blurTarget={blurTargetRef}
-            intensity={60}
-            tint="dark"
-            blurMethod="dimezisBlurView"
-            blurReductionFactor={4}
-            style={StyleSheet.absoluteFill}
-          />
-          <View
-            style={[
-              StyleSheet.absoluteFill,
-              { backgroundColor: 'rgba(0,0,0,0.45)' },
-            ]}
-          />
-        </Animated.View>
-      )}
-
-      {/* (Q) Launch morph overlay — ctaRect vient de la mesure reelle du
-          bouton au tap (handleLaunch) ; tant qu'elle n'est pas prete on
-          n'affiche rien plutot que de deviner une position. */}
+      {/* (Q) Transition de lancement (components/common/LaunchTransition.js) — ctaRect vient
+          de la mesure réelle du bouton au tap (handleLaunch) ; tant qu'elle n'est pas prête on
+          n'affiche rien plutôt que de deviner une position. Plus de flou par-dessus l'accueil :
+          le contenu s'efface en fondu (contentFade) et le fond reste en place. */}
       {isLaunching && ctaRect && (
-        <LaunchMorph
-          active={active}
+        <LaunchTransition
+          timer={active}
           onComplete={handleMorphComplete}
           screenH={rootH}
           screenW={rootW}
           ctaRect={ctaRect}
+          ringRect={ringRect}
+          fade={contentFade}
         />
       )}
 
@@ -819,6 +1160,23 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
         />
       )}
 
+      {showSeasonNudge && (
+        <SeasonNudgeSheet
+          screenH={rootH}
+          onDisable={handleSeasonNudgeDisable}
+          onClose={handleSeasonNudgeClose}
+        />
+      )}
+
+      {recoveredSession && (
+        <View pointerEvents="box-none" style={styles.recoveredToastWrap}>
+          <MiniToast
+            icon="check"
+            text={`Séance ${recoveredSession.name} récupérée (${formatDuration(recoveredSession.durationSeconds)})`}
+          />
+        </View>
+      )}
+
       {/* (N bis) Aperçu des 5 formats — tap sur un point de pagination. */}
       {modePickerOpen && (
         <ModePickerSheet
@@ -834,21 +1192,44 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
 }
 
 /* ─────────────────────────────────────────────────────────────────
-   (A) CrossfadeBackground — change de gradient en 0.7s easeImpact
+   (A) ScrollInkBackground — fond continu, tenu par le doigt.
+   Les 5 fonds sont montés UNE fois et empilés dans l'ordre des pages. Le
+   fond de la page i apparaît en fondu quand on glisse de i-1 vers i, puis
+   recouvre les précédents ; seule son opacité bouge, calculée sur le fil
+   d'interface à partir de la position du doigt. Aucun état JavaScript, rien
+   ne se monte ni ne se démonte pendant le geste : pas de couche en retard,
+   pas d'écran noir, pas de couleur parasite. Au plus deux couches visibles
+   à la fois (les autres sont à 0 ou entièrement recouvertes).
    ────────────────────────────────────────────────────────────────*/
-function CrossfadeBackground({ colors, textMode, timerId }) {
+function ScrollInkBackground({ timers, scrollX, width }) {
+  const widthSV = useSharedValue(width || 1);
+  useEffect(() => {
+    widthSV.value = width || 1;
+  }, [width]);
+
   return (
-    <View style={StyleSheet.absoluteFill}>
-      <Animated.View
-        key={timerId}
-        entering={FadeIn.duration(D.loop).easing(easeImpact)}
-        style={StyleSheet.absoluteFill}
-      >
-        <GradientBackground colors={colors} textMode={textMode} grain>
-          <View style={{ flex: 1 }} />
-        </GradientBackground>
-      </Animated.View>
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
+      {timers.map((timer, i) => (
+        <FadeLayer key={timer.id} timer={timer} index={i} scrollX={scrollX} widthSV={widthSV} />
+      ))}
     </View>
+  );
+}
+
+function FadeLayer({ timer, index, scrollX, widthSV }) {
+  const style = useAnimatedStyle(() => {
+    const p = scrollX.value / widthSV.value;
+    // Recouverte par la page suivante, devenue pleine : inutile de la peindre.
+    if (p >= index + 1) return { opacity: 0 };
+    // La première page est le socle : toujours pleine tant qu'elle n'est pas recouverte.
+    if (index === 0) return { opacity: 1 };
+    const f = Math.min(1, Math.max(0, p - (index - 1)));
+    return { opacity: f * f * (3 - 2 * f) };
+  });
+  return (
+    <Animated.View style={[StyleSheet.absoluteFill, style]}>
+      <GradientBackground colors={timer.bgColors} textMode={timer.textMode} grain={false} inherit={false} />
+    </Animated.View>
   );
 }
 
@@ -1034,6 +1415,7 @@ function TopBar({ tag, tokens, tone, onProfile, onHub, onTapHaptic, isLaunching 
         {/* Menu global (v16.2.0) : historique, planning, Mix et Partage. */}
         <IconButton
           icon="hub"
+          halo="left"
           tone={tone}
           onPress={onHub}
           haptic={onTapHaptic}
@@ -1052,6 +1434,7 @@ function TopBar({ tag, tokens, tone, onProfile, onHub, onTapHaptic, isLaunching 
         {/* Hub Profil : les Paramètres y sont accessibles par l'engrenage. */}
         <IconButton
           icon="user"
+          halo="right"
           tone={tone}
           onPress={onProfile}
           haptic={onTapHaptic}
@@ -1065,7 +1448,7 @@ function TopBar({ tag, tokens, tone, onProfile, onHub, onTapHaptic, isLaunching 
 /* ─────────────────────────────────────────────────────────────────
    TimerCard — orchestration des animations sur isActive
    ────────────────────────────────────────────────────────────────*/
-const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, heatCount, cooldown, onStatPress, onMixEdit, onStatHaptic, onOpenStats, onGoPremium }) {
+const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, heatCount, cooldown, ringRef, onStatPress, onMixEdit, onStatHaptic, onOpenStats, onGoPremium }) {
   const t = getTokens(timer.textMode);
   const hero = getTimerHero(timer);
   const description = getTimerDescription(timer);
@@ -1075,6 +1458,19 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
   const ui = useUiScale();
   const isMix = timer.id === 'mix';
   const { isPressing, progress, start, cancel } = useLongPress(onOpenStats, STATS_HOLD_MS);
+
+  // Entrées animées (chiffre, nom, réglages, déroulé…) : elles ne jouent que
+  // (a) au lancement de l'app pour la carte affichée, (b) quand une valeur
+  // change alors que la carte est déjà active (le chiffre « pop »). JAMAIS
+  // quand la page vient d'être posée : la carte a déjà glissé à l'écran avec
+  // son contenu, le rejouer faisait clignoter (deux phases).
+  const introRef = useRef(isActive);
+  const wasActiveRef = useRef(isActive);
+  const animateEnter = introRef.current || wasActiveRef.current;
+  useEffect(() => {
+    introRef.current = false;
+    wasActiveRef.current = isActive;
+  });
 
   // (V) Mise en page réduite — voir lib/responsive.js. En fenêtre courte,
   // rétrécir ne suffit pas : le bas de la carte (réglages, déroulé) sortait
@@ -1120,7 +1516,7 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
           {isActive ? (
             <Animated.Text
               key={`full-${timer.id}`}
-              entering={slideInY(10, D.big, 100)}
+              entering={animateEnter ? slideInY(10, D.big, 100) : undefined}
               exiting={slideOutY(-10, D.base)}
               numberOfLines={isReduced ? 1 : 2}
               style={[styles.description, isReduced ? styles.descriptionReduced : styles.descriptionFull, { color: t.tertiary }]}
@@ -1193,13 +1589,14 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
         timerId={timer.id}
         size={ring}
         gap={scaled(24, ui)}
+        innerRef={isActive ? ringRef : undefined}
       >
         <View style={styles.ringCenter} pointerEvents="none">
           {/* (H) Hero unit */}
           {isActive && (
             <Animated.Text
               key={`unit-${timer.id}-${hero.unit}`}
-              entering={slideInY(6, D.base, 200)}
+              entering={animateEnter ? slideInY(6, D.base, 200) : undefined}
               exiting={slideOutY(-6, 200)}
               style={[styles.heroUnit, { color: t.tertiary }]}
             >
@@ -1214,7 +1611,7 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
           {isActive && (
             <Animated.Text
               key={`big-${timer.id}-${hero.number}`}
-              entering={popIn(0.3, D.slow, 0)}
+              entering={animateEnter ? popIn(0.3, D.slow, 0) : undefined}
               exiting={popOut(1.4, D.base)}
               style={[
                 styles.heroNumber,
@@ -1239,7 +1636,7 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
           {isActive && (
             <Animated.Text
               key={`name-${timer.id}`}
-              entering={slideInY(12, D.big, 300)}
+              entering={animateEnter ? slideInY(12, D.big, 300) : undefined}
               exiting={slideOutY(-12, D.base)}
               style={[styles.timerName, { color: t.primary }]}
             >
@@ -1272,7 +1669,7 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
         </View>
       )}
       {heatCount >= STREAK_THRESHOLD && (
-        <StreakBadge heatCount={heatCount} isActive={isActive} t={t} timerId={timer.id} />
+        <StreakBadge heatCount={heatCount} isActive={isActive} animateEnter={animateEnter} t={t} timerId={timer.id} />
       )}
       {cooldown?.isLocked && (
         <View style={[styles.lockOverlay, { width: ring, height: ring }]} pointerEvents="none">
@@ -1335,7 +1732,7 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
             return (
               <Animated.View
                 key={`stat-${timer.id}-${stat.key}`}
-                entering={popIn(0.9, D.big, 400 + k * 80)}
+                entering={animateEnter ? popIn(0.9, D.big, 400 + k * 80) : undefined}
                 exiting={slideOutY(-12, D.base)}
                 style={
                   statsCompact
@@ -1350,7 +1747,11 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
                   onPress={statHold > 0 ? undefined : onPress}
                   tapScale={0.94}
                   onHapticIn={tappable || isMix ? onStatHaptic : undefined}
-                  style={[chipStyle, { backgroundColor: t.chipBg, borderColor: t.chipBorder }]}
+                  style={[
+                    chipStyle,
+                    { backgroundColor: t.chipBg, borderColor: t.chipBorder },
+                    !onPress && styles.statChipStatic,
+                  ]}
                 >
                   <StatChipContent stat={stat} t={t} editable={editable || isMix} compact={statsCompact} />
                   {statHold > 0 && !!onPress && (
@@ -1366,6 +1767,7 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
               style={[
                 chipStyle,
                 { backgroundColor: t.chipBg, borderColor: t.chipBorder },
+                !onPress && styles.statChipStatic,
                 statsCompact
                   ? styles.statWrapCompact
                   : isSingleStat
@@ -1386,7 +1788,7 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
         <>
           <Animated.Text
             key={`phases-label-${timer.id}`}
-            entering={FadeIn.delay(600).duration(D.base)}
+            entering={animateEnter ? FadeIn.delay(600).duration(D.base) : undefined}
             exiting={FadeOut.duration(D.fast)}
             style={[styles.phasesLabel, { color: t.muted }]}
           >
@@ -1394,7 +1796,7 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
           </Animated.Text>
           <Animated.View
             key={`phases-bar-${timer.id}`}
-            entering={FadeIn.delay(650).duration(D.base)}
+            entering={animateEnter ? FadeIn.delay(650).duration(D.base) : undefined}
             exiting={FadeOut.duration(D.fast)}
             style={styles.phasesBarWrap}
           >
@@ -1465,10 +1867,11 @@ function CooldownPips({ cooldown, t, tone, onGoPremium, hideLockedHint = false, 
   }
 
   return (
-    <View style={[styles.cooldownRow, flat && styles.flatMargin]}>
-      {/* cooldown.quota, pas une constante fixe : varie par mode (TABATA 6,
-          MIX 4) et se réduit d'une place le cycle qui suit un "cramé"
-          (lib/cooldown.js, malus). */}
+    <View style={[styles.cooldownRow, cooldown.quota > 8 && styles.cooldownRowDense, flat && styles.flatMargin]}>
+      {/* cooldown.quota, pas une constante fixe : varie par mode (TABATA 15,
+          MIX 3, lib/cooldown.js). Les pastilles se remplissent une à une au fil
+          des lancements de la semaine ; à partir de 9 places l'écart se resserre
+          pour que la rangée (TABATA : 15) tienne même en fenêtre étroite. */}
       {Array.from({ length: cooldown.quota }).map((_, i) => (
         <View
           key={i}
@@ -1493,7 +1896,7 @@ function CooldownPips({ cooldown, t, tone, onGoPremium, hideLockedHint = false, 
    flamme se colore avec la série (StreakFlame, 4 paliers jusqu'à
    EMBER_MAX_HEAT, la même échelle que les braises du fond).
    ────────────────────────────────────────────────────────────────*/
-function StreakBadge({ heatCount, isActive, t, timerId }) {
+function StreakBadge({ heatCount, isActive, animateEnter, t, timerId }) {
   const content = (
     <>
       <StreakFlame
@@ -1511,7 +1914,7 @@ function StreakBadge({ heatCount, isActive, t, timerId }) {
     return (
       <Animated.View
         key={`streak-${timerId}`}
-        entering={popIn(0.3, D.slow, 500)}
+        entering={animateEnter ? popIn(0.3, D.slow, 500) : undefined}
         exiting={popOut(1.2, D.base)}
         style={[styles.streakBadge, { backgroundColor: t.chipBg, borderColor: t.chipBorder }]}
       >
@@ -1598,7 +2001,7 @@ function StatChipContent({ stat, t, editable, compact }) {
 /* ─────────────────────────────────────────────────────────────────
    (F) Breathing ring — scale [1, 1.008, 1] loop sur card active
    ────────────────────────────────────────────────────────────────*/
-function BreathingRing({ isActive, t, timerId, size = 320, gap = 24, children }) {
+function BreathingRing({ isActive, t, timerId, size = 320, gap = 24, innerRef, children }) {
   const scale = useSharedValue(1);
 
   useEffect(() => {
@@ -1623,6 +2026,8 @@ function BreathingRing({ isActive, t, timerId, size = 320, gap = 24, children })
 
   return (
     <Animated.View
+      ref={innerRef}
+      collapsable={false}
       style={[styles.ringWrap, { width: size, height: size, marginBottom: gap }, animStyle]}
     >
       <TickRing
@@ -1630,7 +2035,7 @@ function BreathingRing({ isActive, t, timerId, size = 320, gap = 24, children })
         size={size}
         colorActive={t.ringActive}
         colorInactive={t.ringInactive}
-        triggerKey={isActive ? timerId : undefined}
+        lit={isActive}
       />
       {children}
     </Animated.View>
@@ -1640,11 +2045,14 @@ function BreathingRing({ isActive, t, timerId, size = 320, gap = 24, children })
 /* ─────────────────────────────────────────────────────────────────
    (M+N+O) Bottom bar — indicators + CTA + hint
    ────────────────────────────────────────────────────────────────*/
-function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onOpenModePicker, onLaunch, isLaunching }) {
+function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onOpenModePicker, onLaunch, isLaunching, dotsReveal, ctaReveal, hintReveal }) {
   // Mode pluie « orage » : maintenir le bouton Lancer au lieu de le toucher.
   const { settings: rainSettings } = useSettings();
   const launchHold = holdDurations(rainSettings.rainMode).launch;
   const [ctaSize, setCtaSize] = useState({ w: 0, h: 0 });
+  // Ambiance du moment (null avec le réglage « Aucune ») : teinte les points de
+  // pagination ; lue ici une seule fois pour les cinq points.
+  const { ambiance } = useAmbiance();
   const isLocked = !!cooldown?.isLocked;
   // (V) En fenêtre courte, chaque bloc compte : le rappel de swipe part en
   // premier (le geste s'apprend au premier essai, les points restent) et le
@@ -1700,7 +2108,7 @@ function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onOp
           (demande utilisateur, v14.15.0) : glisser le carrousel reste le
           moyen le plus rapide pour qui connaît déjà les formats. */}
       {!isTiny && (
-        <View style={[styles.indicatorRow, isReduced && styles.indicatorRowReduced]}>
+        <Animated.View style={[styles.indicatorRow, isReduced && styles.indicatorRowReduced, dotsReveal]}>
           {timers.map((timer, i) => (
             <IndicatorDot
               key={timer.id}
@@ -1708,16 +2116,18 @@ function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onOp
               isActive={i === activeIndex}
               tokens={tokens}
               onPress={onOpenModePicker}
+              index={i}
             />
           ))}
-        </View>
+        </Animated.View>
       )}
 
       {/* (O) CTA Lancer — capsule de lib/buttonTokens.js (couleur du mode en
           dégradé, liseré, lueur à sa couleur, reflet qui le traverse).
-          La View mesurée (ctaRef) sert à LaunchMorph, qui part de la
+          La View mesurée (ctaRef) sert à LaunchTransition, qui part de la
           position exacte du bouton : collapsable={false} pour qu'Android ne
           l'aplatisse pas (measureInWindow échouerait). */}
+      <Animated.View style={ctaReveal}>
       <View
         ref={ctaRef}
         collapsable={false}
@@ -1729,6 +2139,7 @@ function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onOp
           color={active.color}
           size={isReduced ? 'md' : 'lg'}
           fullWidth
+          ambientRim
           onPress={launchHold > 0 ? () => {} : onLaunch}
           accessibilityLabel={`Lancer ${active.name}`}
           icon={
@@ -1761,18 +2172,24 @@ function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onOp
           />
         )}
       </View>
+      </Animated.View>
 
       {!isMini && (
-        <Text style={[styles.hint, isReduced && styles.hintReduced, { color: tokens.muted }]}>
+        <Animated.Text style={[styles.hint, isReduced && styles.hintReduced, { color: tokens.muted }, hintReveal]}>
           ← Glisse ou tape pour explorer →
-        </Text>
+        </Animated.Text>
       )}
       </Animated.View>
     </Animated.View>
   );
 }
 
-function IndicatorDot({ timer, isActive, tokens, onPress }) {
+// Opacité des points inactifs teintés par l'ambiance (accent de l'ambiance au lieu
+// du gris). Un seul réglage à ajuster si le rendu sur téléphone paraît trop discret
+// ou trop vif (la maquette Pager.dc.html les montre en accent plein).
+const AMBIENT_DOT_ALPHA = 0.6;
+
+function IndicatorDot({ timer, isActive, tokens, onPress, ambiance, index }) {
   const haptic = useHaptic();
   const w = useSharedValue(isActive ? 24 : 4);
   // Aperçu au maintien : nom + description de CE format, sans quitter Home
@@ -1814,229 +2231,77 @@ function IndicatorDot({ timer, isActive, tokens, onPress }) {
           </View>
         </Animated.View>
       )}
-      <Animated.View
-        style={[
-          styles.indicatorDot,
-          {
-            backgroundColor: isActive ? tokens.primary : tokens.ringInactive,
-          },
-          animStyle,
-        ]}
-      />
+      {ambiance ? (
+        <AmbientDot w={w} isActive={isActive} index={index} tokens={tokens} ambiance={ambiance} />
+      ) : (
+        <Animated.View
+          style={[
+            styles.indicatorDot,
+            {
+              backgroundColor: isActive ? tokens.primary : tokens.ringInactive,
+            },
+            animStyle,
+          ]}
+        />
+      )}
     </Pressable>
   );
 }
 
-/* ─────────────────────────────────────────────────────────────────
-   (Q) Launch morph — bouton qui devient cercle + bond + texte hero
-   ────────────────────────────────────────────────────────────────*/
-function LaunchMorph({ active, onComplete, screenH, screenW, ctaRect }) {
-  // Position/taille de depart = mesure reelle du bouton CTA (measureInWindow
-  // dans handleLaunch), pas une estimation figee : reste juste quel que soit
-  // l'ecran, la densite ou la mise en page du bouton.
-  const morphInitTop = ctaRect.y;
-  const morphInitLeft = ctaRect.x;
-  const morphInitWidth = ctaRect.width;
-  const morphInitHeight = ctaRect.height;
-  const morphFinalTop = screenH / 2 - MORPH_H_FINAL / 2;
-  const morphFinalLeft = screenW / 2 - MORPH_W_FINAL / 2;
-  const haloTop = screenH / 2 - 300;
-  const haloLeft = screenW / 2 - 300;
-
-  // Même règle de lisibilité que le bouton Lancer (accentTextOn) : le texte
-  // ne doit pas changer de couleur quand le bouton devient le cercle.
-  const isDark = accentTextOn(active.color, active.textMode) === INK_TEXT;
-  const fgColor = isDark ? '#0A0A0A' : '#FFFFFF';
-
-  const progress = useSharedValue(0);
-  const ctaTextOpacity = useSharedValue(1);
-  const haloOpacity = useSharedValue(0);
-  const haloScale = useSharedValue(0.8);
-  const fillScale = useSharedValue(1);
-  const contentOpacity = useSharedValue(1);
-
-  useEffect(() => {
-    // (Q1) Morph keyframes — duration 900, times [0, 0.15, 0.75, 1]
-    progress.value = withTiming(1, { duration: 900, easing: easeImpact });
-
-    // (Q1) Texte CTA fade out
-    ctaTextOpacity.value = withTiming(0, { duration: 250 });
-
-    // (Q2) Halo radial : opacity [0, 0.5, 0.3], scale [0.8, 1.3, 1]
-    haloOpacity.value = withSequence(
-      withTiming(0.5, { duration: 540, easing: easeImpact }),
-      withTiming(0.3, { duration: 360, easing: easeImpact })
-    );
-    haloScale.value = withSequence(
-      withTiming(1.3, { duration: 540, easing: easeImpact }),
-      withTiming(1, { duration: 360, easing: easeImpact })
-    );
-
-    // (Q8) Remplissage final — le cercle 340x340 grossit jusqu'à couvrir l'écran
-    // Le contenu hero (PRÊT/nom/tag/bar) fade out en parallèle.
-    const FILL_DELAY = 2000;
-    const FILL_DURATION = 400;
-    fillScale.value = withDelay(
-      FILL_DELAY,
-      withTiming(4, { duration: FILL_DURATION, easing: easeImpact })
-    );
-    contentOpacity.value = withDelay(
-      FILL_DELAY,
-      withTiming(0, { duration: 250, easing: easeImpact })
-    );
-    haloOpacity.value = withDelay(
-      FILL_DELAY,
-      withTiming(0, { duration: FILL_DURATION, easing: easeImpact })
-    );
-
-    // Fin de séquence (~2.4s) → navigation par router.replace
-    const timer = setTimeout(() => {
-      runOnJS(onComplete)();
-    }, LAUNCH_TOTAL_MS);
-    return () => clearTimeout(timer);
-  }, []);
-
-  // Morph style (Q1)
-  const morphStyle = useAnimatedStyle(() => {
-    const p = progress.value;
-    const w = interpolate(
-      p,
-      [0, 0.15, 0.75, 1],
-      [morphInitWidth, morphInitWidth, MORPH_W_FINAL, MORPH_W_FINAL]
-    );
-    const h = interpolate(
-      p,
-      [0, 0.15, 0.75, 1],
-      [morphInitHeight, morphInitHeight, MORPH_H_FINAL, MORPH_H_FINAL]
-    );
-    const r = interpolate(
-      p,
-      [0, 0.15, 0.75, 1],
-      [MORPH_R_INIT, MORPH_R_INIT, MORPH_R_FINAL, MORPH_R_FINAL]
-    );
-    const top = interpolate(
-      p,
-      [0, 0.15, 0.75, 1],
-      [morphInitTop, morphInitTop - 10, morphFinalTop, morphFinalTop]
-    );
-    const left = interpolate(
-      p,
-      [0, 0.15, 0.75, 1],
-      [morphInitLeft, morphInitLeft, morphFinalLeft, morphFinalLeft]
-    );
-    const sc = interpolate(p, [0, 0.15, 0.75, 1], [1, 0.96, 1.12, 1]);
+// Le point avec une ambiance de saison (maquette Pager.dc.html). Points inactifs à la
+// couleur de l'ambiance ; le point actif (la pastille allongée) glisse de l'encre du
+// mode vers cette couleur. Réactifs au glissé du carrousel, via le vent
+// (`ambianceWind`, lissé par un ressort : retour avec un petit rebond au relâché) :
+// la pastille s'étire vers le doigt, les autres points ondulent à peine. Tout est
+// transform sur le fil d'interface — l'étirement est un scaleX (pas de mise en page
+// refaite à chaque image) ; la largeur animée au changement de page reste celle d'avant.
+function AmbientDot({ w, isActive, index, tokens, ambiance }) {
+  const wind = useDerivedValue(() =>
+    withSpring(
+      Math.max(-AMBIANCE_WIND_MAX, Math.min(AMBIANCE_WIND_MAX, ambianceWind.value)),
+      WIND_SPRING
+    )
+  );
+  const style = useAnimatedStyle(() => {
+    const v = wind.value;
+    if (isActive) {
+      const stretch = Math.min(Math.abs(v) * 0.12, 14);
+      const sign = v < 0 ? -1 : 1;
+      // Étirement de `stretch` dp, réparti des deux côtés (scaleX), puis décalé de
+      // stretch / 2 vers le doigt : un bord reste en place, l'autre part vers le doigt.
+      return {
+        width: w.value,
+        transform: [{ translateX: (sign * stretch) / 2 }, { scaleX: 1 + stretch / Math.max(w.value, 1) }],
+      };
+    }
+    const k = Math.min(Math.abs(v) / 200, 1);
     return {
-      width: w,
-      height: h,
-      borderRadius: r,
-      top,
-      left,
-      transform: [{ scale: sc * fillScale.value }],
+      width: w.value,
+      transform: [{ translateY: Math.sin(index * 1.7 + 0.6) * k * 2.6 }],
     };
   });
 
-  const ctaTextStyle = useAnimatedStyle(() => ({
-    opacity: ctaTextOpacity.value,
-  }));
-
-  const haloStyle = useAnimatedStyle(() => ({
-    opacity: haloOpacity.value,
-    transform: [{ scale: haloScale.value }],
-  }));
-
-  const contentStyleAnim = useAnimatedStyle(() => ({
-    opacity: contentOpacity.value,
-  }));
-
   return (
-    <View style={styles.morphLayer} pointerEvents="none">
-      {/* (Q2) Halo radial */}
-      <Animated.View
-        style={[
-          styles.halo,
-          { top: haloTop, left: haloLeft, backgroundColor: active.color + '33' },
-          haloStyle,
-        ]}
-      />
-
-      {/* (Q1) Bouton morph */}
-      <Animated.View
-        style={[
-          styles.morphBox,
-          {
-            backgroundColor: active.color,
-            shadowColor: active.color,
-          },
-          morphStyle,
-        ]}
-      >
-        <Animated.Text
-          style={[
-            styles.morphCtaText,
-            { color: fgColor },
-            ctaTextStyle,
-          ]}
-          numberOfLines={1}
-        >
-          Lancer {active.name}
-        </Animated.Text>
-      </Animated.View>
-
-      {/* (Q3-Q6) Contenu hero centré — fade out pendant Q8 */}
-      <Animated.View style={[styles.morphContent, contentStyleAnim]} pointerEvents="none">
-        <Animated.Text
-          entering={FadeIn.delay(600).duration(450).easing(easeImpact)}
-          style={[
-            styles.morphPret,
-            {
-              color: isDark ? 'rgba(10,10,10,0.75)' : 'rgba(255,255,255,0.9)',
-            },
-          ]}
-        >
-          PRÊT
-        </Animated.Text>
-
-        <Animated.Text
-          entering={FadeIn.delay(650).duration(650).easing(easeOvershoot).withInitialValues({
-            transform: [{ scale: 0.2 }],
-          })}
-          style={[
-            styles.morphHero,
-            { color: fgColor },
-          ]}
-        >
-          {active.name}
-        </Animated.Text>
-
-        <Animated.Text
-          entering={FadeIn.delay(1050).duration(400).easing(easeImpact).withInitialValues({
-            transform: [{ translateY: 20 }],
-          })}
-          style={[
-            styles.morphTag,
-            {
-              color: isDark ? 'rgba(10,10,10,0.65)' : 'rgba(255,255,255,0.8)',
-            },
-          ]}
-        >
-          {active.tag}
-        </Animated.Text>
-
-        <Animated.View
-          entering={FadeIn.delay(1200).duration(500).easing(easeImpact).withInitialValues({
-            transform: [{ scaleX: 0 }],
-          })}
-          style={[
-            styles.morphBar,
-            {
-              backgroundColor: isDark
-                ? 'rgba(10,10,10,0.5)'
-                : 'rgba(255,255,255,0.7)',
-            },
-          ]}
+    <Animated.View
+      style={[
+        styles.indicatorDot,
+        styles.indicatorDotClip,
+        {
+          backgroundColor: isActive ? tokens.primary : ambiance.accent,
+          opacity: isActive ? 1 : AMBIENT_DOT_ALPHA,
+        },
+        style,
+      ]}
+    >
+      {isActive ? (
+        <LinearGradient
+          colors={[tokens.primary, ambiance.accent]}
+          start={{ x: 0, y: 0.5 }}
+          end={{ x: 1, y: 0.5 }}
+          style={StyleSheet.absoluteFill}
         />
-      </Animated.View>
-    </View>
+      ) : null}
+    </Animated.View>
   );
 }
 
@@ -2044,10 +2309,23 @@ function LaunchMorph({ active, onComplete, screenH, screenW, ctaRect }) {
    (S) Picker modal — wheel picker pour stat éditable
    ────────────────────────────────────────────────────────────────*/
 function PickerSheet({ stat, accentColor, textMode, onClose, onValidate, screenH }) {
-  const [draft, setDraft] = useState(stat.value);
+  // Le brouillon n'est lu qu'à « Valider » : une ref, pas un état. Avec un état,
+  // chaque cran de la roue refaisait toute la feuille (flou, animations, bouton).
+  const draftRef = useRef(stat.value);
+  const setDraft = useCallback((v) => {
+    draftRef.current = v;
+  }, []);
   // La feuille est hors SafeAreaView : elle ajoute elle-même la barre de
   // navigation Android, sinon son bas passait dessous en navigation 3 boutons.
   const insets = useSafeAreaInsets();
+
+  // AMRAP (durée en minutes) : un bouton bascule de la roue au clavier numérique
+  // du système, plus rapide quand on sait déjà la durée voulue. La feuille
+  // remonte avec le clavier (même mécanique que BottomSheet keyboardAware).
+  const canType = stat.type === 'minutes' || stat.type === 'seconds' || stat.type === 'rounds';
+  const [typing, setTyping] = useState(false);
+  const keyboardHeight = useKeyboardHeight();
+  const lift = useDerivedValue(() => Math.max(0, keyboardHeight.value - insets.bottom - 12));
 
   // (V) La feuille grandit vers le haut sans limite (sheetRoot en
   // justifyContent:'flex-end'). Son empilement complet réclame ~490 dp :
@@ -2083,6 +2361,7 @@ function PickerSheet({ stat, accentColor, textMode, onClose, onValidate, screenH
   }, []);
 
   const handleClose = () => {
+    Keyboard.dismiss();
     backdropOpacity.value = withTiming(0, { duration: D.base });
     translateY.value = withTiming(screenH, { duration: D.base, easing: easeImpact }, (done) => {
       if (done) runOnJS(onClose)();
@@ -2090,14 +2369,15 @@ function PickerSheet({ stat, accentColor, textMode, onClose, onValidate, screenH
   };
 
   const handleValidate = () => {
+    Keyboard.dismiss();
     backdropOpacity.value = withTiming(0, { duration: D.base });
     translateY.value = withTiming(screenH, { duration: D.base, easing: easeImpact }, (done) => {
-      if (done) runOnJS(onValidate)(draft);
+      if (done) runOnJS(onValidate)(draftRef.current);
     });
   };
 
   const sheetStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: translateY.value }],
+    transform: [{ translateY: translateY.value - lift.value }],
   }));
   const backdropStyle = useAnimatedStyle(() => ({
     opacity: backdropOpacity.value,
@@ -2145,14 +2425,54 @@ function PickerSheet({ stat, accentColor, textMode, onClose, onValidate, screenH
           entering={popIn(0.9, D.slow, 200)}
           style={[styles.pickerWheelWrap, isReduced && styles.pickerWheelWrapReduced]}
         >
-          <WheelPicker
-            values={values}
-            selectedValue={stat.value}
-            type={stat.type}
-            accentColor={accentColor || '#FFFFFF'}
-            onChange={(v) => setDraft(v)}
-            visibleItems={wheelItems}
-          />
+          {typing && stat.type === 'minutes' ? (
+            <DurationKeypad
+              seconds={draftRef.current * 60}
+              maxMinutes={stat.range[1]}
+              minTotalSeconds={stat.range[0] * 60}
+              color={accentColor || '#FFFFFF'}
+              // Une saisie en cours (« 1 » avant « 12 ») ne remplace le réglage
+              // que si elle est dans les bornes.
+              onChange={(total, valid) => {
+                if (valid) setDraft(Math.round(total / 60));
+              }}
+            />
+          ) : typing ? (
+            // Secondes (travail, repos, intervalle) et tours : un seul nombre.
+            <NumberKeypad
+              value={draftRef.current}
+              min={stat.range[0]}
+              max={stat.range[1]}
+              unit={stat.type === 'seconds' ? 's' : ''}
+              color={accentColor || '#FFFFFF'}
+              onChange={(n, valid) => {
+                if (valid) setDraft(n);
+              }}
+            />
+          ) : (
+            <WheelPicker
+              values={values}
+              selectedValue={draftRef.current}
+              type={stat.type}
+              accentColor={accentColor || '#FFFFFF'}
+              onChange={setDraft}
+              visibleItems={wheelItems}
+            />
+          )}
+          {canType && (
+            <Button
+              variant="ghost"
+              size="sm"
+              tone={textMode}
+              icon={typing ? 'back' : 'plus'}
+              label={typing ? 'Revenir à la roue' : 'Saisir au clavier'}
+              onPress={() => {
+                if (typing) Keyboard.dismiss();
+                setTyping((v) => !v);
+              }}
+              style={styles.pickerKeypadBtn}
+            />
+          )}
         </Animated.View>
 
         <Animated.View entering={slideInY(20, D.slow, 300)}>
@@ -2188,6 +2508,8 @@ function PickerSheet({ stat, accentColor, textMode, onClose, onValidate, screenH
    ────────────────────────────────────────────────────────────────*/
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  // Message « séance récupérée » : au-dessus du bouton Lancer, jamais dessus.
+  recoveredToastWrap: { position: 'absolute', left: 16, right: 16, bottom: 132, height: 56 },
   safe: { flex: 1 },
   list: { flex: 1 },
 
@@ -2286,6 +2608,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     marginBottom: 16,
+  },
+  // Beaucoup de places (TABATA : 15) : 15 × 8 dp + 14 × 5 dp = 190 dp, au lieu de 232.
+  cooldownRowDense: {
+    gap: 5,
   },
   // Emplacement fixe des places gratuites (bouton « Débloque » = 36 dp).
   cooldownSlot: {
@@ -2401,6 +2727,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 14,
     alignItems: 'center',
+  },
+  // Case qu'on ne peut pas toucher (TOTAL de l'EMOM : calculé, pas réglable) :
+  // atténuée, pour qu'on ne cherche pas à la régler.
+  statChipStatic: {
+    opacity: 0.5,
   },
   statLabelRow: {
     flexDirection: 'row',
@@ -2582,6 +2913,10 @@ const styles = StyleSheet.create({
     height: 4,
     borderRadius: 2,
   },
+  // Point teinté par l'ambiance : le dégradé du point actif est découpé à la pastille.
+  indicatorDotClip: {
+    overflow: 'hidden',
+  },
   // Boîte large et invisible (déborde largement du point, minuscule) pour que
   // le contenu, lui de taille naturelle, puisse se centrer dessus sans être
   // écrasé à 4-24px de large (technique : bornes gauche/droite loin du point,
@@ -2625,71 +2960,6 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     textAlign: 'center',
     marginTop: 12,
-  },
-
-  // Morph layer (Q)
-  morphLayer: {
-    ...StyleSheet.absoluteFill,
-    zIndex: 60,
-  },
-  morphBox: {
-    position: 'absolute',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowOpacity: 0.6,
-    shadowRadius: 60,
-    shadowOffset: { width: 0, height: 30 },
-    elevation: 20,
-  },
-  morphCtaText: {
-    fontFamily: fonts.sansExtraBold,
-    fontSize: 16,
-    letterSpacing: -0.1,
-  },
-  halo: {
-    // top/left fournis en inline par LaunchMorph (haloTop/haloLeft, calculés
-    // depuis rootH/rootW mesurés — voir Q2).
-    position: 'absolute',
-    width: 600,
-    height: 600,
-    borderRadius: 300,
-  },
-  morphContent: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  morphPret: {
-    fontFamily: fonts.sansBold,
-    fontSize: 12,
-    letterSpacing: 6,
-    textTransform: 'uppercase',
-    marginBottom: 20,
-  },
-  morphHero: {
-    fontFamily: fonts.display,
-    fontSize: 108,
-    lineHeight: 108,
-    letterSpacing: -4,
-    includeFontPadding: false,
-    textAlign: 'center',
-  },
-  morphTag: {
-    fontFamily: fonts.sansBold,
-    fontSize: 11,
-    letterSpacing: 3.85,
-    textTransform: 'uppercase',
-    marginTop: 24,
-  },
-  morphBar: {
-    width: 56,
-    height: 2,
-    borderRadius: 1,
-    marginTop: 16,
   },
 
   // Sheet (R + S)
@@ -2850,5 +3120,9 @@ const styles = StyleSheet.create({
   },
   pickerWheelWrap: {
     marginBottom: 24,
+  },
+  pickerKeypadBtn: {
+    alignSelf: 'center',
+    marginTop: 6,
   },
 });

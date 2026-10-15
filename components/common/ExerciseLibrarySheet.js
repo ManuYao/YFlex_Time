@@ -13,6 +13,8 @@ import {
   addCustomCategory,
   addCustomExercise,
   categoryChip,
+  filterExercisesByDisciplines,
+  hasDisciplineFilter,
   getAllCategories,
   getCategory,
   guessCategoryFromName,
@@ -24,6 +26,8 @@ import {
   updateCustomCategory,
 } from '../../lib/exercises';
 import { haptic } from '../../hooks/useHaptic';
+import { loadProfile } from '../../lib/profile';
+import { getDiscipline } from '../../lib/disciplines';
 
 // Vues de la feuille : 'list' = bibliothèque, 'exercise' = création d'un
 // exercice, 'category' = création / modification d'un groupe musculaire.
@@ -47,6 +51,10 @@ export default function ExerciseLibrarySheet({ screenH, blockName, onClose, onPi
   // doigts serait pire que de ne rien présélectionner.
   const manualPick = useRef(false);
   const [customs, setCustoms] = useState([]);
+  // Disciplines du profil (ids) : filtrent les exercices proposés. `showAll`
+  // lève le filtre pour cette ouverture seulement.
+  const [disciplineIds, setDisciplineIds] = useState([]);
+  const [showAll, setShowAll] = useState(false);
   const [view, setView] = useState('list');
   const [customName, setCustomName] = useState('');
   const [draft, setDraft] = useState(emptyCategoryDraft);
@@ -86,6 +94,9 @@ export default function ExerciseLibrarySheet({ screenH, blockName, onClose, onPi
     loadCustomCategories().then(() => {
       if (!cancelled) setCategories(getAllCategories());
     });
+    loadProfile().then((p) => {
+      if (!cancelled) setDisciplineIds(p?.disciplineIds ?? []);
+    });
     return () => {
       cancelled = true;
     };
@@ -94,8 +105,15 @@ export default function ExerciseLibrarySheet({ screenH, blockName, onClose, onPi
   const category = getCategory(categoryId);
   const chip = categoryChip(categoryId);
   const customInCategory = customs.filter((e) => e.category === categoryId);
+  // Les exercices d'origine suivent la discipline du profil (Street Workout,
+  // Musculation…) sauf si la personne demande « Tout voir ». Ceux qu'elle a créés
+  // ne sont jamais filtrés.
+  const filtered = hasDisciplineFilter(disciplineIds) && !showAll;
   const exercises = [
-    ...category.exercises.map((label) => ({ label, custom: false })),
+    ...(filtered
+      ? filterExercisesByDisciplines(category.exercises, disciplineIds)
+      : category.exercises
+    ).map((label) => ({ label, custom: false })),
     ...customInCategory.map((e) => ({ label: e.label, custom: true })),
   ];
   const trimmed = customName.trim();
@@ -410,6 +428,26 @@ export default function ExerciseLibrarySheet({ screenH, blockName, onClose, onPi
                   // (keyboardAware) : sans ça, Android ne la fait plus défiler.
                   nestedScrollEnabled
                 >
+                  {hasDisciplineFilter(disciplineIds) && (
+                    // Dit pourquoi la liste est plus courte, et laisse tout voir.
+                    <View style={styles.filterRow}>
+                      <Text style={styles.filterText} numberOfLines={2}>
+                        {showAll
+                          ? 'Tous les exercices'
+                          : `Adapté à ton profil · ${disciplineIds.map((id) => getDiscipline(id).short).join(' · ')}`}
+                      </Text>
+                      <PressTap
+                        onPress={() => {
+                          haptic.selection();
+                          setShowAll((v) => !v);
+                        }}
+                        tapScale={0.95}
+                        hitSlop={8}
+                      >
+                        <Text style={styles.filterAction}>{showAll ? 'Mon profil' : 'Tout voir'}</Text>
+                      </PressTap>
+                    </View>
+                  )}
                   {exercises.map((ex) => (
                     <PressTap
                       key={ex.label}
@@ -476,6 +514,27 @@ export default function ExerciseLibrarySheet({ screenH, blockName, onClose, onPi
 }
 
 const styles = StyleSheet.create({
+  // Ligne « Adapté à ton profil · … » + « Tout voir », en tête de la liste.
+  filterRow: {
+    flexBasis: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 6,
+  },
+  filterText: {
+    flexShrink: 1,
+    fontFamily: fonts.monoRegular,
+    fontSize: 10,
+    letterSpacing: 0.8,
+    color: 'rgba(255,255,255,0.45)',
+  },
+  filterAction: {
+    fontFamily: fonts.sansBold,
+    fontSize: 12,
+    color: '#FFFFFF',
+  },
   title: {
     fontFamily: fonts.sansBold,
     fontSize: 17,

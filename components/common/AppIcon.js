@@ -14,6 +14,11 @@ import Svg, { Circle, Line, Path, Rect } from 'react-native-svg';
  * `color` accepte un hex OU un token rgba(), découpé plus bas en couleur
  * opaque + opacité. Un nom inconnu ne dessine rien (et prévient en dev).
  *
+ * `accent` (hex, facultatif) : teinte d'ambiance de saison. Il colore seulement le
+ * « corps » de quelques icônes (hub : le premier carré ; user : la tête ; gear :
+ * le disque central ; season : l'étincelle) ; le trait garde la couleur du glyphe.
+ * Sans `accent`, toutes les icônes se dessinent exactement comme avant.
+ *
  * Les cinq modes ont chacun leur « cadran » (name = id du mode) : un anneau,
  * comme le TickRing, dont le découpage dessine le rythme du mode.
  *   amrap  : anneau continu fléché, on enchaîne les tours sans coupure
@@ -122,12 +127,12 @@ export const ICON_NAMES = [
   'reset', 'play', 'pause', 'finish', 'skip',
   'back', 'plus', 'gear', 'more', 'arrow', 'list', 'share', 'note',
   'user', 'bar', 'swim', 'run',
-  'star', 'star-fill', 'globe', 'flag',
+  'star', 'star-fill', 'globe', 'flag', 'heart', 'heart-fill',
   'hub', 'expand', 'history', 'calendar', 'chat',
-  'edit', 'move', 'bulb',
+  'edit', 'move', 'bulb', 'season',
 ];
 
-export default function AppIcon({ name, size = 20, color = '#FFFFFF', opacity = 1, strokeWidth, style }) {
+export default function AppIcon({ name, size = 20, color = '#FFFFFF', opacity = 1, strokeWidth, style, accent }) {
   const { hex, alpha } = splitColor(color);
   const op = alpha * opacity;
   const line = {
@@ -145,6 +150,10 @@ export default function AppIcon({ name, size = 20, color = '#FFFFFF', opacity = 
   const tint = { fill: hex, fillOpacity: op * 0.2 };
   // Forme pleine aux coins arrondis : même couleur en trait fin autour.
   const rounded = { ...solid, stroke: hex, strokeOpacity: op, strokeWidth: 1.6, strokeLinejoin: 'round' };
+  // Teinte d'ambiance (prop `accent`) : remplit le corps de l'icône à la couleur de
+  // l'ambiance, au taux `k`. Renvoie null sans `accent` : l'icône reste alors identique.
+  const acc = accent ? splitColor(accent) : null;
+  const accentFill = (k) => (acc ? { fill: acc.hex, fillOpacity: acc.alpha * k * opacity } : null);
 
   let body;
   switch (name) {
@@ -379,13 +388,31 @@ export default function AppIcon({ name, size = 20, color = '#FFFFFF', opacity = 
     case 'flag':
       body = <Path {...line} d="M6 21V4M6 4h11l-2.4 4.2L17 12.4H6" />;
       break;
+    // Cœur : aimer un commentaire (3 likes = « approuvé par la communauté »).
+    // Vide = pas encore aimé, plein = aimé.
+    case 'heart':
+      body = (
+        <Path
+          {...line}
+          d="M12 20.3C7.3 17.3 3.6 14 3.6 9.9 3.6 7.5 5.4 5.7 7.7 5.7c1.8 0 3.3.9 4.3 2.4 1-1.5 2.5-2.4 4.3-2.4 2.3 0 4.1 1.8 4.1 4.2 0 4.1-3.7 7.4-8.4 10.4z"
+        />
+      );
+      break;
+    case 'heart-fill':
+      body = (
+        <Path
+          {...rounded}
+          d="M12 20.3C7.3 17.3 3.6 14 3.6 9.9 3.6 7.5 5.4 5.7 7.7 5.7c1.8 0 3.3.9 4.3 2.4 1-1.5 2.5-2.4 4.3-2.4 2.3 0 4.1 1.8 4.1 4.2 0 4.1-3.7 7.4-8.4 10.4z"
+        />
+      );
+      break;
     // Menu global (v16.2.0) : quatre cases, la plus grande pleine = le MIX,
     // point névralgique de l'app. Remplace l'horloge de l'historique en haut
     // de l'accueil — l'historique n'est plus qu'une des portes du hub.
     case 'hub':
       body = (
         <>
-          <Rect {...rounded} x={3.5} y={3.5} width={7.5} height={7.5} rx={2} />
+          <Rect {...rounded} {...accentFill(0.85)} x={3.5} y={3.5} width={7.5} height={7.5} rx={2} />
           <Rect {...line} x={13} y={3.5} width={7.5} height={7.5} rx={2} />
           <Rect {...line} x={3.5} y={13} width={7.5} height={7.5} rx={2} />
           <Rect {...line} x={13} y={13} width={7.5} height={7.5} rx={2} />
@@ -626,7 +653,7 @@ export default function AppIcon({ name, size = 20, color = '#FFFFFF', opacity = 
     case 'user':
       body = (
         <>
-          <Circle {...line} cx={12} cy={8.2} r={3.4} />
+          <Circle {...line} {...accentFill(0.6)} cx={12} cy={8.2} r={3.4} />
           <Path {...line} d="M4.8 19.6a7.2 7.2 0 0 1 14.4 0" />
         </>
       );
@@ -661,11 +688,17 @@ export default function AppIcon({ name, size = 20, color = '#FFFFFF', opacity = 
       );
       break;
 
+    // Étincelle à quatre branches : le choix de l'ambiance de saison (Paramètres).
+    // Avec `accent`, le cœur prend la couleur de l'ambiance ; sinon le voile habituel.
+    case 'season':
+      body = <Path {...line} {...(acc ? accentFill(0.6) : tint)} d="M12 3.2 14 10l6.8 2-6.8 2-2 6.8-2-6.8L3.2 12 10 10z" />;
+      break;
+
     // Engrenage déjà dessiné à la main dans la barre de l'accueil, rapatrié ici.
     case 'gear':
       body = (
         <>
-          <Circle {...line} cx={12} cy={12} r={3} />
+          <Circle {...line} {...accentFill(0.6)} cx={12} cy={12} r={3} />
           <Path
             {...line}
             d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"

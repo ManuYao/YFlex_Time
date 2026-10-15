@@ -30,12 +30,14 @@ import SmallWindowNotice from '../components/common/SmallWindowNotice';
 import { WindowSizeProvider } from '../lib/responsive';
 import { useAPKCheck } from '../hooks/useAPKCheck';
 import { useOtaUpdate } from '../hooks/useOtaUpdate';
-import { shouldShowSplash, markSplashShown, markSplashCleared, onSplashRequest } from '../lib/splash';
+import { shouldShowSplash, markSplashShown, markSplashCleared, noteSplashEnded, onSplashRequest } from '../lib/splash';
 import { loadCustomCategories } from '../lib/exercises';
 import { registerTimerNotification } from '../lib/timerNotification';
+import { ensureSessionRecovered } from '../lib/sessionDraft';
 import { TimersProvider } from '../contexts/TimersContext';
 import { SettingsProvider } from '../contexts/SettingsContext';
 import { AuthProvider } from '../contexts/AuthContext';
+import LibraryLimitGate from '../components/common/LibraryLimitGate';
 
 // Hydrate le cache des catégories perso avant que le premier écran du
 // planning ne rende ses chips : getCategory() est synchrone et lit ce cache.
@@ -113,6 +115,13 @@ export default function RootLayout() {
     };
   }, []);
 
+  // Une séance interrompue (batterie vide, plantage) est récupérée dès le
+  // démarrage, avant les rattrapages de trophées de l'accueil (qui attendent
+  // la même promesse) — voir lib/sessionDraft.js.
+  useEffect(() => {
+    ensureSessionRecovered();
+  }, []);
+
   // Refetch du Gist quand un nouvel OTA arrive (une nouvelle version a été
   // téléchargée ou appliquée). Cela vérifie si la maintenance ou le blocage
   // forcé est toujours actuel, ou si l'état a changé entre le lancement et
@@ -168,6 +177,7 @@ export default function RootLayout() {
                     options={{ animation: 'fade', animationDuration: 400 }}
                   />
                   <Stack.Screen name="profile" options={{ animation: 'fade' }} />
+                  <Stack.Screen name="analysis" options={{ animation: 'fade' }} />
                   <Stack.Screen name="login" options={{ animation: 'fade' }} />
                   <Stack.Screen name="settings" options={{ animation: 'fade' }} />
                   <Stack.Screen name="terms" options={{ animation: 'fade' }} />
@@ -189,6 +199,7 @@ export default function RootLayout() {
                 {/* « Agrandis la fenêtre » : recouvre un écran devenu inutilisable
                     dans une fenêtre minuscule (lib/responsive.js). */}
                 <SmallWindowNotice />
+                <LibraryLimitGate />
 
                 {splashCleared && !apk.isBlockedByForcedUpdate && apk.isMaintenance && !bannerClosed && (
                   <MaintenanceBanner
@@ -213,6 +224,7 @@ export default function RootLayout() {
                     onDone={() => {
                       setSplash('hide');
                       setSplashCleared(true);
+                      noteSplashEnded();
                       markSplashCleared();
                     }}
                   />

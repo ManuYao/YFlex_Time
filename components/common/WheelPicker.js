@@ -1,8 +1,12 @@
-import React, { memo, useEffect, useRef, useState } from 'react';
-import { View, StyleSheet } from 'react-native';
+import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { View, StyleSheet, Pressable } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
   useAnimatedScrollHandler,
+  useAnimatedRef,
+  useDerivedValue,
+  scrollTo,
+  cancelAnimation,
   useAnimatedStyle,
   useSharedValue,
   interpolate,
@@ -23,7 +27,9 @@ import { easeImpact, springBouncy } from '../../lib/animations';
 const ITEM_HEIGHT = 52;
 const VISIBLE_ITEMS = 5;
 // En dessous de cet écart (px) on ne recale pas : c'est du bruit d'arrondi dp -> px.
-const SNAP_EPSILON = 1;
+// Relevé de 1 à 4 : un recalage animé pour 2-3 px se voyait comme une « feinte »
+// (la roue s'arrête, puis bouge encore d'un souffle).
+const SNAP_EPSILON = 4;
 
 // Distance (en nombre d'items) à partir de laquelle l'interpolation continue
 // plafonne — au-delà, scale/opacity/rotateX ne bougent plus.
@@ -39,10 +45,13 @@ const MAX_D = 2.4;
 // marge qui absorbe le retard du fil JavaScript sur un lancer rapide).
 // RECENTER_STEP : la fenêtre ne suit qu'après ce déplacement (pas un rendu par
 // cran) ; la marge réelle reste donc WINDOW_BUFFER - RECENTER_STEP items.
+// Moins d'items montés = moins de calculs d'animation à CHAQUE image pendant le
+// défilement (3 par item) : 17 items au lieu de 25. Le freinage plus franc de la
+// roue rend la grande marge inutile.
 const WINDOW_BUFFER = 10;
 const RECENTER_STEP = 4;
 
-const WheelItem = memo(function WheelItem({ value, type, index, scrollY, accentColor, offsetTop }) {
+const WheelItem = memo(function WheelItem({ value, type, index, scrollY, accentColor, offsetTop, onPick }) {
   const fmt = formatValue(value, type);
   const isLong = fmt.main.length > 5;
 
@@ -94,7 +103,11 @@ const WheelItem = memo(function WheelItem({ value, type, index, scrollY, accentC
     <Animated.View
       style={[styles.item, { height: ITEM_HEIGHT, top: offsetTop + index * ITEM_HEIGHT }, style]}
     >
-      <View style={styles.itemRow}>
+      {/* Un tap sur une valeur voisine y va directement : corriger d'un cran
+          (« j'ai sauté trois secondes, je reviens à une ») ne demande plus de
+          viser un glissement précis. */}
+      <Pressable style={StyleSheet.absoluteFill} onPress={() => onPick(index)} />
+      <View style={styles.itemRow} pointerEvents="none">
         <Animated.Text
           style={[styles.mainText, { fontFamily: fonts.monoExtraBold }, mainStyle]}
           numberOfLines={1}
@@ -111,7 +124,29 @@ const WheelItem = memo(function WheelItem({ value, type, index, scrollY, accentC
   );
 });
 
-export default function WheelPicker({
+// La roue ne lit `selectedValue` qu'au montage et passe par une ref pour
+// `onChange` : un rendu du parent (qui reçoit chaque cran de la roue) ne doit
+// PAS la refaire. Les parents recréent le tableau `values` à chaque rendu ; on le
+// compare par contenu (taille, bornes, pas) plutôt que par identité.
+function sameWheelProps(a, b) {
+  if (
+    a.type !== b.type ||
+    a.accentColor !== b.accentColor ||
+    a.visibleItems !== b.visibleItems
+  ) {
+    return false;
+  }
+  const va = a.values;
+  const vb = b.values;
+  if (va === vb) return true;
+  const n = va.length;
+  if (n !== vb.length) return false;
+  if (n === 0) return true;
+  const mid = n >> 1;
+  return va[0] === vb[0] && va[mid] === vb[mid] && va[n - 1] === vb[n - 1];
+}
+
+function WheelPickerBase({
   values,
   selectedValue,
   type = 'rounds',
@@ -126,7 +161,21 @@ export default function WheelPicker({
 }) {
   const visible = visibleItems % 2 === 0 ? visibleItems - 1 : visibleItems;
   const paddingItems = Math.floor(visible / 2);
-  const scrollRef = useRef(null);
+  const scrollRef = useAnimatedRef();
+  // Déplacements PROGRAMMÉS de la roue (tap sur une valeur, recalage à l'arrêt) :
+  // pilotés image par image depuis le fil d'interface (`glide` → scrollTo sans
+  // animation native) au lieu d'un scrollTo animé. Un scrollTo animé n'est pas
+  // interruptible sous Android : des taps rapprochés s'empilaient, le doigt posé
+  // figeait la roue entre deux valeurs et elle « se perdait ». Ici chaque nouveau
+  // tap REDIRIGE le même mouvement depuis la position courante, et un glissement
+  // du doigt le coupe net (`driving` = 0).
+  const glide = useSharedValue(0);
+  const driving = useSharedValue(0);
+  useDerivedValue(() => {
+    if (driving.value === 1) {
+      scrollTo(scrollRef, 0, glide.value, false);
+    }
+  });
   // Le handler de scroll peut garder un `commit` d'un ancien rendu : sans ref,
   // il appellerait un onChange périmé (liaison séries ↔ tours de la fiche).
   const onChangeRef = useRef(onChange);
@@ -137,8 +186,6 @@ export default function WheelPicker({
   // du moment.
   const [windowCenter, setWindowCenter] = useState(initialIdx);
   const windowCenterRef = useRef(initialIdx);
-  // true = le scroll en cours est notre recalage, pas le doigt de l'utilisateur
-  const settlingRef = useRef(false);
   // Les flèches du rail mordraient sur la valeur dans une colonne étroite
   // (Mix Builder : 2 à 3 roues côte à côte) : affichées seulement si la place.
   const [width, setWidth] = useState(0);
@@ -189,6 +236,11 @@ export default function WheelPicker({
   };
 
   const scrollHandler = useAnimatedScrollHandler({
+    onBeginDrag: () => {
+      // Le doigt reprend la main : plus aucun déplacement programmé.
+      driving.value = 0;
+      cancelAnimation(glide);
+    },
     onScroll: (e) => {
       scrollY.value = e.contentOffset.y;
       const idx = Math.max(
@@ -202,28 +254,69 @@ export default function WheelPicker({
     },
   });
 
+  // Glisse jusqu'à `targetY` (multiple de ITEM_HEIGHT) depuis la position
+  // courante ; un nouvel appel en cours de route redirige le même mouvement.
+  const glideTo = useCallback(
+    (targetY, duration) => {
+      glide.value = scrollY.value;
+      driving.value = 1;
+      glide.value = withTiming(
+        targetY,
+        { duration, easing: easeImpact },
+        (finished) => {
+          if (finished) driving.value = 0;
+        }
+      );
+    },
+    [glide, driving, scrollY]
+  );
+
   const onScrollBeginDrag = () => {
-    // Nouveau geste : un recalage en attente n'a plus de sens.
-    settlingRef.current = false;
+    movingRef.current = true;
+    lastMotionRef.current = Date.now();
+  };
+  const onScrollEndDrag = () => {
+    // Si un élan suit, onMomentumScrollBegin remet movingRef à true.
+    movingRef.current = false;
+    lastMotionRef.current = Date.now();
+  };
+  const onMomentumScrollBegin = () => {
+    movingRef.current = true;
+    lastMotionRef.current = Date.now();
   };
 
   // snapToInterval peut immobiliser la liste à quelques pixels d'un multiple
   // exact de ITEM_HEIGHT alors que le rail, lui, est dessiné à une position
   // fixe. À l'arrêt : on recale la liste pile dessus si besoin.
   const onMomentumScrollEnd = (e) => {
+    movingRef.current = false;
+    lastMotionRef.current = Date.now();
     const y = e.nativeEvent.contentOffset.y;
     const idx = idxAt(y);
-    const wasSettling = settlingRef.current;
-    settlingRef.current = false;
-    // Sur Android, notre scrollTo animé déclenche lui-même un momentum end :
-    // on ne le recale pas une seconde fois, sinon aller-retour possible.
-    if (wasSettling) return;
     const target = idx * ITEM_HEIGHT;
-    if (Math.abs(y - target) > SNAP_EPSILON && scrollRef.current) {
-      settlingRef.current = true;
-      scrollRef.current.scrollTo({ y: target, animated: true });
+    if (Math.abs(y - target) > SNAP_EPSILON) {
+      // Glisse jusqu'à la case (un saut sec se voyait) ; coupé net si le doigt
+      // repart (onBeginDrag).
+      glideTo(target, 140);
     }
   };
+
+  // Tap sur une valeur : la roue s'y cale (le scroll animé fait le reste, la
+  // valeur et l'haptique passent par le même chemin que le glissement).
+  // Jamais pendant un geste ni juste après : toucher la roue pour STOPPER un
+  // élan est reçu comme un tap sur la valeur sous le doigt, et la roue sautait
+  // d'elle-même vers elle.
+  const lastMotionRef = useRef(0);
+  const movingRef = useRef(false);
+  const pickIndex = useCallback(
+    (idx) => {
+      // Seul un élan NATIF (lancer du doigt) bloque le tap ; nos propres glissades
+      // n'émettent pas ces événements, des taps rapprochés s'enchaînent donc.
+      if (movingRef.current || Date.now() - lastMotionRef.current < 200) return;
+      glideTo(idx * ITEM_HEIGHT, 200);
+    },
+    [glideTo]
+  );
 
   const totalHeight = ITEM_HEIGHT * visible;
   const railTop = ITEM_HEIGHT * paddingItems;
@@ -289,9 +382,14 @@ export default function WheelPicker({
         ref={scrollRef}
         showsVerticalScrollIndicator={false}
         snapToInterval={ITEM_HEIGHT}
-        decelerationRate="fast"
+        // Freinage franc : avec « fast » un coup de pouce faisait filer la roue de
+        // plusieurs valeurs au-delà du geste (on sautait 3 s sans le vouloir). Là,
+        // elle suit le doigt de près et s'arrête sur la case la plus proche.
+        decelerationRate={0.9}
         onScroll={scrollHandler}
         onScrollBeginDrag={onScrollBeginDrag}
+        onScrollEndDrag={onScrollEndDrag}
+        onMomentumScrollBegin={onMomentumScrollBegin}
         onMomentumScrollEnd={onMomentumScrollEnd}
         scrollEventThrottle={16}
         // Posée dans une feuille qui défile (mode clavier de BottomSheet) : sans
@@ -312,6 +410,7 @@ export default function WheelPicker({
             scrollY={scrollY}
             accentColor={accentColor}
             offsetTop={railTop}
+            onPick={pickIndex}
           />
         ))}
       </Animated.ScrollView>
@@ -329,6 +428,8 @@ export default function WheelPicker({
     </View>
   );
 }
+
+export default memo(WheelPickerBase, sameWheelProps);
 
 const styles = StyleSheet.create({
   root: {

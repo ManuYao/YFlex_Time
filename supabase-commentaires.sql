@@ -50,14 +50,24 @@ create index if not exists mix_comments_roots_by_author
 
 alter table public.mix_comments enable row level security;
 
+-- Masquage après signalements (voir supabase-commentaires-signalements.sql).
+-- La colonne est créée ICI aussi pour que la règle de lecture ci-dessous soit
+-- la même quel que soit l'ordre dans lequel les fichiers sont relancés.
+alter table public.mix_comments
+  add column if not exists hidden boolean not null default false;
+
 -- Lecture : les commentaires d'un mix qu'on a le droit de voir (un mix masqué
--- après signalements ne montre plus ses commentaires, sauf à son auteur).
+-- après signalements ne montre plus ses commentaires, sauf à son auteur ; un
+-- commentaire masqué après signalements non plus, sauf à son auteur).
 drop policy if exists "mix_comments_read" on public.mix_comments;
 create policy "mix_comments_read"
   on public.mix_comments
   for select
   to anon, authenticated
-  using (exists (select 1 from public.shared_mixes m where m.id = mix_id));
+  using (
+    exists (select 1 from public.shared_mixes m where m.id = mix_id)
+    and (not hidden or author_id = auth.uid())
+  );
 
 -- Écriture : avec son compte, en son nom. Les limites sont dans le trigger.
 drop policy if exists "mix_comments_insert_own" on public.mix_comments;
@@ -172,3 +182,17 @@ drop trigger if exists mix_comments_update_guard on public.mix_comments;
 create trigger mix_comments_update_guard
   before update on public.mix_comments
   for each row execute function public.guard_comment_update();
+
+-- ---------------------------------------------------------------------------
+-- Fin : recharge l'API et PROUVE que tout a marché
+-- ---------------------------------------------------------------------------
+-- Sans cette ligne, une table toute neuve peut rester « introuvable » pour
+-- l'app pendant un moment.
+notify pgrst, 'reload schema';
+
+-- Le tableau « Results » en bas de l'écran doit afficher :
+--   table_commentaires = mix_comments   (si tu lis « null » : la table n'a pas été créée)
+--   mixes_publies      = le nombre de mix publiés (1 ou plus : tu es dans le bon projet)
+select
+  to_regclass('public.mix_comments')        as table_commentaires,
+  (select count(*) from public.shared_mixes) as mixes_publies;

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import Animated from 'react-native-reanimated';
 import {
   View,
   Text,
@@ -27,6 +28,10 @@ import ContactSheet from '../components/common/ContactSheet';
 import ConfirmSheet from '../components/common/ConfirmSheet';
 import LegalGate from '../components/common/LegalGate';
 import CoachSheet, { COACH_STYLES } from '../components/common/CoachSheet';
+import AmbianceSheet, { ambianceSummary } from '../components/common/AmbianceSheet';
+import BlockedUsersSheet from '../components/common/BlockedUsersSheet';
+import { useBlockedUsers } from '../hooks/useBlockedUsers';
+import useAmbiance from '../hooks/useAmbiance';
 import { loadContactNoticeHidden, setContactNoticeHidden } from '../lib/contactNotice';
 import {
   isBatteryOptimizationEnabled,
@@ -43,6 +48,8 @@ import { markUpdatePopupSeen, resolveUpdateCandidate } from '../lib/updatePopup'
 import { haptic, setHapticStrength } from '../hooks/useHaptic';
 import { playDenied, playSound, previewVolumeTap } from '../lib/sounds';
 import { detectVoices } from '../lib/voiceCoach';
+import { RAIN_OPTIONS, RAIN_SUBS } from '../lib/rainMode';
+import { goBackSafe } from '../lib/navigation';
 import { fonts } from '../lib/fonts';
 import { DANGER, ROUND_SIZE } from '../lib/buttonTokens';
 
@@ -116,6 +123,12 @@ export default function Settings() {
   // n'y apparaît que si le téléphone a une vraie voix d'homme en français
   // (lib/voiceCoach.js, detectVoices) — sinon voix femme, sans option.
   const [coachSheet, setCoachSheet] = useState(false);
+  // Feuille « Ambiance de saison » (components/common/AmbianceSheet.js) ; le
+  // résumé de la ligne suit le réglage et la date du téléphone.
+  const [ambianceSheet, setAmbianceSheet] = useState(false);
+  const { mode: ambianceMode, ambiance } = useAmbiance();
+  const [blockedSheet, setBlockedSheet] = useState(false);
+  const blockedUsers = useBlockedUsers();
   const [maleVoiceAvailable, setMaleVoiceAvailable] = useState(false);
   // Surbrillance brève de la ligne "Voix du coach" (app/home.js,
   // CoachNudgeSheet -> router.push avec ce param) — un seul passage par
@@ -224,6 +237,8 @@ export default function Settings() {
         'flexTimer_onboarded',
         'flexTimer_planning',
         'flexTimer_planningArchives',
+        // Bilans de saison déjà montrés (lib/seasonRecapState.js).
+        'flexTimer_seasonRecapSeen',
         'flexTimer_customExercises',
         'flexTimer_customCategories',
         // L'utilisateur repart de zéro : le rappel avant l'envoi d'un
@@ -256,6 +271,8 @@ export default function Settings() {
         // Popup de découverte du coach vocal (lib/coachNudge.js) : redevient
         // proposable après un reset, comme les autres rappels ci-dessus.
         'flexTimer_coachNudge',
+        // Alerte « ambiance de saison » (lib/seasonNudge.js) : redevient proposable.
+        'flexTimer_seasonNudge',
         // Tutoriel de démarrage (lib/tutorial.js) : après un reset la personne
         // repart de zéro, le pop-up qui le propose peut revenir.
         'flexTimer_tutorial',
@@ -264,6 +281,9 @@ export default function Settings() {
         // rejouée et le cycle de 8 repart de zéro.
         'flexTimer_launchCount',
         'flexTimer_lastOpen',
+        // Pesées du suivi de poids (lib/bodyWeight.js) : données personnelles
+        // locales, effacées avec le reste.
+        'flexTimer_bodyWeight',
       ]);
     } catch {}
     // Le cache mémoire des catégories perso survivrait à la purge du
@@ -340,6 +360,7 @@ export default function Settings() {
 
   return (
     <GradientBackground colors={['#1A1A1A', '#0A0A0A', '#000000']} ambient>
+      <Animated.View style={styles.safe}>
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.statusBar}>
           <Text style={styles.statusText}>PARAMÈTRES</Text>
@@ -349,7 +370,7 @@ export default function Settings() {
           <IconButton
             icon="back"
             haptic={haptic.light}
-            onPress={() => router.back()}
+            onPress={() => goBackSafe(router)}
             accessibilityLabel="Retour"
           />
           <Text style={styles.topTitle}>Paramètres</Text>
@@ -516,6 +537,15 @@ export default function Settings() {
                 <>
                   <Row label="Connecté" sub={user.email} />
                   <LinkRow
+                    label="Personnes bloquées"
+                    sub={
+                      blockedUsers.list.length > 0
+                        ? `${blockedUsers.list.length} personne${blockedUsers.list.length > 1 ? 's' : ''} · mix et commentaires masqués`
+                        : 'Personne pour l\'instant'
+                    }
+                    onPress={() => setBlockedSheet(true)}
+                  />
+                  <LinkRow
                     label="Supprimer mon compte"
                     sub={accountError || 'Efface ton compte, ton historique en ligne et tes mixes publiés'}
                     subStyle={accountError ? styles.rowSubError : null}
@@ -534,6 +564,37 @@ export default function Settings() {
               )}
             </Section>
           )}
+
+          <Section title="Apparence">
+            {/* Le SEUL bouton animé au repos de toute l'app (voulu) : sa
+                couronne de graduations tourne très doucement. Ne le copier
+                nulle part ailleurs. Le rond est décoratif : tout le tap va à
+                la ligne (pointerEvents none). */}
+            <LinkRow
+              label="Ambiance de saison"
+              sub={ambianceSummary(ambianceMode, ambiance)}
+              accessibilityLabel={`Ambiance de saison, ${ambianceSummary(ambianceMode, ambiance)}`}
+              leading={
+                <View
+                  style={styles.rowLeading}
+                  pointerEvents="none"
+                  importantForAccessibility="no-hide-descendants"
+                >
+                  <IconButton
+                    icon="season"
+                    halo="right"
+                    haloLive
+                    size={ROUND_SIZE.nav}
+                  />
+                </View>
+              }
+              onPress={() => {
+                haptic.light();
+                setAmbianceSheet(true);
+              }}
+              isLast
+            />
+          </Section>
 
           <Section title="À propos">
             <LinkRow
@@ -561,30 +622,6 @@ export default function Settings() {
               }}
             />
             <LinkRow label="Contact" sub={CONTACT_EMAIL} onPress={handleContact} isLast />
-          </Section>
-
-          {/* TEMP — à retirer avant publication : "console" visuelle pour
-              vérifier l'état réel d'EAS Update sur un APK sans ordinateur ni
-              Metro (impossible à brancher sur un build standalone). */}
-          <Section title="Diagnostic mise à jour (test)">
-            <View style={styles.diagBox}>
-              <DiagLine label="OTA actif" value={diagnostics.isEnabled ? 'oui' : 'non (dev/Expo Go)'} />
-              <DiagLine label="Canal" value={diagnostics.channel || '—'} />
-              <DiagLine label="Runtime version" value={diagnostics.runtimeVersion || '—'} />
-              <DiagLine label="Version en cours" value={diagnostics.runningUpdateId || '—'} />
-              <DiagLine label="Mise à jour prête" value={pending ? 'oui' : 'non'} />
-              <DiagLine label="Dernier check" value={STATUS_LABEL[status] || status} />
-              {!!lastCheckAt && (
-                <DiagLine label="À" value={new Date(lastCheckAt).toLocaleTimeString('fr-FR')} />
-              )}
-              {!!lastError && <DiagLine label="Erreur" value={lastError} isError />}
-            </View>
-            <LinkRow
-              label="Vérifier maintenant"
-              sub="Force un checkForUpdateAsync (voir le résultat ci-dessus)"
-              onPress={checkNow}
-              isLast
-            />
           </Section>
 
           {/* Action destructive : lien texte en rouge (DANGER), comme
@@ -624,6 +661,10 @@ export default function Settings() {
             onClose={() => setContactSheet(false)}
           />
         )}
+
+        {blockedSheet && <BlockedUsersSheet screenH={screenH} onClose={() => setBlockedSheet(false)} />}
+
+        {ambianceSheet && <AmbianceSheet screenH={screenH} onClose={() => setAmbianceSheet(false)} />}
 
         {coachSheet && (
           <CoachSheet
@@ -668,6 +709,7 @@ export default function Settings() {
 
         {legalAccepted === false && <LegalGate onAccept={() => setLegalAcceptedState(true)} />}
       </SafeAreaView>
+      </Animated.View>
     </GradientBackground>
   );
 }
@@ -718,11 +760,25 @@ function ModeDots() {
   );
 }
 
-function LinkRow({ label, sub, subPrefix, subStyle, danger, onPress, isLast, disabled }) {
+// `leading` : un élément posé avant le texte (icône de ligne) ; `accessibilityLabel`
+// : lecture d'écran de toute la ligne quand le libellé seul ne suffit pas.
+function LinkRow({
+  label,
+  sub,
+  subPrefix,
+  subStyle,
+  danger,
+  onPress,
+  isLast,
+  disabled,
+  leading,
+  accessibilityLabel,
+}) {
   return (
     <Pressable
       onPress={onPress}
       disabled={disabled}
+      accessibilityLabel={accessibilityLabel}
       style={({ pressed }) => [
         styles.row,
         !isLast && styles.rowBorder,
@@ -730,6 +786,7 @@ function LinkRow({ label, sub, subPrefix, subStyle, danger, onPress, isLast, dis
         pressed && !disabled && { opacity: 0.6 },
       ]}
     >
+      {leading}
       <View style={styles.rowText}>
         <Text style={[styles.rowLabel, danger && styles.rowLabelDanger]}>{label}</Text>
         {!!sub &&
@@ -758,16 +815,6 @@ function DiagLine({ label, value, isError }) {
   );
 }
 
-const RAIN_OPTIONS = [
-  { value: 'normal', label: 'Normal' },
-  { value: 'soft', label: 'Pluie' },
-  { value: 'storm', label: 'Orage' },
-];
-const RAIN_SUBS = {
-  normal: 'Mains sèches : un appui suffit partout dans les chronos',
-  soft: 'Quitter, reset et passer se maintiennent (2 s) : pas de faux appui',
-  storm: 'Tout se maintient dans les chronos, lancement et pause compris',
-};
 const STRENGTH_OPTIONS = [
   { value: 'light', label: 'LÉGER' },
   { value: 'medium', label: 'MOYEN' },
@@ -968,6 +1015,10 @@ const styles = StyleSheet.create({
   rowText: {
     flex: 1,
     minWidth: 0,
+  },
+  // Icône de ligne : un peu d'air à droite, la couronne d'ambiance déborde de 13 dp.
+  rowLeading: {
+    marginRight: 4,
   },
   rowLabel: {
     fontFamily: fonts.sansSemibold,
