@@ -343,7 +343,7 @@ export default function MixHub() {
                 <Text style={styles.planningSub}>
                   {isPremium
                     ? 'Maintiens un bloc 2 s : il devient un MIX prêt à lancer.'
-                    : 'Réservé à Premium : un bloc du planning devient un MIX prêt à lancer.'}
+                    : 'Organise ta semaine. Lancer un bloc en MIX d\'un maintien : Premium.'}
                 </Text>
               </View>
               {!isPremium && <AppIcon name="crown" size={14} color="#F0C954" />}

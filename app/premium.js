@@ -18,8 +18,8 @@ const GOLD = '#F0C954';
 const BENEFITS = [
   {
     icon: 'calendar',
-    title: 'Le planning de ta semaine',
-    desc: 'Organise tes séances jour par jour, lance un bloc en MIX d\'un maintien, retrouve tes archives. En gratuit, le planning n\'est pas disponible.',
+    title: 'Lancer depuis ton planning',
+    desc: 'Le planning est gratuit. En Pro, tu lances un bloc en MIX d\'un maintien ou un mix enregistré directement depuis ta semaine, avec le conseil de charge.',
   },
   {
     icon: 'infinity',

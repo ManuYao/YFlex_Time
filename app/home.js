@@ -45,6 +45,7 @@ import HomeSkeleton from '../components/screens/HomeSkeleton';
 import TickRing from '../components/common/TickRing';
 import WheelPicker from '../components/common/WheelPicker';
 import DurationKeypad from '../components/common/DurationKeypad';
+import NumberKeypad from '../components/common/NumberKeypad';
 import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
 import PressTap from '../components/common/PressTap';
 import Button from '../components/common/Button';
@@ -2319,7 +2320,7 @@ function PickerSheet({ stat, accentColor, textMode, onClose, onValidate, screenH
   // AMRAP (durée en minutes) : un bouton bascule de la roue au clavier numérique
   // du système, plus rapide quand on sait déjà la durée voulue. La feuille
   // remonte avec le clavier (même mécanique que BottomSheet keyboardAware).
-  const canType = stat.type === 'minutes';
+  const canType = stat.type === 'minutes' || stat.type === 'seconds' || stat.type === 'rounds';
   const [typing, setTyping] = useState(false);
   const keyboardHeight = useKeyboardHeight();
   const lift = useDerivedValue(() => Math.max(0, keyboardHeight.value - insets.bottom - 12));
@@ -2422,7 +2423,7 @@ function PickerSheet({ stat, accentColor, textMode, onClose, onValidate, screenH
           entering={popIn(0.9, D.slow, 200)}
           style={[styles.pickerWheelWrap, isReduced && styles.pickerWheelWrapReduced]}
         >
-          {typing ? (
+          {typing && stat.type === 'minutes' ? (
             <DurationKeypad
               seconds={draftRef.current * 60}
               maxMinutes={stat.range[1]}
@@ -2432,6 +2433,18 @@ function PickerSheet({ stat, accentColor, textMode, onClose, onValidate, screenH
               // que si elle est dans les bornes.
               onChange={(total, valid) => {
                 if (valid) setDraft(Math.round(total / 60));
+              }}
+            />
+          ) : typing ? (
+            // Secondes (travail, repos, intervalle) et tours : un seul nombre.
+            <NumberKeypad
+              value={draftRef.current}
+              min={stat.range[0]}
+              max={stat.range[1]}
+              unit={stat.type === 'seconds' ? 's' : ''}
+              color={accentColor || '#FFFFFF'}
+              onChange={(n, valid) => {
+                if (valid) setDraft(n);
               }}
             />
           ) : (

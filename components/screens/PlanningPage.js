@@ -16,7 +16,6 @@ import BlockSheet from '../common/BlockSheet';
 import ExerciseLibrarySheet from '../common/ExerciseLibrarySheet';
 import ExerciseDetailSheet from '../common/ExerciseDetailSheet';
 import MixLibrarySheet from '../common/MixLibrarySheet';
-import PlanningLocked from './PlanningLocked';
 import { usePremium } from '../../hooks/usePremium';
 import SaveFlashRing from '../common/SaveFlashRing';
 import ShineSweep from '../common/ShineSweep';
@@ -91,6 +90,7 @@ function PlanningContent({
   // progressive de l'accueil (lib/progression.js) — on se place sur le jour
   // et on ouvre la fiche de l'étiquette pour ajuster la charge.
   focus = null,
+  isPremium = false,
 }) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -134,6 +134,13 @@ function PlanningContent({
     setToast(next);
     toastTimer.current = setTimeout(() => setToast(null), TOAST_MS);
   };
+  // Lancer depuis le planning est réservé à Premium : le message dit CE qu'on ne
+  // peut pas faire (et que le reste du planning est libre), « Voir » ouvre Premium.
+  const showPremiumToast = () =>
+    showToast({
+      premium: true,
+      text: 'Lancer depuis le planning : Premium. Le reste est libre.',
+    });
 
   // Sauvegarde de la note du jour. `notePending` = le texte pas encore écrit
   // ({ dayKey, text }) : il porte SON jour, donc une sauvegarde qui part après
@@ -446,7 +453,15 @@ function PlanningContent({
                   haptic.warning();
                   setPlanning(await removeBlock(planning, dayKey, block.id));
                 }}
+                premiumLocked={!isPremium}
                 onLaunch={async () => {
+                  // Le maintien va jusqu'au bout même sans Premium : il explique
+                  // au lieu de lancer.
+                  if (!isPremium) {
+                    haptic.warning();
+                    showPremiumToast();
+                    return;
+                  }
                   const mix = buildMixFromBlock(block, dayKey);
                   if (!mix) return;
                   await saveCurrentMix(mix);
@@ -482,18 +497,26 @@ function PlanningContent({
             }}
           />
         ) : (
-          // Le planning reste entièrement libre (gratuit comme Premium). À côté
-          // de « Nouveau bloc », « Mes mix » lance un mix déjà enregistré sans
-          // passer par le constructeur.
+          // Le planning est libre pour tous. À côté de « Nouveau bloc », « Mes
+          // mix » lance un mix déjà enregistré sans passer par le constructeur :
+          // Premium seulement (couronne + message pour les autres, qui voient
+          // ainsi ce qu'ils pourraient faire).
           <View style={styles.bottomRow}>
-            {library.length > 0 && (
+            {(library.length > 0 || !isPremium) && (
               <Button
                 variant="glass"
                 size="lg"
-                icon="play"
+                icon={isPremium ? 'play' : 'crown'}
                 label="Mes mix"
-                accessibilityLabel="Lancer un mix enregistré"
+                accessibilityLabel={
+                  isPremium ? 'Lancer un mix enregistré' : 'Lancer un mix enregistré (Premium)'
+                }
                 onPress={() => {
+                  if (!isPremium) {
+                    haptic.warning();
+                    showPremiumToast();
+                    return;
+                  }
                   haptic.light();
                   openSheet({ type: 'mixes' });
                 }}
@@ -616,10 +639,16 @@ function PlanningContent({
         <View pointerEvents="box-none" style={[styles.toastLayer, { bottom: bottomBarH.current + 4 }]}>
           <MiniToast
             text={toast.text}
-            icon="move"
-            actionLabel="Voir"
+            icon={toast.premium ? 'crown' : 'move'}
+            actionLabel={toast.premium ? 'Voir Premium' : 'Voir'}
             onAction={() => {
               haptic.selection();
+              if (toast.premium) {
+                clearTimeout(toastTimer.current);
+                setToast(null);
+                router.push('/premium');
+                return;
+              }
               setDayKey(toast.dayKey);
               clearTimeout(toastTimer.current);
               setToast(null);
@@ -632,26 +661,16 @@ function PlanningContent({
 }
 
 /**
- * Le planning est une fonction PREMIUM (décision du 15/10/2026). Sans Premium la
- * page montre un aperçu verrouillé (PlanningLocked), jamais le planning ; les
- * blocs déjà créés restent stockés et reviennent avec Premium. Tant que le
- * réglage n'est pas lu, une page vide : jamais un éclair de planning chez
- * quelqu'un qui n'y a pas droit.
+ * Le planning est GRATUIT pour tout le monde (décision du 16/10/2026, qui annule
+ * le verrouillage total de la 16.25.0) : on organise sa semaine librement.
+ * Premium = LANCER depuis le planning (bouton « Mes mix », maintien 2 s sur un
+ * bloc). Tant que le réglage n'est pas lu, une page vide : jamais un éclair de
+ * bouton déverrouillé chez quelqu'un qui n'y a pas droit.
  */
 export default function PlanningPage(props) {
   const { isPremium, loaded } = usePremium();
   if (!loaded) return <View style={{ width: props.width, height: props.height }} />;
-  if (!isPremium) {
-    return (
-      <PlanningLocked
-        width={props.width}
-        height={props.height}
-        pageIndex={props.pageIndex}
-        onSelectPage={props.onSelectPage}
-      />
-    );
-  }
-  return <PlanningContent {...props} />;
+  return <PlanningContent {...props} isPremium={isPremium} />;
 }
 
 function BlockCard({
@@ -662,6 +681,7 @@ function BlockCard({
   onOpenTag,
   onDelete,
   onLaunch,
+  premiumLocked = false,
 }) {
   const swipeRef = useRef(null);
   const blockArchived = !!block.archivedAt;
@@ -784,9 +804,11 @@ function BlockCard({
 
       {launchable && (
         <View style={styles.launchHintRow} pointerEvents="none">
-          <AppIcon name="mix" size={13} color={MIX_COLOR} />
-          <Text style={styles.launchHint}>
-            MAINTIENS {LAUNCH_HOLD_MS / 1000} S POUR LANCER EN MIX
+          <AppIcon name={premiumLocked ? 'crown' : 'mix'} size={13} color={premiumLocked ? '#F0C954' : MIX_COLOR} />
+          <Text style={[styles.launchHint, premiumLocked && styles.launchHintLocked]}>
+            {premiumLocked
+              ? 'LANCER EN MIX DEPUIS LE PLANNING : PREMIUM'
+              : `MAINTIENS ${LAUNCH_HOLD_MS / 1000} S POUR LANCER EN MIX`}
           </Text>
         </View>
       )}
@@ -1142,6 +1164,9 @@ const styles = StyleSheet.create({
     fontSize: 9.5,
     letterSpacing: 1,
     color: `${MIX_COLOR}CC`,
+  },
+  launchHintLocked: {
+    color: '#F0C954CC',
   },
   deleteAction: {
     width: 96,

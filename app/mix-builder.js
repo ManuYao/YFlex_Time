@@ -45,6 +45,7 @@ import MiniToast from '../components/common/MiniToast';
 import SaveFlashRing from '../components/common/SaveFlashRing';
 import MixMetaSheet from '../components/common/MixMetaSheet';
 import DurationKeypad from '../components/common/DurationKeypad';
+import NumberKeypad from '../components/common/NumberKeypad';
 import {
   BLOCK_TYPES,
   blockDisplayName,
@@ -1535,8 +1536,13 @@ function EditBlockSheet({ screenH, block, onClose, onUpdate }) {
   const [labelDraft, setLabelDraft] = useState(block?.label || '');
   const [noteDraft, setNoteDraft] = useState(block?.note || '');
   const [importOpen, setImportOpen] = useState(false);
-  // AMRAP : durée saisie au clavier numérique plutôt qu'à la roue.
-  const [typingDuration, setTypingDuration] = useState(false);
+  // Un réglage à la fois peut être tapé au clavier numérique plutôt qu'à la
+  // roue : 'duration' | 'rest' | 'rounds' (null = toutes les roues).
+  const [typingField, setTypingField] = useState(null);
+  const toggleTyping = (field) => {
+    if (typingField === field) Keyboard.dismiss();
+    setTypingField((cur) => (cur === field ? null : field));
+  };
   const { isPremium } = usePremium();
   const roleScrollRef = useRef(null);
   const roleRevealedFor = useRef(null);
@@ -1553,7 +1559,7 @@ function EditBlockSheet({ screenH, block, onClose, onUpdate }) {
     setLabelDraft(block?.label || '');
     setNoteDraft(block?.note || '');
     setImportOpen(false);
-    setTypingDuration(false);
+    setTypingField(null);
     roleRevealedFor.current = null;
   }, [block?.id]);
 
@@ -1649,19 +1655,33 @@ function EditBlockSheet({ screenH, block, onClose, onUpdate }) {
                     : block.type === 'emom' ? 'INTERVALLE'
                     : 'TRAVAIL'}
                 </Text>
-                {typingDuration ? (
-                  // AMRAP : durée tapée au clavier numérique (minutes + secondes).
-                  // Seule une valeur valide remplace le réglage du bloc.
-                  <DurationKeypad
-                    seconds={block.duration}
-                    withSeconds
-                    minTotalSeconds={10}
-                    maxMinutes={60}
-                    color={type.color}
-                    onChange={(total, valid) => {
-                      if (valid) onUpdate({ duration: total });
-                    }}
-                  />
+                {typingField === 'duration' ? (
+                  // Durée tapée au clavier numérique. Seule une valeur valide
+                  // remplace le réglage du bloc.
+                  block.type === 'amrap' ? (
+                    <DurationKeypad
+                      seconds={block.duration}
+                      withSeconds
+                      minTotalSeconds={10}
+                      maxMinutes={60}
+                      color={type.color}
+                      onChange={(total, valid) => {
+                        if (valid) onUpdate({ duration: total });
+                      }}
+                    />
+                  ) : (
+                    <NumberKeypad
+                      value={block.duration}
+                      min={block.type === 'emom' ? 10 : 5}
+                      max={block.type === 'rest' ? 600 : 300}
+                      unit="s"
+                      color={type.color}
+                      compact
+                      onChange={(n, valid) => {
+                        if (valid) onUpdate({ duration: n });
+                      }}
+                    />
+                  )
                 ) : (
                   <WheelPicker
                     values={ranges.duration}
@@ -1672,32 +1692,49 @@ function EditBlockSheet({ screenH, block, onClose, onUpdate }) {
                     visibleItems={wheelItems}
                   />
                 )}
-                {block.type === 'amrap' && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    icon={typingDuration ? 'back' : 'plus'}
-                    label={typingDuration ? 'Revenir à la roue' : 'Saisir au clavier'}
-                    onPress={() => {
-                      if (typingDuration) Keyboard.dismiss();
-                      setTypingDuration((v) => !v);
-                    }}
-                    style={sheetStyles.keypadToggle}
-                  />
-                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon={typingField === 'duration' ? 'back' : 'plus'}
+                  label={typingField === 'duration' ? 'Roue' : 'Clavier'}
+                  onPress={() => toggleTyping('duration')}
+                  style={sheetStyles.keypadToggle}
+                />
               </View>
             )}
 
             {showRest && (
               <View style={sheetStyles.pickerCol}>
                 <Text style={sheetStyles.pickerLabel}>REPOS</Text>
-                <WheelPicker
-                  values={ranges.rest}
-                  selectedValue={block.rest || 0}
-                  type="seconds"
-                  accentColor={type.color}
-                  onChange={(v) => onUpdate({ rest: v })}
-                  visibleItems={wheelItems}
+                {typingField === 'rest' ? (
+                  <NumberKeypad
+                    value={block.rest || 0}
+                    min={5}
+                    max={block.type === 'basic' ? 600 : 300}
+                    unit="s"
+                    color={type.color}
+                    compact
+                    onChange={(n, valid) => {
+                      if (valid) onUpdate({ rest: n });
+                    }}
+                  />
+                ) : (
+                  <WheelPicker
+                    values={ranges.rest}
+                    selectedValue={block.rest || 0}
+                    type="seconds"
+                    accentColor={type.color}
+                    onChange={(v) => onUpdate({ rest: v })}
+                    visibleItems={wheelItems}
+                  />
+                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon={typingField === 'rest' ? 'back' : 'plus'}
+                  label={typingField === 'rest' ? 'Roue' : 'Clavier'}
+                  onPress={() => toggleTyping('rest')}
+                  style={sheetStyles.keypadToggle}
                 />
               </View>
             )}
@@ -1705,13 +1742,34 @@ function EditBlockSheet({ screenH, block, onClose, onUpdate }) {
             {showRounds && (
               <View style={sheetStyles.pickerCol}>
                 <Text style={sheetStyles.pickerLabel}>TOURS</Text>
-                <WheelPicker
-                  values={ranges.rounds}
-                  selectedValue={block.rounds || 1}
-                  type="rounds"
-                  accentColor={type.color}
-                  onChange={(v) => onUpdate({ rounds: v })}
-                  visibleItems={wheelItems}
+                {typingField === 'rounds' ? (
+                  <NumberKeypad
+                    value={block.rounds || 1}
+                    min={1}
+                    max={30}
+                    color={type.color}
+                    compact
+                    onChange={(n, valid) => {
+                      if (valid) onUpdate({ rounds: n });
+                    }}
+                  />
+                ) : (
+                  <WheelPicker
+                    values={ranges.rounds}
+                    selectedValue={block.rounds || 1}
+                    type="rounds"
+                    accentColor={type.color}
+                    onChange={(v) => onUpdate({ rounds: v })}
+                    visibleItems={wheelItems}
+                  />
+                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon={typingField === 'rounds' ? 'back' : 'plus'}
+                  label={typingField === 'rounds' ? 'Roue' : 'Clavier'}
+                  onPress={() => toggleTyping('rounds')}
+                  style={sheetStyles.keypadToggle}
                 />
               </View>
             )}

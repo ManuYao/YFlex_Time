@@ -36,7 +36,7 @@ const SECTIONS = [
   {
     heading: '5. Fonctionnalités Pro',
     paragraphs: [
-      "Tous les modes (AMRAP, BASIC, EMOM, TABATA, MIX) se lancent gratuitement, sans limite et sans publicité. La bibliothèque « Mes mix » est limitée en gratuit : 3 mix créés par toi et 5 mix pris chez les autres (fil public ou lien), plus 3 mix publiés en même temps dans le fil public. Le planning de la semaine est réservé au Pro. Un accès Pro, sans ces limites, est prévu, avec un vrai paiement via le Google Play Store à la sortie officielle de l'application.",
+      "Tous les modes (AMRAP, BASIC, EMOM, TABATA, MIX) se lancent gratuitement, sans limite et sans publicité. La bibliothèque « Mes mix » est limitée en gratuit : 3 mix créés par toi et 5 mix pris chez les autres (fil public ou lien), plus 3 mix publiés en même temps dans le fil public. Le planning de la semaine est gratuit ; lancer un bloc ou un mix directement depuis le planning est réservé au Pro. Un accès Pro, sans ces limites, est prévu, avec un vrai paiement via le Google Play Store à la sortie officielle de l'application.",
     ],
   },
   {
