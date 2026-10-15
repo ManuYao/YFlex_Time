@@ -59,6 +59,7 @@
       "expo-mail-composer",
       "./plugins/withTimerForegroundService",
       "./plugins/withMinWindowSize",
+      "./plugins/withSeasonIcons",
       "expo-web-browser"
     ],
     "experiments": {

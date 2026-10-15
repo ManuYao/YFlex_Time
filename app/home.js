@@ -40,6 +40,7 @@ import AmbianceBackdrop from '../components/common/AmbianceBackdrop';
 import LaunchTransition from '../components/common/LaunchTransition';
 import { WIND_SPRING } from '../components/common/AmbianceHalo';
 import useAmbiance from '../hooks/useAmbiance';
+import useSeasonIcon from '../hooks/useSeasonIcon';
 import { AMBIANCE_WIND_MAX, ambianceWind } from '../lib/ambianceMotion';
 import HomeSkeleton from '../components/screens/HomeSkeleton';
 import TickRing from '../components/common/TickRing';
@@ -241,6 +242,7 @@ function useChromeReveal(scrollX, pageW, appear, start, end, rise, shrink) {
 }
 
 function HomeScreen({ initialIndex, heatMap, statsMap }) {
+  useSeasonIcon(); // icône du lanceur selon la saison (hooks/useSeasonIcon.js)
   // L'accueil est monté, mesuré et posé : l'intro de démarrage peut se refermer sur un écran déjà
   // prêt (lib/appReady.js). Après les interactions et une image, pas au premier rendu.
   useEffect(() => {
