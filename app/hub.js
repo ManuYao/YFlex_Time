@@ -20,7 +20,7 @@ import { rgba } from '../lib/ambiance';
 import { goBackSafe } from '../lib/navigation';
 import { fonts } from '../lib/fonts';
 import { D, slideInY } from '../lib/animations';
-import { loadHistory, computeTotals, computeStreak } from '../lib/history';
+import { loadHistory, computeTotals, computeScopedTotals, computeStreak } from '../lib/history';
 import { loadPlanning, todayKey } from '../lib/planning';
 import { getBlockType, getBlockDuration, getMixTotalDuration, hasEstimatedDuration } from '../lib/mix-blocks';
 import { formatMixClock } from '../lib/formatters';
@@ -74,9 +74,11 @@ export default function Hub() {
   const historySummary = useMemo(() => {
     if (sessions === null) return null;
     if (sessions.length === 0) return 'Aucune séance pour l\'instant';
-    const { count, timeLabel } = computeTotals(sessions);
+    // Du jour quand une séance a été faite aujourd'hui, sinon le cumul de toujours.
+    const today = computeScopedTotals(sessions, 'day');
+    const { count, timeLabel } = today.count > 0 ? today : computeTotals(sessions);
     const streak = computeStreak(sessions);
-    const base = `${count} séance${count > 1 ? 's' : ''} · ${timeLabel}`;
+    const base = `${count} séance${count > 1 ? 's' : ''}${today.count > 0 ? " aujourd'hui" : ''} · ${timeLabel}`;
     return streak >= 2 ? `${base} · ${streak} jours de suite` : base;
   }, [sessions]);
 
