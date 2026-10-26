@@ -2463,7 +2463,8 @@ function PickerSheet({ stat, accentColor, textMode, onClose, onValidate, screenH
             <Button
               variant="ghost"
               size="sm"
-              tone={textMode}
+              // La feuille est toujours sombre : texte clair même sur TABATA (textMode 'dark').
+              tone="light"
               icon={typing ? 'back' : 'plus'}
               label={typing ? 'Revenir à la roue' : 'Saisir au clavier'}
               onPress={() => {
