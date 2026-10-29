@@ -1485,7 +1485,17 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
   const ring = scaled(isCompact ? 260 : 320, ui);
   // HH:MM:SS (TABATA de plus d'une heure) ne tient pas dans l'anneau à 110.
   const heroBase = hero.number.length > 5 ? 76 : hero.number.length > 3 ? 110 : 140;
-  const heroFontSize = scaled(isCompact ? Math.round(heroBase * 0.62) : heroBase, ui);
+  // Archivo large est bien plus large qu'Anton : la taille est plafonnée pour
+  // que le chiffre tienne sur UNE ligne dans l'anneau (largeurs mesurées dans
+  // la police réduite à 66 % : chiffres 0,54 em, « : » 0,25 em).
+  const heroEm = [...hero.number].reduce(
+    (w, c) => w + (c === ':' ? 0.25 : c === '.' || c === ',' ? 0.2 : 0.54),
+    0,
+  );
+  const heroFontSize = Math.min(
+    scaled(isCompact ? Math.round(heroBase * 0.62) : heroBase, ui),
+    Math.floor((ring * 0.84) / Math.max(heroEm, 1)),
+  );
 
   // (V) Réglages : sous ce seuil de largeur par chip, le label/la valeur
   // (ex: "01:30 min") n'a plus la place de rester lisible en row — bascule
@@ -1611,6 +1621,7 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
           {isActive && (
             <Animated.Text
               key={`big-${timer.id}-${hero.number}`}
+              numberOfLines={1}
               entering={animateEnter ? popIn(0.3, D.slow, 0) : undefined}
               exiting={popOut(1.4, D.base)}
               style={[
@@ -1623,6 +1634,7 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
           )}
           {!isActive && (
             <Text
+              numberOfLines={1}
               style={[
                 styles.heroNumber,
                 { color: t.primary, fontSize: heroFontSize, lineHeight: heroFontSize },
