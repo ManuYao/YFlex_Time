@@ -21,7 +21,7 @@ function rowCaption({ count, badges }) {
   return `${count} / ${next.threshold} · ${next.label}`;
 }
 
-export default function ProfileGamification({ badgeCounts, onOpenModeStats, hasData, onShare }) {
+export default function ProfileGamification({ badgeCounts, onOpenModeStats, hasData }) {
   const customTargetRef = useRef(null);
   const ROWS = React.useMemo(
     () =>
@@ -165,18 +165,6 @@ export default function ProfileGamification({ badgeCounts, onOpenModeStats, hasD
         </View>
       </View>
 
-      <View style={styles.section}>
-        <Button
-          variant="spectrum"
-          size="lg"
-          icon="share"
-          label="Partager mon bilan"
-          haptic={haptic.medium}
-          onPress={onShare}
-          disabled={!hasData}
-          fullWidth
-        />
-      </View>
     </View>
   );
 }

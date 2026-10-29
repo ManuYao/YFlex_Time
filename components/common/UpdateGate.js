@@ -6,6 +6,7 @@ import UpdateSheet from './UpdateSheet';
 import { useOtaUpdate } from '../../hooks/useOtaUpdate';
 import { hasSeenUpdatePopup, markUpdatePopupSeen, resolveUpdateCandidate } from '../../lib/updatePopup';
 import { markUpdateGateSettled } from '../../lib/updateGateSignal';
+import { waitSplashBeat } from '../../lib/splash';
 
 // Seule exception à l'affichage immédiat : jamais par-dessus un chrono en
 // cours, le compte à rebours, l'écran de redirection initial, ou le
@@ -14,7 +15,7 @@ import { markUpdateGateSettled } from '../../lib/updateGateSignal';
 // l'onboarding. Dès que l'utilisateur quitte une de ces routes, la feuille
 // apparaît (l'effet dépend de `pathname`, donc il se redéclenche à la sortie
 // de l'onboarding).
-const HIDDEN_ROUTES = new Set(['/', '/index', '/onboarding', '/tutorial', '/countdown', '/running']);
+const HIDDEN_ROUTES = new Set(['/', '/index', '/onboarding', '/tutorial', '/season-recap', '/countdown', '/running']);
 
 /**
  * Monté une fois dans le layout racine. Affiche la feuille "Nouvelle version"
@@ -57,7 +58,12 @@ export default function UpdateGate() {
         markUpdateGateSettled();
         return;
       }
-      setSheet(candidate);
+      // Après une intro de démarrage, l'accueil reste seul un instant avant que la feuille ne
+      // remonte (lib/splash.js, waitSplashBeat) : une vraie coupure entre les deux, et la feuille
+      // ne joue jamais son entrée cachée derrière l'intro. Sans intro, aucun délai.
+      waitSplashBeat().then(() => {
+        if (!cancelled) setSheet(candidate);
+      });
     });
     return () => {
       cancelled = true;

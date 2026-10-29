@@ -7,6 +7,7 @@ import Svg, { Path, Circle, Rect, Line } from 'react-native-svg';
 import GradientBackground from '../components/common/GradientBackground';
 import Button from '../components/common/Button';
 import IconButton from '../components/common/IconButton';
+import { goBackSafe } from '../lib/navigation';
 import { fonts } from '../lib/fonts';
 import { ROUND_SIZE } from '../lib/buttonTokens';
 import { useHaptic } from '../hooks/useHaptic';
@@ -128,7 +129,7 @@ export default function Permissions() {
           <IconButton
             icon="back"
             haptic={haptic.light}
-            onPress={() => router.back()}
+            onPress={() => goBackSafe(router)}
             accessibilityLabel="Retour"
           />
           <Text style={styles.topTitle}>Autorisations</Text>

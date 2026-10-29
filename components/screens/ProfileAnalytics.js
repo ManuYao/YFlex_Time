@@ -32,7 +32,9 @@ const FADE_LOCATIONS = [0, 0.3, 0.55, 0.8, 1];
 
 const average = (list) => (list.length ? list.reduce((s, v) => s + v, 0) / list.length : 0);
 
-export default function ProfileAnalytics({ stats, isPremium, onGoPremium }) {
+// `weightSlot` : la section « POIDS » (gratuite), posée entre l'activité et
+// l'analyse avancée. `onOpenAnalysis` : ouvre la page dédiée (app/analysis.js).
+export default function ProfileAnalytics({ stats, isPremium, onGoPremium, onOpenAnalysis, weightSlot = null }) {
   const locked = !isPremium;
 
   const [showMore, setShowMore] = useState(false);
@@ -97,6 +99,8 @@ export default function ProfileAnalytics({ stats, isPremium, onGoPremium }) {
         </View>
       </View>
 
+      {weightSlot}
+
       <View style={styles.section}>
         <View style={styles.premiumHead}>
           <AppIcon name="crown" size={12} color={GOLD} />
@@ -119,6 +123,7 @@ export default function ProfileAnalytics({ stats, isPremium, onGoPremium }) {
                 />
               </View>
             </PressTap>
+            <LockedList sessionCount={stats.sessionCount} />
             <View style={styles.teaserCta}>
               <Button
                 variant="glass"
@@ -132,7 +137,7 @@ export default function ProfileAnalytics({ stats, isPremium, onGoPremium }) {
           </View>
         ) : (
           <Animated.View entering={FadeIn.duration(320)}>
-            <PremiumContent stats={stats} />
+            <PremiumContent stats={stats} onOpenAnalysis={onOpenAnalysis} />
           </Animated.View>
         )}
       </View>
@@ -140,23 +145,59 @@ export default function ProfileAnalytics({ stats, isPremium, onGoPremium }) {
   );
 }
 
-function PremiumContent({ stats, preview = false }) {
-  const tut = stats.tension;
-  const monthlyAvg = Math.round(average(stats.monthlyCounts));
-  const [showMore, setShowMore] = useState(false);
-  const deltaLabel = tut.deltaPct === null ? '—' : `${tut.deltaPct > 0 ? '+' : ''}${tut.deltaPct} %`;
+// Ce que la personne débloquerait avec SES séances : une phrase qui parle de
+// ses données (jamais de chiffres inventés) puis les trois analyses cachées.
+const LOCKED_ITEMS = [
+  { icon: 'clock', title: 'Temps sous tension', caption: 'Ton effort réel, repos exclus' },
+  { icon: 'sessions', title: 'Répartition des formats', caption: 'Ce que tu fais vraiment le plus' },
+  { icon: 'calendar', title: 'Comparatif mensuel', caption: 'Tu progresses ? Mois contre mois' },
+];
 
-  const tensionCard = (
+function LockedList({ sessionCount }) {
+  const n = sessionCount || 0;
+  const lead =
+    n > 0
+      ? `Tes ${n} séance${n > 1 ? 's' : ''} contiennent déjà de quoi les calculer.`
+      : 'Dès ta première séance, ces analyses se remplissent toutes seules.';
+  return (
+    <View style={styles.lockedWrap}>
+      <Text style={styles.lockedLead}>{lead}</Text>
+      {LOCKED_ITEMS.map((item) => (
+        <View key={item.title} style={styles.lockedRow}>
+          <View style={styles.lockedIcon}>
+            <AppIcon name={item.icon} size={14} color={GOLD} />
+          </View>
+          <View style={styles.lockedText}>
+            <Text style={styles.lockedTitle} numberOfLines={1}>
+              {item.title}
+            </Text>
+            <Text style={styles.lockedCaption} numberOfLines={1}>
+              {item.caption}
+            </Text>
+          </View>
+          <AppIcon name="lock" size={13} color="rgba(255,255,255,0.45)" />
+        </View>
+      ))}
+    </View>
+  );
+}
+
+// Aperçu verrouillé : la forme est visible, pas les chiffres (ils se gagnent).
+function TensionCard({ stats, preview = false }) {
+  const tut = stats.tension;
+  const deltaLabel = tut.deltaPct === null ? '—' : `${tut.deltaPct > 0 ? '+' : ''}${tut.deltaPct} %`;
+  const shown = (text) => (preview ? String(text).replace(/\d/g, '•') : text);
+  return (
     <View style={styles.card}>
       <CardHeader title="Temps sous tension" subtitle="Effort réel, repos exclus · ce mois" />
       <View style={styles.tutRow}>
         <View style={styles.tutLeft}>
           <Text style={styles.tutValue} numberOfLines={1}>
-            {tut.label}
+            {shown(tut.label)}
           </Text>
           <View style={styles.deltaRow}>
             <View style={styles.deltaChip}>
-              <Text style={styles.deltaText}>{deltaLabel}</Text>
+              <Text style={styles.deltaText}>{shown(deltaLabel)}</Text>
             </View>
             <Text style={styles.deltaCaption}>vs mois dernier</Text>
           </View>
@@ -168,13 +209,20 @@ function PremiumContent({ stats, preview = false }) {
       </View>
     </View>
   );
-  const formatsCard = (
+}
+
+function FormatsCard({ stats }) {
+  return (
     <View style={styles.card}>
       <CardHeader title="Répartition des formats" subtitle="Toutes tes séances" />
       <FormatBreakdown data={stats.formatBreakdown} />
     </View>
   );
-  const monthlyCard = (
+}
+
+function MonthlyCard({ stats }) {
+  const monthlyAvg = Math.round(average(stats.monthlyCounts));
+  return (
     <View style={styles.card}>
       <CardHeader
         title="Comparatif mensuel"
@@ -192,29 +240,121 @@ function PremiumContent({ stats, preview = false }) {
       />
     </View>
   );
+}
 
+// Temps passé dans chaque mode : une barre par format, la plus longue pleine.
+function TimePerFormatCard({ stats }) {
+  const rows = (stats.modeTimes || []).filter((m) => m.seconds > 0);
+  const max = Math.max(1, ...rows.map((m) => m.seconds));
+  return (
+    <View style={styles.card}>
+      <CardHeader title="Temps par format" subtitle="Durée totale passée dans chaque mode" />
+      {rows.length === 0 ? (
+        <Text style={styles.emptyNote}>Pas encore de séance : ce détail se remplit tout seul.</Text>
+      ) : (
+        rows.map((m) => (
+          <View key={m.id} style={styles.timeRow}>
+            <View style={styles.timeHead}>
+              <View style={[styles.legendDot, { backgroundColor: m.color }]} />
+              <Text style={styles.legendLabel} numberOfLines={1}>
+                {m.label}
+              </Text>
+              <Text style={styles.legendCount}>{m.timeLabel}</Text>
+            </View>
+            <View style={styles.timeTrack}>
+              <View style={[styles.timeFill, { width: `${Math.max(3, (m.seconds / max) * 100)}%`, backgroundColor: m.color }]} />
+            </View>
+          </View>
+        ))
+      )}
+    </View>
+  );
+}
+
+const WEEKDAY_NAMES = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'];
+const WEEKDAY_SHORT = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+
+const shortDuration = (seconds) => {
+  const s = Math.max(0, Math.round(seconds || 0));
+  if (s >= 3600) return `${Math.floor(s / 3600)}h${String(Math.round((s % 3600) / 60)).padStart(2, '0')}`;
+  return `${Math.max(1, Math.round(s / 60))} min`;
+};
+
+// Rythme : durée moyenne, plus longue séance, jour de la semaine préféré.
+function RhythmCard({ stats }) {
+  const r = stats.rhythm;
+  const fav = r.favoriteWeekday;
+  return (
+    <View style={styles.card}>
+      <CardHeader
+        title="Ton rythme"
+        subtitle={fav === null ? 'Le jour préféré apparaît après quelques séances' : `Tu t’entraînes surtout le ${WEEKDAY_NAMES[fav]}`}
+      />
+      <View style={styles.rhythmTiles}>
+        <View style={styles.rhythmTile}>
+          <Text style={styles.rhythmLabel}>SÉANCE MOY.</Text>
+          <Text style={styles.rhythmValue}>{r.avgSeconds > 0 ? shortDuration(r.avgSeconds) : '—'}</Text>
+        </View>
+        <View style={styles.rhythmTile}>
+          <Text style={styles.rhythmLabel}>PLUS LONGUE</Text>
+          <Text style={styles.rhythmValue}>{r.longestSeconds > 0 ? shortDuration(r.longestSeconds) : '—'}</Text>
+        </View>
+        <View style={styles.rhythmTile}>
+          <Text style={styles.rhythmLabel}>RECORD STREAK</Text>
+          <Text style={styles.rhythmValue}>{`${stats.bestStreak} j`}</Text>
+        </View>
+      </View>
+      <BarChart
+        data={r.weekdayCounts}
+        labels={WEEKDAY_SHORT}
+        height={110}
+        color={GOLD}
+        dimOpacity={0.3}
+        interactive
+        showValue
+      />
+    </View>
+  );
+}
+
+// Toutes les cartes de la page « Analyse avancée » (app/analysis.js).
+export function AdvancedCards({ stats }) {
+  return (
+    <View>
+      <TensionCard stats={stats} />
+      <View style={styles.cardSpaced}>
+        <FormatsCard stats={stats} />
+      </View>
+      <View style={styles.cardSpaced}>
+        <TimePerFormatCard stats={stats} />
+      </View>
+      <View style={styles.cardSpaced}>
+        <MonthlyCard stats={stats} />
+      </View>
+      <View style={styles.cardSpaced}>
+        <RhythmCard stats={stats} />
+      </View>
+    </View>
+  );
+}
+
+function PremiumContent({ stats, preview = false, onOpenAnalysis }) {
   // Aperçu verrouillé : toujours le MÊME bloc (jamais au hasard), sinon un
   // non-Premium pourrait relancer l'écran pour voir tour à tour toutes les stats.
-  if (preview) return <View>{tensionCard}</View>;
+  if (preview) return <View><TensionCard stats={stats} preview /></View>;
 
   return (
     <View>
-      {tensionCard}
-
-      {showMore ? (
-        <Animated.View entering={FadeIn.duration(260)}>
-          <View style={styles.cardSpaced}>{formatsCard}</View>
-          <View style={styles.cardSpaced}>{monthlyCard}</View>
-        </Animated.View>
-      ) : null}
-
+      <TensionCard stats={stats} />
+      {/* Le reste (formats, temps par format, mois, rythme) vit sur sa page. */}
       <Button
         variant="ghost"
         size="sm"
-        icon={showMore ? 'close' : 'plus'}
-        label={showMore ? 'Voir moins' : 'Voir plus'}
+        icon="arrow"
+        iconPosition="right"
+        label="Voir plus"
         haptic={haptic.light}
-        onPress={() => setShowMore((v) => !v)}
+        onPress={onOpenAnalysis}
         style={styles.premiumMoreBtn}
       />
     </View>
@@ -459,7 +599,50 @@ const styles = StyleSheet.create({
   },
   teaserCta: {
     alignItems: 'center',
-    marginTop: -34,
+    marginTop: 14,
+  },
+  lockedWrap: {
+    marginTop: 10,
+    gap: 8,
+  },
+  lockedLead: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.78)',
+    marginBottom: 2,
+  },
+  lockedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  lockedIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(240,201,84,0.14)',
+  },
+  lockedText: {
+    flex: 1,
+  },
+  lockedTitle: {
+    fontFamily: fonts.sansBold,
+    fontSize: 14,
+    color: '#FFFFFF',
+  },
+  lockedCaption: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 11.5,
+    color: 'rgba(255,255,255,0.55)',
+    marginTop: 1,
   },
 
   tutRow: {
@@ -509,6 +692,58 @@ const styles = StyleSheet.create({
     fontSize: 8.5,
     letterSpacing: 1,
     color: 'rgba(255,255,255,0.40)',
+  },
+
+  emptyNote: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 12.5,
+    color: 'rgba(255,255,255,0.55)',
+  },
+  timeRow: {
+    marginTop: 4,
+    paddingVertical: 6,
+  },
+  timeHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  timeTrack: {
+    height: 6,
+    borderRadius: 3,
+    marginTop: 6,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  timeFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  rhythmTiles: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 14,
+  },
+  rhythmTile: {
+    flexGrow: 1,
+    flexBasis: 0,
+    minWidth: 0,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+  rhythmLabel: {
+    fontFamily: fonts.monoRegular,
+    fontSize: 8.5,
+    letterSpacing: 0.8,
+    color: 'rgba(255,255,255,0.45)',
+  },
+  rhythmValue: {
+    marginTop: 4,
+    fontFamily: fonts.display,
+    fontSize: 22,
+    color: '#FFFFFF',
+    includeFontPadding: false,
   },
 
   donutRow: {

@@ -9,6 +9,7 @@ import Button from '../components/common/Button';
 import IconButton from '../components/common/IconButton';
 import { usePremium } from '../hooks/usePremium';
 import { useHaptic } from '../hooks/useHaptic';
+import { goBackSafe } from '../lib/navigation';
 import { fonts } from '../lib/fonts';
 import { ROUND_SIZE } from '../lib/buttonTokens';
 
@@ -16,19 +17,29 @@ const GOLD = '#F0C954';
 
 const BENEFITS = [
   {
-    icon: 'infinity',
-    title: 'Lancements illimités',
-    desc: 'Plus aucun verrou sur TABATA et MIX, même en usage intensif.',
+    icon: 'calendar',
+    title: 'Lancer depuis ton planning',
+    desc: 'Le planning est gratuit. En Pro, tu lances un bloc en MIX d\'un maintien ou un mix enregistré directement depuis ta semaine, avec le conseil de charge.',
   },
   {
-    icon: 'no-ads',
-    title: 'Zéro pub, pour de bon',
-    desc: "L'appli n'affichera jamais de publicité — Pro ou pas.",
+    icon: 'infinity',
+    title: 'Une bibliothèque de mix sans limite',
+    desc: 'En gratuit : 3 mix créés par toi et 5 mix téléchargés depuis la communauté. En Pro : autant que tu veux.',
+  },
+  {
+    icon: 'globe',
+    title: 'Publie plus de mix',
+    desc: 'En gratuit : 3 mix publiés en même temps dans le fil public. En Pro : jusqu\'à 30.',
+  },
+  {
+    icon: 'pulse',
+    title: 'Statistiques avancées',
+    desc: 'Temps sous tension, graphiques et régularité : vois précisément où tu progresses.',
   },
   {
     icon: 'palette',
-    title: 'Bientôt : thèmes & sons exclusifs',
-    desc: 'Des déblocages cosmétiques réservés aux membres Pro, à venir.',
+    title: 'Bientôt : synchronisation, thèmes et sons',
+    desc: 'Retrouve tes données sur tous tes appareils, et personnalise l\'appli avec des thèmes et des sons exclusifs. Pas encore disponible.',
   },
 ];
 
@@ -57,7 +68,7 @@ export default function Premium() {
           <IconButton
             icon="back"
             haptic={haptic.light}
-            onPress={() => router.back()}
+            onPress={() => goBackSafe(router)}
             accessibilityLabel="Retour"
           />
           <Text style={styles.topTitle}>Premium</Text>
@@ -70,8 +81,8 @@ export default function Premium() {
             <Text style={styles.heroTitle}>Flex Timer PRO</Text>
             <Text style={styles.heroSub}>
               {isPremium || justUnlocked
-                ? 'Accès illimité débloqué. Merci !'
-                : "Débloque l'accès illimité, à volonté."}
+                ? 'Pro débloqué : le planning, plus de mix, plus de statistiques. Merci !'
+                : 'Le planning, plus de mix, plus de statistiques, pour aller plus loin.'}
             </Text>
           </View>
 
@@ -88,6 +99,11 @@ export default function Premium() {
               </View>
             ))}
           </View>
+
+          <Text style={styles.freeNote}>
+            Tous les modes (AMRAP, BASIC, EMOM, TABATA, MIX) restent gratuits et
+            illimités, sans aucune pub.
+          </Text>
 
           {isPremium ? (
             <View style={styles.activeBox}>
@@ -178,7 +194,16 @@ const styles = StyleSheet.create({
   benefits: {
     width: '100%',
     gap: 18,
-    marginBottom: 32,
+    marginBottom: 22,
+  },
+  freeNote: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.6)',
+    textAlign: 'center',
+    lineHeight: 17,
+    marginBottom: 30,
+    paddingHorizontal: 8,
   },
   benefitRow: {
     flexDirection: 'row',

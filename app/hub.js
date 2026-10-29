@@ -10,13 +10,17 @@ import IconButton from '../components/common/IconButton';
 import PressTap from '../components/common/PressTap';
 import AppIcon from '../components/common/AppIcon';
 import TickRing from '../components/common/TickRing';
+import AmbianceBackdrop from '../components/common/AmbianceBackdrop';
 import { SkeletonGroup, SkeletonBlock } from '../components/common/Skeleton';
 import { MIX_COLOR } from '../components/common/MixPill';
 import { useTimers } from '../contexts/TimersContext';
+import useAmbiance from '../hooks/useAmbiance';
 import { haptic } from '../hooks/useHaptic';
+import { rgba } from '../lib/ambiance';
+import { goBackSafe } from '../lib/navigation';
 import { fonts } from '../lib/fonts';
 import { D, slideInY } from '../lib/animations';
-import { loadHistory, computeTotals, computeStreak } from '../lib/history';
+import { loadHistory, computeTotals, computeScopedTotals, computeStreak } from '../lib/history';
 import { loadPlanning, todayKey } from '../lib/planning';
 import { getBlockType, getBlockDuration, getMixTotalDuration, hasEstimatedDuration } from '../lib/mix-blocks';
 import { formatMixClock } from '../lib/formatters';
@@ -39,6 +43,11 @@ const FALLBACK_MIX_BG = ['#9575FF', '#4B2FC9', '#1A0D52'];
 export default function Hub() {
   const router = useRouter();
   const { timers, currentMix, library } = useTimers();
+  // Ambiance de saison : null quand le réglage est sur « Aucune » — tout le
+  // menu est alors strictement celui d'avant.
+  const { ambiance } = useAmbiance();
+  const mixRim = ambiance ? rgba(ambiance.rim, 0.55) : null;
+  const tileRim = ambiance ? rgba(ambiance.rim, 0.3) : null;
   // `null` tant que rien n'est lu : les tuiles montrent un petit squelette au lieu
   // d'afficher « Aucune séance » / « Rien de prévu » une fraction de seconde.
   const [sessions, setSessions] = useState(null);
@@ -65,12 +74,15 @@ export default function Hub() {
   const historySummary = useMemo(() => {
     if (sessions === null) return null;
     if (sessions.length === 0) return 'Aucune séance pour l\'instant';
-    const { count, timeLabel } = computeTotals(sessions);
+    // Du jour quand une séance a été faite aujourd'hui, sinon le cumul de toujours.
+    const today = computeScopedTotals(sessions, 'day');
+    const { count, timeLabel } = today.count > 0 ? today : computeTotals(sessions);
     const streak = computeStreak(sessions);
-    const base = `${count} séance${count > 1 ? 's' : ''} · ${timeLabel}`;
+    const base = `${count} séance${count > 1 ? 's' : ''}${today.count > 0 ? " aujourd'hui" : ''} · ${timeLabel}`;
     return streak >= 2 ? `${base} · ${streak} jours de suite` : base;
   }, [sessions]);
 
+  // Le planning est libre pour tous (seul le lancement depuis lui est Premium).
   const planningSummary = useMemo(() => {
     if (planning === null) return null;
     const blocks = planning?.[todayKey()]?.blocks ?? [];
@@ -89,6 +101,8 @@ export default function Hub() {
 
   return (
     <GradientBackground colors={['#1A1A1A', '#0A0A0A', '#000000']} ambient>
+      {/* Décor de saison : derrière tout (lueur, motifs qui flottent, passage rare). */}
+      <AmbianceBackdrop tone="light" />
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.statusBar}>
           <Text style={styles.statusText}>MENU</Text>
@@ -97,13 +111,15 @@ export default function Hub() {
         <View style={styles.topBar}>
           <IconButton
             icon="back"
+            halo="left"
             haptic={haptic.light}
-            onPress={() => router.back()}
+            onPress={() => goBackSafe(router)}
             accessibilityLabel="Retour"
           />
           <Text style={styles.topTitle}>Menu</Text>
           <IconButton
             icon="gear"
+            halo="right"
             haptic={haptic.light}
             onPress={() => router.push('/settings')}
             accessibilityLabel="Réglages"
@@ -121,7 +137,7 @@ export default function Hub() {
               onPress={() => go('/mix-hub')}
               tapScale={0.98}
               accessibilityLabel="Ouvrir Mix et Partage"
-              style={styles.mixCard}
+              style={[styles.mixCard, mixRim ? { borderColor: mixRim } : null]}
             >
               <LinearGradient
                 colors={mixBg}
@@ -199,6 +215,7 @@ export default function Hub() {
                 icon="history"
                 title="Mon historique"
                 summary={historySummary}
+                rim={tileRim}
                 onPress={() => go('/history')}
               />
             </Animated.View>
@@ -207,6 +224,7 @@ export default function Hub() {
                 icon="calendar"
                 title="Mon planning"
                 summary={planningSummary}
+                rim={tileRim}
                 onPress={() => go({ pathname: '/history', params: { page: 'planning' } })}
               />
             </Animated.View>
@@ -217,17 +235,23 @@ export default function Hub() {
   );
 }
 
-function HubTile({ icon, title, summary, onPress }) {
+// `rim` : liseré teinté de l'ambiance de saison (null = le liseré habituel).
+function HubTile({ icon, title, summary, onPress, rim = null, locked = false }) {
   return (
     <PressTap
       onPress={onPress}
       tapScale={0.97}
-      accessibilityLabel={title}
+      accessibilityLabel={locked ? `${title}, réservé à Premium` : title}
       containerStyle={styles.tileContainer}
-      style={styles.tile}
+      style={[styles.tile, rim ? { borderColor: rim } : null]}
     >
       <View style={styles.tileIcon}>
         <AppIcon name={icon} size={26} color="#FFFFFF" />
+        {locked && (
+          <View style={styles.tileCrown}>
+            <AppIcon name="crown" size={11} color="#F0C954" />
+          </View>
+        )}
       </View>
       <Text style={styles.tileTitle} numberOfLines={2}>
         {title}
@@ -373,6 +397,12 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
     color: 'rgba(255,255,255,0.70)',
   },
+  // Conteneur de la même taille que le rond : la couronne d'ambiance le déborde
+  // (jamais d'overflow hidden ici).
+  mixGoWrap: {
+    width: 40,
+    height: 40,
+  },
   mixGo: {
     width: 40,
     height: 40,
@@ -418,6 +448,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
+  },
+  // Petite couronne sur l'icône d'une tuile réservée à Premium.
+  tileCrown: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#14141A',
+    borderWidth: 1,
+    borderColor: 'rgba(240,201,84,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   tileTitle: {
     fontFamily: fonts.sansExtraBold,
