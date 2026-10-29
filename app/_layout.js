@@ -4,13 +4,12 @@ import { Stack } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import { useFonts } from 'expo-font';
-import { Anton_400Regular } from '@expo-google-fonts/anton';
 import {
-  InterTight_500Medium,
-  InterTight_600SemiBold,
-  InterTight_700Bold,
-  InterTight_800ExtraBold,
-} from '@expo-google-fonts/inter-tight';
+  Archivo_500Medium,
+  Archivo_600SemiBold,
+  Archivo_700Bold,
+  Archivo_800ExtraBold,
+} from '@expo-google-fonts/archivo';
 import {
   JetBrainsMono_400Regular,
   JetBrainsMono_700Bold,
@@ -66,11 +65,14 @@ setAudioModeAsync({
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
-    Anton_400Regular,
-    InterTight_500Medium,
-    InterTight_600SemiBold,
-    InterTight_700Bold,
-    InterTight_800ExtraBold,
+    // Archivo « large » : instances statiques tirées de la police variable
+    // (Android ne règle pas la largeur d'une police variable).
+    ArchivoExpanded_900Black: require('../assets/fonts/ArchivoExpanded-Black.ttf'),
+    ArchivoExpanded_800ExtraBold: require('../assets/fonts/ArchivoExpanded-ExtraBold.ttf'),
+    Archivo_500Medium,
+    Archivo_600SemiBold,
+    Archivo_700Bold,
+    Archivo_800ExtraBold,
     JetBrainsMono_400Regular,
     JetBrainsMono_700Bold,
     JetBrainsMono_800ExtraBold,
