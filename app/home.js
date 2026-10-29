@@ -1485,11 +1485,11 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
   const ring = scaled(isCompact ? 260 : 320, ui);
   // HH:MM:SS (TABATA de plus d'une heure) ne tient pas dans l'anneau à 110.
   const heroBase = hero.number.length > 5 ? 76 : hero.number.length > 3 ? 110 : 140;
-  // Archivo large est bien plus large qu'Anton : la taille est plafonnée pour
-  // que le chiffre tienne sur UNE ligne dans l'anneau (largeurs mesurées dans
-  // la police réduite à 66 % : chiffres 0,54 em, « : » 0,25 em).
+  // Garde-fou : la taille est plafonnée pour que le chiffre tienne sur UNE
+  // ligne dans l'anneau (largeurs mesurées dans Saira Extra Condensed :
+  // chiffres 0,40 em, « : » 0,23 em, marge pour le crénage).
   const heroEm = [...hero.number].reduce(
-    (w, c) => w + (c === ':' ? 0.25 : c === '.' || c === ',' ? 0.2 : 0.54),
+    (w, c) => w + (c === ':' ? 0.25 : c === '.' || c === ',' ? 0.2 : 0.44),
     0,
   );
   const heroFontSize = Math.min(

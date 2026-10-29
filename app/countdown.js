@@ -159,8 +159,7 @@ export default function Countdown() {
   const crownRadius = R / 2 + 8;
   const crownBox = (crownRadius + 2) * 2;
   const digitSize = Math.round(R * 0.68);
-  // « GO » fait deux lettres en Archivo large : plus petit que les chiffres seuls.
-  const goSize = Math.round(R * 0.36);
+  const goSize = Math.round(R * 0.5);
 
   const glow = useSharedValue(glowRest);
   const pulse = useSharedValue(0);

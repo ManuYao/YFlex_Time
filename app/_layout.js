@@ -5,12 +5,6 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import { useFonts } from 'expo-font';
 import {
-  Archivo_500Medium,
-  Archivo_600SemiBold,
-  Archivo_700Bold,
-  Archivo_800ExtraBold,
-} from '@expo-google-fonts/archivo';
-import {
   JetBrainsMono_400Regular,
   JetBrainsMono_700Bold,
   JetBrainsMono_800ExtraBold,
@@ -65,14 +59,13 @@ setAudioModeAsync({
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
-    // Archivo « large » : instances statiques tirées de la police variable
-    // (Android ne règle pas la largeur d'une police variable).
-    ArchivoExpanded_900Black: require('../assets/fonts/ArchivoExpanded-Black.ttf'),
-    ArchivoExpanded_800ExtraBold: require('../assets/fonts/ArchivoExpanded-ExtraBold.ttf'),
-    Archivo_500Medium,
-    Archivo_600SemiBold,
-    Archivo_700Bold,
-    Archivo_800ExtraBold,
+    // Saira Extra Condensed (chiffres, titres) + Saira (texte) : fichiers
+    // statiques dans assets/fonts (Saira est tirée de la police variable).
+    SairaExtraCondensed_800ExtraBold: require('../assets/fonts/SairaExtraCondensed-ExtraBold.ttf'),
+    Saira_500Medium: require('../assets/fonts/Saira-Medium.ttf'),
+    Saira_600SemiBold: require('../assets/fonts/Saira-SemiBold.ttf'),
+    Saira_700Bold: require('../assets/fonts/Saira-Bold.ttf'),
+    Saira_800ExtraBold: require('../assets/fonts/Saira-ExtraBold.ttf'),
     JetBrainsMono_400Regular,
     JetBrainsMono_700Bold,
     JetBrainsMono_800ExtraBold,
