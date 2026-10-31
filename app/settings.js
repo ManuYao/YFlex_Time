@@ -284,6 +284,8 @@ export default function Settings() {
         // Pesées du suivi de poids (lib/bodyWeight.js) : données personnelles
         // locales, effacées avec le reste.
         'flexTimer_bodyWeight',
+        // Scores des jeux (lib/gameScores.js) : données personnelles locales.
+        'flexTimer_gameScores',
       ]);
     } catch {}
     // Le cache mémoire des catégories perso survivrait à la purge du

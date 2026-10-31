@@ -228,6 +228,16 @@ export default function Hub() {
                 onPress={() => go({ pathname: '/history', params: { page: 'planning' } })}
               />
             </Animated.View>
+            <Animated.View entering={slideInY(24, D.big, 250)} style={styles.tileWrapFull}>
+              <HubTile
+                icon="puzzle"
+                title="Jeux"
+                summary="Fais du sport en t’amusant"
+                rim={tileRim}
+                compact
+                onPress={() => go('/games')}
+              />
+            </Animated.View>
           </View>
         </ScrollView>
       </SafeAreaView>
@@ -236,14 +246,14 @@ export default function Hub() {
 }
 
 // `rim` : liseré teinté de l'ambiance de saison (null = le liseré habituel).
-function HubTile({ icon, title, summary, onPress, rim = null, locked = false }) {
+function HubTile({ icon, title, summary, onPress, rim = null, locked = false, compact = false }) {
   return (
     <PressTap
       onPress={onPress}
       tapScale={0.97}
       accessibilityLabel={locked ? `${title}, réservé à Premium` : title}
       containerStyle={styles.tileContainer}
-      style={[styles.tile, rim ? { borderColor: rim } : null]}
+      style={[styles.tile, compact ? styles.tileCompact : null, rim ? { borderColor: rim } : null]}
     >
       <View style={styles.tileIcon}>
         <AppIcon name={icon} size={26} color="#FFFFFF" />
@@ -423,6 +433,13 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     flexBasis: '45%',
     minWidth: 150,
+  },
+  // Tuile pleine largeur (Jeux), sous la rangée Historique / Planning.
+  tileWrapFull: {
+    flexBasis: '100%',
+  },
+  tileCompact: {
+    minHeight: 0,
   },
   // Les deux tuiles d'une rangée ont la même hauteur, même si l'une des deux
   // résume sur plus de lignes que l'autre.

@@ -178,6 +178,8 @@ export default function RootLayout() {
                   <Stack.Screen name="terms" options={{ animation: 'fade' }} />
                   <Stack.Screen name="privacy" options={{ animation: 'fade' }} />
                   <Stack.Screen name="hub" options={{ animation: 'fade' }} />
+                  <Stack.Screen name="games" options={{ animation: 'fade' }} />
+                  <Stack.Screen name="game-count" options={{ animation: 'fade' }} />
                   <Stack.Screen name="history" options={{ animation: 'fade' }} />
                   <Stack.Screen name="mix-hub" options={{ animation: 'fade' }} />
                   <Stack.Screen name="mix-builder" options={{ animation: 'fade' }} />
