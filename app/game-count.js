@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { BackHandler, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { BackHandler, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
@@ -10,6 +10,8 @@ import Button from '../components/common/Button';
 import PressTap from '../components/common/PressTap';
 import AppIcon from '../components/common/AppIcon';
 import TickRing from '../components/common/TickRing';
+import WheelPicker from '../components/common/WheelPicker';
+import BottomSheet from '../components/common/BottomSheet';
 import { useSettings } from '../contexts/SettingsContext';
 import { haptic } from '../hooks/useHaptic';
 import { fonts } from '../lib/fonts';
@@ -30,6 +32,7 @@ import {
 const GAME = GAMES.pushups;
 const KEEP_AWAKE_TAG = 'flextimer-game';
 const RING = 280;
+const CONFIRM_RANGE = 5;
 // Teinte du jeu : un bleu-vert profond, absent des 5 modes (rouge, gris, vert,
 // jaune, violet), pour que le jeu ait sa propre identité.
 const GAME_BG = ['#0F4252', '#0A2A35', '#04121A'];
@@ -51,6 +54,7 @@ const formatDay = (at) => {
  */
 export default function GameCount() {
   const router = useRouter();
+  const { height } = useWindowDimensions();
   const { settings } = useSettings();
 
   const [phase, setPhase] = useState('ready'); // ready | countdown | playing | done
@@ -68,6 +72,8 @@ export default function GameCount() {
   const countdownTimers = useRef([]);
   const scoresRef = useRef([]);
   const tempoRef = useRef(DEFAULT_TEMPO);
+  const selectedRef = useRef(0);
+  const [finalCount, setFinalCount] = useState(0);
 
   const goPhase = (p) => {
     phaseRef.current = p;
@@ -105,20 +111,36 @@ export default function GameCount() {
   // Quitte l'écran : plus de voix, plus de minuterie.
   useEffect(() => releaseGame, []);
 
-  const finish = async () => {
-    if (phaseRef.current !== 'playing') return;
-    const final = countRef.current;
+  // Enregistre le score définitif (après la confirmation) et montre le résultat.
+  const commitScore = async (value) => {
+    if (phaseRef.current === 'done') return;
     const previousBest = bestScore(scoresRef.current, GAME.id);
-    releaseGame();
     goPhase('done');
-    setSilent(false);
-    setResult({ count: final, record: final > 0 && final > previousBest });
+    setResult({ count: value, record: value > 0 && value > previousBest });
     haptic.success();
-    if (final > 0) {
-      const list = await saveScore({ game: GAME.id, count: final, tempo: tempoRef.current });
+    if (value > 0) {
+      const list = await saveScore({ game: GAME.id, count: value, tempo: tempoRef.current });
       scoresRef.current = list;
       setScores(list);
     }
+  };
+
+  // « J'ai lâché » : on ne peut pas toujours toucher le bouton pile à temps, donc
+  // on demande de confirmer le score, ou de le corriger de 4 au plus vers le bas
+  // (jamais vers le haut : on ne peut pas avoir fait plus que ce qui a été compté).
+  const finish = () => {
+    if (phaseRef.current !== 'playing') return;
+    const final = countRef.current;
+    releaseGame();
+    setSilent(false);
+    if (final <= 0) {
+      commitScore(0);
+      return;
+    }
+    haptic.medium();
+    selectedRef.current = final;
+    setFinalCount(final);
+    goPhase('confirm');
   };
 
   const startPlaying = () => {
@@ -183,6 +205,10 @@ export default function GameCount() {
         finish();
         return true;
       }
+      if (phaseRef.current === 'confirm') {
+        commitScore(selectedRef.current);
+        return true;
+      }
       if (phaseRef.current === 'countdown') {
         cancelCountdown();
         return true;
@@ -198,6 +224,12 @@ export default function GameCount() {
     scoresRef.current = list;
     setScores(list);
   };
+
+  // Les 5 derniers chiffres comptés (le dernier = celui dit avant l'appui).
+  const confirmValues = Array.from(
+    { length: Math.min(CONFIRM_RANGE, finalCount + 1) },
+    (_, i) => finalCount - (Math.min(CONFIRM_RANGE, finalCount + 1) - 1) + i
+  );
 
   const best = bestScore(scores, GAME.id);
   const mine = scores.filter((s) => s.game === GAME.id).slice(0, 8);
@@ -334,6 +366,13 @@ export default function GameCount() {
           </View>
         )}
 
+        {phase === 'confirm' && (
+          <View style={styles.center}>
+            <Text style={styles.tag}>FIN DE PARTIE</Text>
+            <Text style={[styles.bigNumber, styles.bigNumberDim]}>{finalCount}</Text>
+          </View>
+        )}
+
         {phase === 'done' && (
           <>
             {renderTop('Le chef d’orchestre')}
@@ -362,6 +401,40 @@ export default function GameCount() {
           </>
         )}
       </SafeAreaView>
+
+      {/* Même feuille que la roue de l'app : fermer sans valider garde le score. */}
+      {phase === 'confirm' && (
+        <BottomSheet screenH={height} onClose={() => commitScore(selectedRef.current)} zIndex={140}>
+          {({ close }) => (
+            <View>
+              <Text style={styles.sheetKicker}>MODIFIER</Text>
+              <Text style={styles.sheetTitle}>TON SCORE</Text>
+              <Text style={styles.sheetHint}>Tu as lâché avant le bouton ? Corrige de 4 au plus.</Text>
+              <WheelPicker
+                key={finalCount}
+                values={confirmValues}
+                selectedValue={finalCount}
+                type="reps"
+                accentColor={ACCENT}
+                onChange={(v) => {
+                  selectedRef.current = v;
+                }}
+                visibleItems={5}
+              />
+              <Button
+                variant="solid"
+                icon="check"
+                label="Valider"
+                haptic={haptic.medium}
+                onPress={close}
+                fullWidth
+                style={styles.sheetCta}
+              />
+              <Text style={styles.scrollHint}>FAIS DÉFILER POUR CHOISIR</Text>
+            </View>
+          )}
+        </BottomSheet>
+      )}
     </GradientBackground>
   );
 }
@@ -476,6 +549,37 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   bigNumberDim: { color: 'rgba(255,255,255,0.45)' },
+  sheetKicker: {
+    fontFamily: fonts.sansBold,
+    fontSize: 11,
+    letterSpacing: 2,
+    color: 'rgba(255,255,255,0.5)',
+    textAlign: 'center',
+  },
+  sheetTitle: {
+    fontFamily: fonts.sansExtraBold,
+    fontSize: 20,
+    color: '#FFFFFF',
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  sheetHint: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.6)',
+    textAlign: 'center',
+    marginTop: 6,
+    marginBottom: 8,
+  },
+  sheetCta: { marginTop: 16 },
+  scrollHint: {
+    fontFamily: fonts.sansBold,
+    fontSize: 11,
+    letterSpacing: 3,
+    color: 'rgba(255,255,255,0.45)',
+    textAlign: 'center',
+    marginTop: 14,
+  },
   countdownNumber: {
     fontFamily: fonts.display,
     fontSize: 160,
