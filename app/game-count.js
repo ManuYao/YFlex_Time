@@ -141,7 +141,7 @@ export default function GameCount() {
       }
       countRef.current = n;
       caller.say(n);
-      caller.preload(n + 1, 3);
+      caller.preload(n + 1, 2);
       setCount(n);
       const { delayMs, pauseMs } = planAfter(planner, n, tempo.ms);
       setSilent(pauseMs > 0);
@@ -158,7 +158,7 @@ export default function GameCount() {
     ['countdown1', 'countdown2', 'countdown3', 'go'].forEach(preloadSound);
     // Prépare les premiers chiffres pendant le décompte (décodage des MP3).
     callerRef.current = createNumberCaller(settings.voiceGender);
-    callerRef.current.preload(1, 4);
+    callerRef.current.preload(1, 3);
     goPhase('countdown');
     setCountdown(3);
     playSound('countdown1');
