@@ -59,13 +59,13 @@ setAudioModeAsync({
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
-    // Saira Extra Condensed (chiffres, titres) + Saira (texte) : fichiers
-    // statiques dans assets/fonts (Saira est tirée de la police variable).
+    // Saira Extra Condensed (chiffres, titres) + Bricolage Grotesque (texte) :
+    // fichiers statiques dans assets/fonts.
     SairaExtraCondensed_800ExtraBold: require('../assets/fonts/SairaExtraCondensed-ExtraBold.ttf'),
-    Saira_500Medium: require('../assets/fonts/Saira-Medium.ttf'),
-    Saira_600SemiBold: require('../assets/fonts/Saira-SemiBold.ttf'),
-    Saira_700Bold: require('../assets/fonts/Saira-Bold.ttf'),
-    Saira_800ExtraBold: require('../assets/fonts/Saira-ExtraBold.ttf'),
+    BricolageGrotesque_500Medium: require('../assets/fonts/BricolageGrotesque-500Medium.ttf'),
+    BricolageGrotesque_600SemiBold: require('../assets/fonts/BricolageGrotesque-600SemiBold.ttf'),
+    BricolageGrotesque_700Bold: require('../assets/fonts/BricolageGrotesque-700Bold.ttf'),
+    BricolageGrotesque_800ExtraBold: require('../assets/fonts/BricolageGrotesque-800ExtraBold.ttf'),
     JetBrainsMono_400Regular,
     JetBrainsMono_700Bold,
     JetBrainsMono_800ExtraBold,
