@@ -35,7 +35,7 @@ export default function Games() {
   const best = scores ? bestScore(scores, GAMES.pushups.id) : 0;
 
   return (
-    <GradientBackground colors={['#1A1A1A', '#0A0A0A', '#000000']} ambient>
+    <GradientBackground colors={['#0F4252', '#0A2A35', '#04121A']} ambient>
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.topBar}>
           <IconButton
@@ -107,17 +107,17 @@ const styles = StyleSheet.create({
   card: {
     padding: 22,
     borderRadius: 28,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: 'rgba(77,216,232,0.08)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.14)',
+    borderColor: 'rgba(77,216,232,0.28)',
   },
   cardIcon: {
     width: 46,
     height: 46,
     borderRadius: 23,
-    backgroundColor: 'rgba(255,255,255,0.10)',
+    backgroundColor: 'rgba(77,216,232,0.16)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.16)',
+    borderColor: 'rgba(77,216,232,0.38)',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
@@ -126,7 +126,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansBold,
     fontSize: 10,
     letterSpacing: 2.6,
-    color: 'rgba(255,255,255,0.6)',
+    color: '#4DD8E8',
   },
   cardTitle: {
     fontFamily: fonts.sansExtraBold,

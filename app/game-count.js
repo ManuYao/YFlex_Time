@@ -14,7 +14,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { haptic } from '../hooks/useHaptic';
 import { fonts } from '../lib/fonts';
 import { goBackSafe } from '../lib/navigation';
-import { playSound } from '../lib/sounds';
+import { playSound, preloadSound } from '../lib/sounds';
 import { createNumberCaller } from '../lib/gameVoice';
 import { loadScores, saveScore, deleteScore } from '../lib/gameScores';
 import {
@@ -30,6 +30,12 @@ import {
 const GAME = GAMES.pushups;
 const KEEP_AWAKE_TAG = 'flextimer-game';
 const RING = 280;
+// Teinte du jeu : un bleu-vert profond, absent des 5 modes (rouge, gris, vert,
+// jaune, violet), pour que le jeu ait sa propre identité.
+const GAME_BG = ['#0F4252', '#0A2A35', '#04121A'];
+const ACCENT = '#4DD8E8';
+const ACCENT_DIM = 'rgba(77,216,232,0.28)';
+const ACCENT_FAINT = 'rgba(77,216,232,0.12)';
 
 const formatDay = (at) => {
   const d = new Date(at);
@@ -148,6 +154,8 @@ export default function GameCount() {
   const startGame = () => {
     haptic.medium();
     activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(() => {});
+    // Comme le vrai décompte : sons décodés d'avance, sinon le bip final saute.
+    ['countdown1', 'countdown2', 'countdown3', 'go'].forEach(preloadSound);
     // Prépare les premiers chiffres pendant le décompte (décodage des MP3).
     callerRef.current = createNumberCaller(settings.voiceGender);
     callerRef.current.preload(1, 4);
@@ -209,7 +217,7 @@ export default function GameCount() {
   );
 
   return (
-    <GradientBackground colors={['#1A1A1A', '#0A0A0A', '#000000']} ambient>
+    <GradientBackground colors={GAME_BG} ambient>
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         {phase === 'ready' && (
           <>
@@ -305,8 +313,8 @@ export default function GameCount() {
               <TickRing
                 progress={(count % 60) / 60 || (count > 0 ? 1 : 0)}
                 size={RING}
-                colorActive={silent ? 'rgba(255,255,255,0.25)' : '#FFFFFF'}
-                colorInactive="rgba(255,255,255,0.10)"
+                colorActive={silent ? ACCENT_DIM : ACCENT}
+                colorInactive={ACCENT_FAINT}
               />
               <View style={styles.ringCenter} pointerEvents="none">
                 <Text style={[styles.bigNumber, silent && styles.bigNumberDim]}>{count}</Text>
@@ -385,7 +393,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansBold,
     fontSize: 11,
     letterSpacing: 3,
-    color: 'rgba(255,255,255,0.6)',
+    color: ACCENT,
     textAlign: 'center',
   },
   rules: {
@@ -408,13 +416,13 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: 'rgba(77,216,232,0.08)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.14)',
+    borderColor: 'rgba(77,216,232,0.25)',
   },
-  chipOn: { backgroundColor: '#FFFFFF', borderColor: '#FFFFFF' },
+  chipOn: { backgroundColor: ACCENT, borderColor: ACCENT },
   chipText: { fontFamily: fonts.sansBold, fontSize: 13, color: '#FFFFFF' },
-  chipTextOn: { color: '#0A0A0A' },
+  chipTextOn: { color: '#04121A' },
   bestRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -431,9 +439,9 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 14,
     borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: 'rgba(77,216,232,0.07)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
+    borderColor: 'rgba(77,216,232,0.18)',
   },
   scoreCount: { fontFamily: fonts.monoBold, fontSize: 18, color: '#FFFFFF', minWidth: 44 },
   scoreMeta: { flex: 1, fontFamily: fonts.sansMedium, fontSize: 12, color: 'rgba(255,255,255,0.55)' },
@@ -488,6 +496,8 @@ const styles = StyleSheet.create({
     letterSpacing: 3,
     color: '#F0C954',
     marginTop: 14,
+    textShadowColor: 'rgba(240,201,84,0.45)',
+    textShadowRadius: 12,
   },
   bottomBar: {
     position: 'absolute',
