@@ -10,7 +10,7 @@ import AppIcon from '../components/common/AppIcon';
 import { haptic } from '../hooks/useHaptic';
 import { fonts } from '../lib/fonts';
 import { goBackSafe } from '../lib/navigation';
-import { GAMES, bestScore } from '../lib/gameCount';
+import { EXERCISES, bestScore } from '../lib/gameCount';
 import { loadScores } from '../lib/gameScores';
 
 /**
@@ -32,7 +32,7 @@ export default function Games() {
     }, [])
   );
 
-  const best = scores ? bestScore(scores, GAMES.pushups.id) : 0;
+  const best = scores ? Math.max(0, ...Object.keys(EXERCISES).map((id) => bestScore(scores, id))) : 0;
 
   return (
     <GradientBackground colors={['#0F4252', '#0A2A35', '#04121A']} ambient>
@@ -60,13 +60,13 @@ export default function Games() {
               router.push('/game-count');
             }}
             tapScale={0.98}
-            accessibilityLabel="Ouvrir Le chef d’orchestre, pompes"
+            accessibilityLabel="Ouvrir Le chef d’orchestre"
             style={styles.card}
           >
             <View style={styles.cardIcon}>
               <AppIcon name="voice" size={26} color="#FFFFFF" />
             </View>
-            <Text style={styles.cardTag}>POMPES</Text>
+            <Text style={styles.cardTag}>POIDS DU CORPS</Text>
             <Text style={styles.cardTitle}>Le chef d’orchestre</Text>
             <Text style={styles.cardText}>
               Une voix compte. Quand elle se tait, tu t’arrêtes. Quand elle reprend, tu reprends. Qui lâche

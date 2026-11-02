@@ -20,16 +20,21 @@ import { playSound, preloadSound } from '../lib/sounds';
 import { createNumberCaller } from '../lib/gameVoice';
 import { loadScores, saveScore, deleteScore } from '../lib/gameScores';
 import {
+  DEFAULT_EXERCISE,
   DEFAULT_TEMPO,
-  GAMES,
+  EXERCISES,
   MAX_COUNT,
+  MUSCLE_GROUPS,
   TEMPOS,
   bestScore,
+  exercisesOf,
+  getExercise,
   newPlanner,
+  pickRandomExercise,
   planAfter,
+  tempoMs,
 } from '../lib/gameCount';
 
-const GAME = GAMES.pushups;
 const KEEP_AWAKE_TAG = 'flextimer-game';
 const RING = 280;
 const CONFIRM_RANGE = 5;
@@ -59,6 +64,7 @@ export default function GameCount() {
 
   const [phase, setPhase] = useState('ready'); // ready | countdown | playing | done
   const [tempoId, setTempoId] = useState(DEFAULT_TEMPO);
+  const [exerciseId, setExerciseId] = useState(DEFAULT_EXERCISE);
   const [count, setCount] = useState(0);
   const [silent, setSilent] = useState(false);
   const [countdown, setCountdown] = useState(3);
@@ -72,8 +78,16 @@ export default function GameCount() {
   const countdownTimers = useRef([]);
   const scoresRef = useRef([]);
   const tempoRef = useRef(DEFAULT_TEMPO);
+  const exerciseRef = useRef(DEFAULT_EXERCISE);
   const selectedRef = useRef(0);
   const [finalCount, setFinalCount] = useState(0);
+
+  const exercise = getExercise(exerciseId);
+
+  const chooseExercise = (id) => {
+    exerciseRef.current = id;
+    setExerciseId(id);
+  };
 
   const goPhase = (p) => {
     phaseRef.current = p;
@@ -114,12 +128,13 @@ export default function GameCount() {
   // Enregistre le score définitif (après la confirmation) et montre le résultat.
   const commitScore = async (value) => {
     if (phaseRef.current === 'done') return;
-    const previousBest = bestScore(scoresRef.current, GAME.id);
+    const gameId = exerciseRef.current;
+    const previousBest = bestScore(scoresRef.current, gameId);
     goPhase('done');
     setResult({ count: value, record: value > 0 && value > previousBest });
     haptic.success();
     if (value > 0) {
-      const list = await saveScore({ game: GAME.id, count: value, tempo: tempoRef.current });
+      const list = await saveScore({ game: gameId, count: value, tempo: tempoRef.current });
       scoresRef.current = list;
       setScores(list);
     }
@@ -144,10 +159,10 @@ export default function GameCount() {
   };
 
   const startPlaying = () => {
-    const tempo = TEMPOS[tempoRef.current] || TEMPOS[DEFAULT_TEMPO];
+    const stepMs = tempoMs(exerciseRef.current, tempoRef.current);
     const caller = callerRef.current ?? createNumberCaller(settings.voiceGender);
     callerRef.current = caller;
-    const planner = newPlanner();
+    const planner = newPlanner(Math.random, exerciseRef.current);
     countRef.current = 0;
     setCount(0);
     setSilent(false);
@@ -165,7 +180,7 @@ export default function GameCount() {
       caller.say(n);
       caller.preload(n + 1, 2);
       setCount(n);
-      const { delayMs, pauseMs } = planAfter(planner, n, tempo.ms);
+      const { delayMs, pauseMs } = planAfter(planner, n, stepMs);
       setSilent(pauseMs > 0);
       nextAt += delayMs;
       loopTimer.current = setTimeout(tick, Math.max(0, nextAt - Date.now()));
@@ -231,8 +246,8 @@ export default function GameCount() {
     (_, i) => finalCount - (Math.min(CONFIRM_RANGE, finalCount + 1) - 1) + i
   );
 
-  const best = bestScore(scores, GAME.id);
-  const mine = scores.filter((s) => s.game === GAME.id).slice(0, 8);
+  const best = bestScore(scores, exercise.id);
+  const mine = scores.filter((s) => EXERCISES[s.game]).slice(0, 8);
 
   const renderTop = (title) => (
     <View style={styles.topBar}>
@@ -259,11 +274,76 @@ export default function GameCount() {
               contentContainerStyle={styles.readyContent}
               showsVerticalScrollIndicator={false}
             >
-              <Text style={styles.tag}>JEU · {GAME.label.toUpperCase()}</Text>
+              <Text style={styles.tag}>JEU · {exercise.label.toUpperCase()}</Text>
               <Text style={styles.rules}>
                 Une voix compte à voix haute. Dès qu’elle se tait, tu t’arrêtes. Quand elle reprend, tu
                 reprends. Le premier qui lâche appuie sur le bouton.
               </Text>
+
+              <View style={styles.labelRow}>
+                <Text style={styles.sectionLabelInline}>GROUPE MUSCULAIRE</Text>
+                <PressTap
+                  onPress={() => {
+                    haptic.medium();
+                    chooseExercise(pickRandomExercise().id);
+                  }}
+                  tapScale={0.94}
+                  style={styles.randomBtn}
+                  accessibilityLabel="Choisir un exercice au hasard"
+                >
+                  <AppIcon name="repeat" size={14} color={ACCENT} />
+                  <Text style={styles.randomText}>Au hasard</Text>
+                </PressTap>
+              </View>
+              <View style={styles.chips}>
+                {Object.values(MUSCLE_GROUPS).map((g) => {
+                  const on = g.id === exercise.group;
+                  return (
+                    <PressTap
+                      key={g.id}
+                      onPress={() => {
+                        if (on) return;
+                        haptic.selection();
+                        chooseExercise(g.exercises[0]);
+                      }}
+                      tapScale={0.96}
+                      containerStyle={styles.chipWrap}
+                      style={[styles.chip, on && styles.chipOn]}
+                      accessibilityLabel={`Groupe ${g.label}`}
+                    >
+                      <Text style={[styles.chipText, on && styles.chipTextOn]}>{g.label}</Text>
+                    </PressTap>
+                  );
+                })}
+              </View>
+
+              {exercisesOf(exercise.group).length > 1 && (
+                <>
+                  <Text style={styles.sectionLabel}>EXERCICE</Text>
+                  <View style={styles.chips}>
+                    {exercisesOf(exercise.group).map((ex) => {
+                      const on = ex.id === exercise.id;
+                      return (
+                        <PressTap
+                          key={ex.id}
+                          onPress={() => {
+                            haptic.selection();
+                            chooseExercise(ex.id);
+                          }}
+                          tapScale={0.96}
+                          containerStyle={styles.chipWrap}
+                          style={[styles.chip, on && styles.chipOn]}
+                          accessibilityLabel={`Exercice ${ex.label}`}
+                        >
+                          <Text style={[styles.chipText, on && styles.chipTextOn]} numberOfLines={1}>
+                            {ex.label}
+                          </Text>
+                        </PressTap>
+                      );
+                    })}
+                  </View>
+                </>
+              )}
 
               <Text style={styles.sectionLabel}>RYTHME</Text>
               <View style={styles.chips}>
@@ -291,7 +371,7 @@ export default function GameCount() {
               <View style={styles.bestRow}>
                 <AppIcon name="trophies" size={18} color="#FFFFFF" />
                 <Text style={styles.bestText}>
-                  {best > 0 ? `Ton record : ${best} ${GAME.unit}` : 'Pas encore de record — à toi de jouer'}
+                  {best > 0 ? `Ton record : ${best} ${exercise.unit}` : 'Pas encore de record — à toi de jouer'}
                 </Text>
               </View>
 
@@ -311,7 +391,7 @@ export default function GameCount() {
                     <View key={s.id} style={styles.scoreRow}>
                       <Text style={styles.scoreCount}>{s.count}</Text>
                       <Text style={styles.scoreMeta}>
-                        {formatDay(s.at)} · {TEMPOS[s.tempo]?.label ?? ''}
+                        {EXERCISES[s.game].label} · {formatDay(s.at)} · {TEMPOS[s.tempo]?.label ?? ''}
                       </Text>
                       <PressTap
                         onPress={() => handleDelete(s.id)}
@@ -379,10 +459,10 @@ export default function GameCount() {
             <View style={styles.center}>
               <Text style={styles.tag}>TON SCORE</Text>
               <Text style={styles.bigNumber}>{result?.count ?? 0}</Text>
-              <Text style={styles.hint}>{GAME.unit}</Text>
+              <Text style={styles.hint}>{exercise.unit}</Text>
               {result?.record && <Text style={styles.record}>NOUVEAU RECORD</Text>}
               {!result?.record && best > 0 && (
-                <Text style={styles.hint}>Ton record : {best} {GAME.unit}</Text>
+                <Text style={styles.hint}>Ton record : {best} {exercise.unit}</Text>
               )}
               <View style={styles.bottomBar}>
                 <Button
@@ -475,6 +555,30 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     color: 'rgba(255,255,255,0.82)',
   },
+  labelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 8,
+  },
+  sectionLabelInline: {
+    fontFamily: fonts.sansBold,
+    fontSize: 11,
+    letterSpacing: 2.4,
+    color: 'rgba(255,255,255,0.5)',
+  },
+  randomBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: ACCENT_FAINT,
+    borderWidth: 1,
+    borderColor: ACCENT_DIM,
+  },
+  randomText: { fontFamily: fonts.sansBold, fontSize: 12, color: ACCENT },
   sectionLabel: {
     fontFamily: fonts.sansBold,
     fontSize: 11,
