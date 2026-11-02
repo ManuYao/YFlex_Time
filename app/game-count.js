@@ -30,7 +30,6 @@ import {
   exercisesOf,
   getExercise,
   newPlanner,
-  pickRandomExercise,
   planAfter,
   tempoMs,
 } from '../lib/gameCount';
@@ -280,21 +279,7 @@ export default function GameCount() {
                 reprends. Le premier qui lâche appuie sur le bouton.
               </Text>
 
-              <View style={styles.labelRow}>
-                <Text style={styles.sectionLabelInline}>GROUPE MUSCULAIRE</Text>
-                <PressTap
-                  onPress={() => {
-                    haptic.medium();
-                    chooseExercise(pickRandomExercise().id);
-                  }}
-                  tapScale={0.94}
-                  style={styles.randomBtn}
-                  accessibilityLabel="Choisir un exercice au hasard"
-                >
-                  <AppIcon name="repeat" size={14} color={ACCENT} />
-                  <Text style={styles.randomText}>Au hasard</Text>
-                </PressTap>
-              </View>
+              <Text style={styles.sectionLabel}>GROUPE MUSCULAIRE</Text>
               <View style={styles.chips}>
                 {Object.values(MUSCLE_GROUPS).map((g) => {
                   const on = g.id === exercise.group;
@@ -332,10 +317,10 @@ export default function GameCount() {
                           }}
                           tapScale={0.96}
                           containerStyle={styles.chipWrap}
-                          style={[styles.chip, on && styles.chipOn]}
+                          style={[styles.chip, on && styles.chipSoftOn]}
                           accessibilityLabel={`Exercice ${ex.label}`}
                         >
-                          <Text style={[styles.chipText, on && styles.chipTextOn]} numberOfLines={1}>
+                          <Text style={[styles.chipText, on && styles.chipTextSoftOn]} numberOfLines={1}>
                             {ex.label}
                           </Text>
                         </PressTap>
@@ -359,10 +344,10 @@ export default function GameCount() {
                       }}
                       tapScale={0.96}
                       containerStyle={styles.chipWrap}
-                      style={[styles.chip, on && styles.chipOn]}
+                      style={[styles.chip, on && styles.chipSoftOn]}
                       accessibilityLabel={`Rythme ${t.label}`}
                     >
-                      <Text style={[styles.chipText, on && styles.chipTextOn]}>{t.label}</Text>
+                      <Text style={[styles.chipText, on && styles.chipTextSoftOn]}>{t.label}</Text>
                     </PressTap>
                   );
                 })}
@@ -555,30 +540,6 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     color: 'rgba(255,255,255,0.82)',
   },
-  labelRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 8,
-  },
-  sectionLabelInline: {
-    fontFamily: fonts.sansBold,
-    fontSize: 11,
-    letterSpacing: 2.4,
-    color: 'rgba(255,255,255,0.5)',
-  },
-  randomBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: ACCENT_FAINT,
-    borderWidth: 1,
-    borderColor: ACCENT_DIM,
-  },
-  randomText: { fontFamily: fonts.sansBold, fontSize: 12, color: ACCENT },
   sectionLabel: {
     fontFamily: fonts.sansBold,
     fontSize: 11,
@@ -593,13 +554,17 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(77,216,232,0.08)',
+    backgroundColor: 'rgba(255,255,255,0.05)',
     borderWidth: 1,
-    borderColor: 'rgba(77,216,232,0.25)',
+    borderColor: 'rgba(255,255,255,0.14)',
   },
   chipOn: { backgroundColor: ACCENT, borderColor: ACCENT },
   chipText: { fontFamily: fonts.sansBold, fontSize: 13, color: '#FFFFFF' },
   chipTextOn: { color: '#04121A' },
+  // Sélection douce (exercice, rythme) : fond blanc léger, pas de bleu plein,
+  // pour qu'un seul rang (le groupe) porte la couleur vive.
+  chipSoftOn: { backgroundColor: 'rgba(255,255,255,0.16)', borderColor: 'rgba(255,255,255,0.7)' },
+  chipTextSoftOn: { color: '#FFFFFF' },
   bestRow: {
     flexDirection: 'row',
     alignItems: 'center',
