@@ -84,21 +84,23 @@ export default function MixLibrarySheet({
     // publié ou non : le repère EN LIGNE / PRIVÉ est sur chaque ligne) et les mix
     // SAUVEGARDÉS (pris chez les autres, par le fil ou par un lien d'ami).
     // `published` / `privateCount` ne servent qu'à la ligne des limites gratuites.
+    // Trois volets lisibles d'un coup d'œil : PRIVÉS (que moi), PUBLIÉS (en
+    // ligne dans le fil), SAUVEGARDÉS (créés par d'autres). Sans réseau ou sans
+    // compte on ne sait pas ce qui est publié : tout reste dans les privés.
+    const known = pubs.status === 'ok';
     const mine = [];
+    const published = [];
     const fromFeed = [];
-    let published = 0;
     for (const m of library) {
       if (isFeedMix(m, ownIds)) fromFeed.push(m);
-      else {
-        mine.push(m);
-        if (assigned.get(m.id)) published += 1;
-      }
+      else if (known && assigned.get(m.id)) published.push(m);
+      else mine.push(m);
     }
-    return { mine, fromFeed, published, privateCount: mine.length - published };
-  }, [library, ownIds, assigned]);
+    return { mine, published, fromFeed, known };
+  }, [library, ownIds, assigned, pubs.status]);
   const { isPremium } = usePremium();
-  // Créations ouvertes au départ, le reste fermé : moins de lignes à afficher.
-  const [open, setOpen] = useState({ mine: true, fromFeed: false });
+  // Privés et publiés ouverts au départ, le reste fermé : moins de lignes à afficher.
+  const [open, setOpen] = useState({ mine: true, published: true, fromFeed: false });
   const toggle = (key) => {
     haptic.light();
     setOpen((o) => ({ ...o, [key]: !o[key] }));
@@ -127,9 +129,8 @@ export default function MixLibrarySheet({
 
   const renderRow = (m, { feed }) => {
     const total = getMixTotalDuration(m.blocks || []);
-    // Le repère de publication ne concerne que MES créations.
+    // La publication à retirer avec le mix (seulement pour MES créations).
     const published = !feed && pubs.status === 'ok' ? assigned.get(m.id) ?? null : null;
-    const showPrivate = !feed && pubs.status === 'ok' && !published;
     const author = feed ? m.fromFeed?.author : null;
     return (
       <View key={m.id} style={styles.libRow}>
@@ -154,18 +155,6 @@ export default function MixLibrarySheet({
           <View style={{ flex: 1 }}>
             <View style={styles.nameLine}>
               <Text style={styles.libName} numberOfLines={1}>{m.name}</Text>
-              {!!published && (
-                <View style={styles.onlinePill}>
-                  <AppIcon name="globe" size={10} color={ONLINE} />
-                  <Text style={styles.onlineText}>EN LIGNE</Text>
-                </View>
-              )}
-              {showPrivate && (
-                <View style={styles.privatePill}>
-                  <AppIcon name="lock" size={10} color="rgba(255,255,255,0.45)" />
-                  <Text style={styles.privateText}>PRIVÉ</Text>
-                </View>
-              )}
             </View>
             <Text style={styles.libMeta} numberOfLines={1}>
               {(m.blocks?.length || 0)} blocs · {hasEstimatedDuration(m.blocks) ? '~' : ''}
@@ -211,6 +200,30 @@ export default function MixLibrarySheet({
     );
   };
 
+  // Un volet : titre + compteur (n / limite en gratuit), phrase d'explication,
+  // puis les lignes. Un volet vide n'est pas affiché.
+  const renderGroup = ({ key, items, title, limit, sub, color, icon, feed }) => {
+    if (items.length === 0) return null;
+    const tint = color ? { color } : null;
+    return (
+      <View style={styles.group}>
+        <Pressable onPress={() => toggle(key)} style={styles.groupHead} hitSlop={6}>
+          {!!icon && <AppIcon name={icon} size={11} color={color} />}
+          <Text style={[styles.groupTitle, styles.groupTitleFlex, tint]}>
+            {title} · {isPremium ? items.length : `${items.length} / ${limit}`}
+          </Text>
+          <Chevron open={open[key]} />
+        </Pressable>
+        {open[key] && (
+          <>
+            {!!sub && <Text style={styles.groupSub}>{sub}</Text>}
+            <View style={styles.libList}>{items.map((m) => renderRow(m, { feed }))}</View>
+          </>
+        )}
+      </View>
+    );
+  };
+
   return (
     <BottomSheet screenH={screenH} onClose={handleClosed}>
       {({ close: sheetClose }) => {
@@ -235,47 +248,35 @@ export default function MixLibrarySheet({
 
             {library.length === 0 && <Text style={styles.libEmpty}>{emptyText}</Text>}
 
-            {groups.mine.length > 0 && (
-              <View style={styles.group}>
-                <Pressable onPress={() => toggle('mine')} style={styles.groupHead} hitSlop={6}>
-                  <Text style={[styles.groupTitle, styles.groupTitleFlex]}>
-                    MES CRÉATIONS · {groups.mine.length}
-                  </Text>
-                  <Chevron open={open.mine} />
-                </Pressable>
-                {open.mine && (
-                  <>
-                    <View style={styles.libList}>{groups.mine.map((m) => renderRow(m, { feed: false }))}</View>
-                    {!isPremium && (
-                      <Text style={styles.groupNote}>
-                        Gratuit : {groups.privateCount} / {FREE_CREATIONS} créations privées
-                        {pubs.status === 'ok' ? ` · ${groups.published} / ${FREE_PUBLISHED_MIXES} publiées` : ''}
-                      </Text>
-                    )}
-                  </>
-                )}
-              </View>
-            )}
+            {renderGroup({
+              key: 'mine',
+              items: groups.mine,
+              title: groups.known ? 'MES CRÉATIONS PRIVÉES' : 'MES CRÉATIONS',
+              limit: FREE_CREATIONS,
+              sub: groups.known ? 'Que toi : personne ne les voit.' : null,
+              feed: false,
+            })}
 
-            {groups.fromFeed.length > 0 && (
-              <View style={styles.group}>
-                <Pressable onPress={() => toggle('fromFeed')} style={styles.groupHead} hitSlop={6}>
-                  <AppIcon name="globe" size={11} color="rgba(149,117,255,0.9)" />
-                  <Text style={[styles.groupTitle, styles.groupTitleFlex, { color: 'rgba(149,117,255,0.9)' }]}>
-                    SAUVEGARDÉS · {isPremium ? groups.fromFeed.length : `${groups.fromFeed.length} / ${FREE_DOWNLOADS}`}
-                  </Text>
-                  <Chevron open={open.fromFeed} />
-                </Pressable>
-                {open.fromFeed && (
-                  <>
-                    <View style={styles.libList}>{groups.fromFeed.map((m) => renderRow(m, { feed: true }))}</View>
-                    <Text style={styles.groupNote}>
-                      Créés par d'autres : tu peux les modifier, ils restent dans cette liste.
-                    </Text>
-                  </>
-                )}
-              </View>
-            )}
+            {renderGroup({
+              key: 'published',
+              items: groups.published,
+              title: 'MES MIX PUBLIÉS',
+              limit: FREE_PUBLISHED_MIXES,
+              sub: 'En ligne dans le fil public : tout le monde peut les voir.',
+              color: ONLINE,
+              icon: 'globe',
+              feed: false,
+            })}
+
+            {renderGroup({
+              key: 'fromFeed',
+              items: groups.fromFeed,
+              title: 'SAUVEGARDÉS',
+              limit: FREE_DOWNLOADS,
+              sub: 'Créés par d’autres (fil public ou ami) : tu peux les modifier.',
+              color: 'rgba(149,117,255,0.9)',
+              feed: true,
+            })}
 
             {!!notice && (
               <Text style={[styles.notice, { color: notice.ok ? '#1FC777' : '#FF5454' }]}>{notice.text}</Text>
@@ -385,39 +386,14 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     letterSpacing: -0.2,
   },
-  onlinePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 999,
-    backgroundColor: 'rgba(31,199,119,0.14)',
-    borderWidth: 1,
-    borderColor: 'rgba(31,199,119,0.45)',
-  },
-  onlineText: {
-    fontFamily: fonts.monoBold,
-    fontSize: 8.5,
-    letterSpacing: 1,
-    color: ONLINE,
-  },
-  privatePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-  },
-  privateText: {
-    fontFamily: fonts.monoBold,
-    fontSize: 8.5,
-    letterSpacing: 1,
-    color: 'rgba(255,255,255,0.45)',
+  groupSub: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 11,
+    lineHeight: 15,
+    color: 'rgba(255,255,255,0.40)',
+    marginTop: -4,
+    marginBottom: 10,
+    paddingHorizontal: 2,
   },
   libMeta: {
     fontFamily: fonts.monoRegular,
