@@ -612,7 +612,7 @@ export default function GamePyramid() {
                 colorInactive={ACCENT_FAINT}
               />
               <View style={styles.ringCenter} pointerEvents="none">
-                <Text style={styles.bigNumber}>{restLeft}</Text>
+                <Text style={[styles.bigNumber, restLeft === 1 && styles.countdownGo]}>{restLeft}</Text>
               </View>
             </View>
             <Text style={styles.hint}>
@@ -889,7 +889,9 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     includeFontPadding: false,
   },
-  // Le « 1 » final prend la couleur du jeu : c'est le moment de commencer.
+  // Le « 1 » final prend la couleur du jeu : c'est le moment de commencer (décompte de
+  // départ ET dernier « 1 » du repos de la pyramide, sinon il se confond avec le « 1 » de
+  // la première répétition de la série, blanc lui aussi).
   countdownGo: { color: ACCENT },
   hint: {
     fontFamily: fonts.sansSemibold,
