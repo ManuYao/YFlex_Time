@@ -16,8 +16,9 @@ import { haptic } from '../../hooks/useHaptic';
  *  - `rightLabel` / `rightValue` : le chiffre d'en-tête quand elle est ouverte (ou
  *    toujours, sans `summary`).
  *  - `dot` : pastille de couleur devant le titre (une couleur de jeu).
- *  - `bare` : sans le cadre de carte, pour une rubrique rangée DANS une autre carte
- *    (un petit groupe en contient plusieurs, séparées par un `FoldDivider`).
+ *  - `block` : une rubrique rangée DANS une autre carte (un petit groupe en contient
+ *    plusieurs, séparées par un `FoldGap`) : son propre bloc, plus discret qu'une
+ *    carte, pour que chaque rubrique se détache de ses voisines.
  */
 export default function FoldPanel({
   title,
@@ -27,7 +28,7 @@ export default function FoldPanel({
   rightValue,
   dot,
   foldable = false,
-  bare = false,
+  block = false,
   children,
 }) {
   const [open, setOpen] = useState(false);
@@ -67,7 +68,7 @@ export default function FoldPanel({
   );
 
   return (
-    <View style={bare ? null : styles.card}>
+    <View style={block ? styles.block : styles.card}>
       {foldable ? (
         <PressTap
           onPress={() => {
@@ -93,22 +94,30 @@ export default function FoldPanel({
   );
 }
 
-// Trait fin entre deux rubriques rangées dans le même petit groupe.
-export function FoldDivider() {
-  return <View style={styles.divider} />;
+// Espace entre deux blocs rangés dans le même petit groupe.
+export function FoldGap() {
+  return <View style={styles.gap} />;
 }
 
 const styles = StyleSheet.create({
-  divider: { height: StyleSheet.hairlineWidth, backgroundColor: 'rgba(255,255,255,0.10)', marginVertical: 16 },
+  gap: { height: 12 },
   card: {
     backgroundColor: 'rgba(255,255,255,0.04)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.10)',
     borderRadius: 18,
-    padding: 16,
+    padding: 14,
+  },
+  // Un bloc dans un petit groupe : plus clair que la carte autour, sans bord marqué.
+  block: {
+    backgroundColor: 'rgba(255,255,255,0.055)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 14,
+    padding: 14,
   },
   head: { flexDirection: 'row', alignItems: 'center' },
-  headOpen: { alignItems: 'flex-start', marginBottom: 14 },
+  headOpen: { alignItems: 'flex-start', marginBottom: 16 },
   headText: { flexGrow: 1, flexShrink: 1 },
   titleRow: { flexDirection: 'row', alignItems: 'center' },
   dot: { width: 8, height: 8, borderRadius: 4, marginRight: 8 },

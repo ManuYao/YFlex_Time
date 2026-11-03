@@ -3,7 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import AppIcon from '../common/AppIcon';
 import BarChart from '../common/BarChart';
-import FoldPanel, { FoldDivider } from '../common/FoldPanel';
+import FoldPanel, { FoldGap } from '../common/FoldPanel';
 import { fonts } from '../../lib/fonts';
 import { GOLD } from '../../lib/buttonTokens';
 import { withAlpha } from '../../lib/phase-colors';
@@ -33,9 +33,9 @@ export default function GameStatsCards({ stats }) {
         </View>
         {stats.plays >= 2 ? (
           <>
-            <FoldDivider />
+            <FoldGap />
             <FoldPanel
-              bare
+              block
               title="Parties par semaine"
               subtitle={stats.favorite ? `8 dernières semaines · favori : ${stats.favorite.label}` : '8 dernières semaines, tous jeux confondus'}
             >
@@ -176,7 +176,7 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.45)',
   },
 
-  miniTiles: { flexDirection: 'row', gap: 8, marginBottom: 14 },
+  miniTiles: { flexDirection: 'row', gap: 8, marginBottom: 12 },
   miniTile: {
     flexGrow: 1,
     flexBasis: 0,
@@ -200,7 +200,15 @@ const styles = StyleSheet.create({
     includeFontPadding: false,
   },
 
-  series: { marginBottom: 12 },
+  // Le graphique et les faits de chaque jeu : chacun son bloc, comme dans « Tes séances ».
+  series: {
+    marginBottom: 12,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: 'rgba(255,255,255,0.055)',
+  },
   seriesHead: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   seriesCaption: {
     flexGrow: 1,
@@ -217,7 +225,14 @@ const styles = StyleSheet.create({
   },
   deltaText: { fontFamily: fonts.monoBold, fontSize: 11, color: GOLD },
 
-  facts: { gap: 6 },
+  facts: {
+    gap: 8,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: 'rgba(255,255,255,0.055)',
+  },
   fact: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   factText: { flex: 1, fontFamily: fonts.sansMedium, fontSize: 12.5, color: 'rgba(255,255,255,0.7)' },
 });

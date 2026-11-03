@@ -116,6 +116,7 @@ function Hero({ icon, title, subtitle, accent, hero }) {
           <Text style={styles.bigValue} numberOfLines={1}>
             {value}
           </Text>
+          {/* Le libellé (et les points) est centré sur les CHIFFRES, pas sur la boîte du texte. */}
           <View style={styles.bigSide}>
             <Text style={styles.bigLabel}>{label}</Text>
             {dots.length > 0 ? (
@@ -177,9 +178,13 @@ const styles = StyleSheet.create({
   },
   openChevron: { fontFamily: fonts.sansBold, fontSize: 22, marginTop: -2, transform: [{ rotate: '90deg' }] },
 
-  bigRow: { flexDirection: 'row', alignItems: 'flex-end' },
+  // Les chiffres de cette police se posent plus haut que le milieu de leur boîte de
+  // texte (vide en bas, pour les jambages) : centré tel quel, le libellé tombait trop
+  // bas. Le `marginBottom` remonte son centre de la moitié de sa valeur (18 → 9 dp),
+  // le décalage mesuré sur téléphone entre le milieu des chiffres et celui de la boîte.
+  bigRow: { flexDirection: 'row', alignItems: 'center' },
   bigValue: { fontFamily: fonts.display, fontSize: 64, color: '#FFFFFF', includeFontPadding: false },
-  bigSide: { marginLeft: 10, marginBottom: 8 },
+  bigSide: { marginLeft: 10, marginBottom: 18 },
   bigLabel: { fontFamily: fonts.monoBold, fontSize: 10, letterSpacing: 1.6, color: 'rgba(255,255,255,0.6)' },
   dots: { flexDirection: 'row', gap: 5, marginTop: 6 },
   dot: { width: 7, height: 7, borderRadius: 4 },
@@ -235,10 +240,10 @@ const styles = StyleSheet.create({
   chevronOpen: { transform: [{ rotate: '-90deg' }] },
   // Les petits groupes : un trait fin à gauche, ils « pendent » du grand.
   children: {
-    gap: 10,
-    marginTop: 10,
-    marginLeft: 14,
-    paddingLeft: 12,
+    gap: 12,
+    marginTop: 12,
+    marginLeft: 10,
+    paddingLeft: 10,
     borderLeftWidth: 2,
     borderLeftColor: 'rgba(255,255,255,0.12)',
   },
