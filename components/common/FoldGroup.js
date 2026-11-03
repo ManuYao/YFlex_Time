@@ -82,8 +82,10 @@ export default function FoldGroup({ icon, title, subtitle, accent = '#FFFFFF', h
   );
 }
 
-// Diamètre de l'anneau en filigrane (dp).
+// Diamètre de l'anneau en filigrane (dp), et part maximale de ses 60 graduations
+// allumées (0,07 = 4 traits, depuis midi).
 const RING_SIZE = 200;
+const RING_LIT_MAX = 0.07;
 
 // Fond PLEIN des trois repères du bas (accent très dilué sur le fond sombre). Il doit
 // être opaque : un fond translucide laisse voir l'anneau de graduations qui passe
@@ -105,10 +107,11 @@ function Hero({ icon, title, subtitle, accent, hero }) {
   const { value, label, ring = 0, bars = [], tiles = [], dots = [] } = hero;
   const [digitMid, setDigitMid] = useState(measuredDigitMid);
   const tileBg = solidTileBg(accent);
-  // Plus l'anneau est rempli, plus ses graduations allumées sont discrètes : quelques
-  // traits à 50 % se lisent comme un filigrane, mais un anneau entièrement allumé
-  // (le meilleur résultat tout juste égalé) devenait le premier élément de la carte.
-  const ringAlpha = 0.5 - 0.3 * Math.min(1, Math.max(0, ring));
+  // Seules quelques graduations s'allument, en partant de midi : c'est le trait un peu
+  // plus clair en haut de l'anneau. Un anneau entièrement allumé (la période en cours
+  // égale ton meilleur résultat) devenait le premier élément de la carte, alors que ce
+  // n'est qu'un filigrane : on plafonne, pour que tous les anneaux se ressemblent.
+  const ringLit = Math.min(Math.max(ring, 0), RING_LIT_MAX);
 
   // Où se trouve le MILIEU des chiffres dans la boîte du texte ? Cela dépend de la
   // police (le vide sous les chiffres, pour les jambages, n'est pas le même partout) :
@@ -126,7 +129,7 @@ function Hero({ icon, title, subtitle, accent, hero }) {
     <View style={[styles.hero, { borderColor: withAlpha(accent, 0.34), backgroundColor: withAlpha(accent, 0.07) }]}>
       {/* Anneau de graduations en filigrane, rogné dans le coin. */}
       <View style={styles.ring} pointerEvents="none">
-        <TickRing progress={ring} size={RING_SIZE} colorActive={withAlpha(accent, ringAlpha)} colorInactive="rgba(255,255,255,0.07)" />
+        <TickRing progress={ringLit} size={RING_SIZE} colorActive={withAlpha(accent, 0.5)} colorInactive="rgba(255,255,255,0.07)" />
       </View>
 
       <View style={styles.heroHead}>
