@@ -82,9 +82,27 @@ export default function FoldGroup({ icon, title, subtitle, accent = '#FFFFFF', h
   );
 }
 
+// Hauteur du milieu des chiffres, mesurée une fois sur le téléphone (elle ne dépend
+// que de la police) : les cartes qu'on replie puis rouvre n'attendent plus la mesure.
+let measuredDigitMid = null;
+
 // La grande carte pliée.
 function Hero({ icon, title, subtitle, accent, hero }) {
   const { value, label, ring = 0, bars = [], tiles = [], dots = [] } = hero;
+  const [digitMid, setDigitMid] = useState(measuredDigitMid);
+
+  // Où se trouve le MILIEU des chiffres dans la boîte du texte ? Cela dépend de la
+  // police (le vide sous les chiffres, pour les jambages, n'est pas le même partout) :
+  // on le lit dans la mise en page réelle du texte (haut des chiffres = ligne de base
+  // moins la hauteur des capitales) plutôt que de le deviner.
+  const onDigitsLayout = (e) => {
+    const line = e.nativeEvent?.lines?.[0];
+    if (!line) return;
+    const mid = line.y + line.ascender - line.capHeight / 2;
+    if (!Number.isFinite(mid) || mid <= 0) return;
+    measuredDigitMid = mid;
+    setDigitMid((prev) => (prev !== null && Math.abs(prev - mid) < 0.5 ? prev : mid));
+  };
   return (
     <View style={[styles.hero, { borderColor: withAlpha(accent, 0.34), backgroundColor: withAlpha(accent, 0.07) }]}>
       {/* Anneau de graduations en filigrane, rogné dans le coin. */}
@@ -113,11 +131,12 @@ function Hero({ icon, title, subtitle, accent, hero }) {
 
       <View>
         <View style={styles.bigRow}>
-          <Text style={styles.bigValue} numberOfLines={1}>
+          <Text style={styles.bigValue} numberOfLines={1} onTextLayout={onDigitsLayout}>
             {value}
           </Text>
-          {/* Le libellé (et les points) est centré sur les CHIFFRES, pas sur la boîte du texte. */}
-          <View style={styles.bigSide}>
+          {/* Le libellé (et les points) est centré sur les CHIFFRES, pas sur la boîte du texte :
+              une boîte deux fois plus haute que le milieu des chiffres, contenu centré dedans. */}
+          <View style={[styles.bigSide, digitMid === null ? styles.bigSideWait : { height: digitMid * 2 }]}>
             <Text style={styles.bigLabel}>{label}</Text>
             {dots.length > 0 ? (
               <View style={styles.dots}>
@@ -179,12 +198,13 @@ const styles = StyleSheet.create({
   openChevron: { fontFamily: fonts.sansBold, fontSize: 22, marginTop: -2, transform: [{ rotate: '90deg' }] },
 
   // Les chiffres de cette police se posent plus haut que le milieu de leur boîte de
-  // texte (vide en bas, pour les jambages) : centré tel quel, le libellé tombait trop
-  // bas. Le `marginBottom` remonte son centre de la moitié de sa valeur (18 → 9 dp),
-  // le décalage mesuré sur téléphone entre le milieu des chiffres et celui de la boîte.
-  bigRow: { flexDirection: 'row', alignItems: 'center' },
+  // texte (vide en bas, pour les jambages) : ni « en bas » ni « au milieu de la
+  // boîte » ne tombe pile en face d'eux. `bigSide` prend donc la hauteur mesurée dans
+  // Hero (jusqu'à la mesure, invisible : un instant, à l'ouverture de la page).
+  bigRow: { flexDirection: 'row', alignItems: 'flex-start' },
   bigValue: { fontFamily: fonts.display, fontSize: 64, color: '#FFFFFF', includeFontPadding: false },
-  bigSide: { marginLeft: 10, marginBottom: 18 },
+  bigSide: { marginLeft: 10, justifyContent: 'center' },
+  bigSideWait: { opacity: 0 },
   bigLabel: { fontFamily: fonts.monoBold, fontSize: 10, letterSpacing: 1.6, color: 'rgba(255,255,255,0.6)' },
   dots: { flexDirection: 'row', gap: 5, marginTop: 6 },
   dot: { width: 7, height: 7, borderRadius: 4 },
