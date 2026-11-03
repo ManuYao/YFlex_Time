@@ -19,6 +19,7 @@ import Button from '../components/common/Button';
 import PressTap from '../components/common/PressTap';
 import AppIcon from '../components/common/AppIcon';
 import TickRing from '../components/common/TickRing';
+import GameScoreList from '../components/screens/GameScoreList';
 import { useSettings } from '../contexts/SettingsContext';
 import { haptic } from '../hooks/useHaptic';
 import { useKeyboardHeight, scrollToFocusedInput } from '../hooks/useKeyboardHeight';
@@ -64,6 +65,8 @@ const formatDay = (at) => {
   const d = new Date(at);
   return `${d.getDate()}/${d.getMonth() + 1}`;
 };
+
+const scoreValue = (s) => s.total;
 
 // Taille du mot selon sa longueur, pour qu'il tienne dans l'anneau.
 const wordSize = (len) => (len <= 4 ? 104 : len <= 6 ? 80 : len <= 8 ? 62 : len <= 10 ? 50 : 42);
@@ -324,7 +327,6 @@ export default function GameCombo() {
   const problem = setupProblem(setup);
   const loadingAudio = !problem && !audioReady;
   const best = bestComboScore(scores, tempoId);
-  const mine = scores.slice(0, 8);
   const ring = Math.min(RING, Math.round(height * 0.34));
   const live = cfgRef.current?.setup;
   const callWord = call && live ? live[call.side].word : '';
@@ -454,28 +456,29 @@ export default function GameCombo() {
                   fullWidth
                 />
 
-                {mine.length > 0 && (
-                  <View style={styles.history}>
-                    <Text style={styles.sectionLabel}>MES SCORES</Text>
-                    {mine.map((s) => (
-                      <View key={s.id} style={styles.scoreRow}>
-                        <Text style={styles.scoreCount}>{s.total}</Text>
-                        <Text style={styles.scoreMeta} numberOfLines={1}>
-                          {TEMPOS[s.tempo]?.label} · {s.detail || s.words} · {formatDay(s.at)}
-                          {s.complete ? ' · terminée' : ''}
-                        </Text>
-                        <PressTap
-                          onPress={() => handleDelete(s.id)}
-                          tapScale={0.9}
-                          style={styles.scoreDelete}
-                          accessibilityLabel="Supprimer ce score"
-                        >
-                          <AppIcon name="close" size={14} color="rgba(255,255,255,0.7)" />
-                        </PressTap>
-                      </View>
-                    ))}
-                  </View>
-                )}
+                <GameScoreList
+                  scores={scores}
+                  accent={ACCENT}
+                  getValue={scoreValue}
+                  renderRow={(s, inDay) => (
+                    <View style={styles.scoreRow}>
+                      <Text style={styles.scoreCount}>{s.total}</Text>
+                      <Text style={styles.scoreMeta} numberOfLines={1}>
+                        {TEMPOS[s.tempo]?.label} · {s.detail || s.words}
+                        {inDay ? '' : ` · ${formatDay(s.at)}`}
+                        {s.complete ? ' · terminée' : ''}
+                      </Text>
+                      <PressTap
+                        onPress={() => handleDelete(s.id)}
+                        tapScale={0.9}
+                        style={styles.scoreDelete}
+                        accessibilityLabel="Supprimer ce score"
+                      >
+                        <AppIcon name="close" size={14} color="rgba(255,255,255,0.7)" />
+                      </PressTap>
+                    </View>
+                  )}
+                />
               </View>
               <Animated.View style={liftStyle} />
             </ScrollView>
@@ -698,7 +701,6 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   bestText: { fontFamily: fonts.sansSemibold, fontSize: 14, color: '#FFFFFF', flex: 1 },
-  history: { marginTop: 10, gap: 8 },
   scoreRow: {
     flexDirection: 'row',
     alignItems: 'center',

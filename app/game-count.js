@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BackHandler, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -12,6 +12,7 @@ import AppIcon from '../components/common/AppIcon';
 import TickRing from '../components/common/TickRing';
 import WheelPicker from '../components/common/WheelPicker';
 import BottomSheet from '../components/common/BottomSheet';
+import GameScoreList from '../components/screens/GameScoreList';
 import { useSettings } from '../contexts/SettingsContext';
 import { haptic } from '../hooks/useHaptic';
 import { fonts } from '../lib/fonts';
@@ -48,6 +49,8 @@ const formatDay = (at) => {
   const d = new Date(at);
   return `${d.getDate()}/${d.getMonth() + 1}`;
 };
+
+const scoreValue = (s) => s.count;
 
 /**
  * « Le chef d'orchestre » (pompes) — une voix compte 1, 2, 3… et, de temps en
@@ -246,7 +249,7 @@ export default function GameCount() {
   );
 
   const best = bestScore(scores, exercise.id);
-  const mine = scores.filter((s) => EXERCISES[s.game]).slice(0, 8);
+  const mine = useMemo(() => scores.filter((s) => EXERCISES[s.game]), [scores]);
 
   const renderTop = (title) => (
     <View style={styles.topBar}>
@@ -369,27 +372,28 @@ export default function GameCount() {
                 fullWidth
               />
 
-              {mine.length > 0 && (
-                <View style={styles.history}>
-                  <Text style={styles.sectionLabel}>MES SCORES</Text>
-                  {mine.map((s) => (
-                    <View key={s.id} style={styles.scoreRow}>
-                      <Text style={styles.scoreCount}>{s.count}</Text>
-                      <Text style={styles.scoreMeta}>
-                        {EXERCISES[s.game].label} · {formatDay(s.at)} · {TEMPOS[s.tempo]?.label ?? ''}
-                      </Text>
-                      <PressTap
-                        onPress={() => handleDelete(s.id)}
-                        tapScale={0.9}
-                        style={styles.scoreDelete}
-                        accessibilityLabel="Supprimer ce score"
-                      >
-                        <AppIcon name="close" size={14} color="rgba(255,255,255,0.7)" />
-                      </PressTap>
-                    </View>
-                  ))}
-                </View>
-              )}
+              <GameScoreList
+                scores={mine}
+                accent={ACCENT}
+                getValue={scoreValue}
+                renderRow={(s, inDay) => (
+                  <View style={styles.scoreRow}>
+                    <Text style={styles.scoreCount}>{s.count}</Text>
+                    <Text style={styles.scoreMeta}>
+                      {EXERCISES[s.game].label}
+                      {inDay ? '' : ` · ${formatDay(s.at)}`} · {TEMPOS[s.tempo]?.label ?? ''}
+                    </Text>
+                    <PressTap
+                      onPress={() => handleDelete(s.id)}
+                      tapScale={0.9}
+                      style={styles.scoreDelete}
+                      accessibilityLabel="Supprimer ce score"
+                    >
+                      <AppIcon name="close" size={14} color="rgba(255,255,255,0.7)" />
+                    </PressTap>
+                  </View>
+                )}
+              />
             </ScrollView>
           </>
         )}
@@ -573,7 +577,6 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   bestText: { fontFamily: fonts.sansSemibold, fontSize: 14, color: '#FFFFFF' },
-  history: { marginTop: 10, gap: 8 },
   scoreRow: {
     flexDirection: 'row',
     alignItems: 'center',

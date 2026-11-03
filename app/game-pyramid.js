@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BackHandler, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -12,6 +12,7 @@ import AppIcon from '../components/common/AppIcon';
 import TickRing from '../components/common/TickRing';
 import WheelPicker from '../components/common/WheelPicker';
 import BottomSheet from '../components/common/BottomSheet';
+import GameScoreList from '../components/screens/GameScoreList';
 import { useSettings } from '../contexts/SettingsContext';
 import { haptic } from '../hooks/useHaptic';
 import { fonts } from '../lib/fonts';
@@ -56,6 +57,8 @@ const formatDay = (at) => {
   const d = new Date(at);
   return `${d.getDate()}/${d.getMonth() + 1}`;
 };
+
+const scoreValue = (s) => s.total;
 
 // Une barre par série, haute comme son nombre de répétitions : on voit la
 // pyramide et où on en est (faites = bleu, en cours = blanc, à venir = pâle).
@@ -372,7 +375,10 @@ export default function GamePyramid() {
   );
 
   const best = bestPyramidScore(scores, exercise.id, formatId, peak);
-  const mine = scores.filter((s) => EXERCISES[s.exercise] && FORMATS[s.format]).slice(0, 8);
+  const mine = useMemo(
+    () => scores.filter((s) => EXERCISES[s.exercise] && FORMATS[s.format]),
+    [scores]
+  );
   const total = totalReps(sets);
   const minutes = Math.max(1, Math.round(plannedSeconds(sets, tempoMs(exercise.id, DEFAULT_TEMPO)) / 60));
   const ring = Math.min(RING, Math.round(height * 0.34));
@@ -528,29 +534,29 @@ export default function GamePyramid() {
                 fullWidth
               />
 
-              {mine.length > 0 && (
-                <View style={styles.history}>
-                  <Text style={styles.sectionLabel}>MES SCORES</Text>
-                  {mine.map((s) => (
-                    <View key={s.id} style={styles.scoreRow}>
-                      <Text style={styles.scoreCount}>{s.total}</Text>
-                      <Text style={styles.scoreMeta}>
-                        {EXERCISES[s.exercise].label} · {FORMATS[s.format].label} {s.peak} ·{' '}
-                        {formatDay(s.at)}
-                        {s.complete ? ' · terminée' : ''}
-                      </Text>
-                      <PressTap
-                        onPress={() => handleDelete(s.id)}
-                        tapScale={0.9}
-                        style={styles.scoreDelete}
-                        accessibilityLabel="Supprimer ce score"
-                      >
-                        <AppIcon name="close" size={14} color="rgba(255,255,255,0.7)" />
-                      </PressTap>
-                    </View>
-                  ))}
-                </View>
-              )}
+              <GameScoreList
+                scores={mine}
+                accent={ACCENT}
+                getValue={scoreValue}
+                renderRow={(s, inDay) => (
+                  <View style={styles.scoreRow}>
+                    <Text style={styles.scoreCount}>{s.total}</Text>
+                    <Text style={styles.scoreMeta}>
+                      {EXERCISES[s.exercise].label} · {FORMATS[s.format].label} {s.peak}
+                      {inDay ? '' : ` · ${formatDay(s.at)}`}
+                      {s.complete ? ' · terminée' : ''}
+                    </Text>
+                    <PressTap
+                      onPress={() => handleDelete(s.id)}
+                      tapScale={0.9}
+                      style={styles.scoreDelete}
+                      accessibilityLabel="Supprimer ce score"
+                    >
+                      <AppIcon name="close" size={14} color="rgba(255,255,255,0.7)" />
+                    </PressTap>
+                  </View>
+                )}
+              />
             </ScrollView>
           </>
         )}
@@ -804,7 +810,6 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   bestText: { fontFamily: fonts.sansSemibold, fontSize: 14, color: '#FFFFFF' },
-  history: { marginTop: 10, gap: 8 },
   scoreRow: {
     flexDirection: 'row',
     alignItems: 'center',
