@@ -25,6 +25,9 @@ import { haptic } from '../../hooks/useHaptic';
 //                   Android), 'more' (bouton `moreLabel` de la dernière bulle)
 // - moreLabel     : si donné, la dernière bulle propose « Terminer » + ce libellé
 //                   (la suite du tour) au lieu d'un simple « Compris »
+// - onStepEnter   : (id) => void | Promise — appelé en arrivant sur une étape,
+//                   AVANT la mesure de sa zone ; s'il renvoie une promesse, la
+//                   mesure l'attend (ex. l'accueil remet le carrousel en place)
 
 const PAD = 6; // marge de l'éclairage autour de la zone
 const RADIUS = 28;
@@ -37,7 +40,7 @@ const holePath = (w, h, x, y, rw, rh, r) =>
   `A${r} ${r} 0 0 1 ${x + rw - r} ${y + rh}H${x + r}A${r} ${r} 0 0 1 ${x} ${y + rh - r}` +
   `V${y + r}A${r} ${r} 0 0 1 ${x + r} ${y}Z`;
 
-export default function SpotlightTips({ steps, measureTarget, onDone, moreLabel = null }) {
+export default function SpotlightTips({ steps, measureTarget, onDone, moreLabel = null, onStepEnter }) {
   const rootRef = useRef(null);
   const doneRef = useRef(false);
   const [i, setI] = useState(0);
@@ -69,18 +72,20 @@ export default function SpotlightTips({ steps, measureTarget, onDone, moreLabel 
   useEffect(() => {
     let cancelled = false;
     setRect(null);
-    measureTarget(step.id).then((r) => {
-      if (cancelled) return;
-      if (r) setRect(r);
-      // Zone absente (fenêtre réduite…) : on passe à la suivante, ou on
-      // termine si c'était la dernière — jamais d'écran bloqué.
-      else if (isLast) finish('done');
-      else setI((v) => v + 1);
-    });
+    Promise.resolve(onStepEnter ? onStepEnter(step.id) : undefined)
+      .then(() => (cancelled ? null : measureTarget(step.id)))
+      .then((r) => {
+        if (cancelled) return;
+        if (r) setRect(r);
+        // Zone absente (fenêtre réduite…) : on passe à la suivante, ou on
+        // termine si c'était la dernière — jamais d'écran bloqué.
+        else if (isLast) finish('done');
+        else setI((v) => v + 1);
+      });
     return () => {
       cancelled = true;
     };
-  }, [step.id, measureTarget, finish, isLast]);
+  }, [step.id, measureTarget, onStepEnter, finish, isLast]);
 
   // Le retour Android ferme le tour (jamais d'écran piège).
   useEffect(() => {

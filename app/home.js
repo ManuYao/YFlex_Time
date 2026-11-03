@@ -638,11 +638,83 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
     }
   }, []);
 
+  // Bulle « Choisis ton mode » : pendant qu'on la lit, le carrousel défile tout seul
+  // d'un mode à l'autre (vers la droite jusqu'au bout, puis vers la gauche…), sous
+  // le rond éclairé. Au départ de la bulle il revient EXACTEMENT au mode de départ.
+  // Comme un saut des points de pagination (handleDotPress), mais SANS vibration à
+  // chaque défilement : hapticIndexRef est mis à jour en silence.
+  const tourCycleRef = useRef({ first: null, timer: null, moved: false, start: 0, cur: 0, dir: 1 });
+  const tourGoTo = useCallback((index) => {
+    hapticIndexRef.current = index;
+    setSettledIndex(index);
+    flatListRef.current?.scrollToIndex({ index, animated: true });
+    setTimeout(() => {
+      if (activeIndexRef.current !== index) {
+        activeIndexRef.current = index;
+        setActiveIndex(index);
+      }
+    }, 700);
+  }, []);
+  // Arrête le défilement ; renvoie true s'il a bougé le carrousel (qu'on a alors
+  // ramené au mode de départ : l'appelant attend la fin du mouvement).
+  const stopTourCycle = useCallback(() => {
+    const c = tourCycleRef.current;
+    if (c.first) clearTimeout(c.first);
+    if (c.timer) clearInterval(c.timer);
+    c.first = null;
+    c.timer = null;
+    if (!c.moved) return false;
+    c.moved = false;
+    tourGoTo(c.start);
+    return true;
+  }, [tourGoTo]);
+  const startTourCycle = useCallback(() => {
+    stopTourCycle();
+    const c = tourCycleRef.current;
+    const last = timers.length - 1;
+    c.start = activeIndexRef.current;
+    c.cur = c.start;
+    c.dir = c.start >= last ? -1 : 1;
+    const tick = () => {
+      let next = c.cur + c.dir;
+      if (next > last || next < 0) {
+        c.dir = -c.dir;
+        next = c.cur + c.dir;
+      }
+      c.cur = next;
+      c.moved = true;
+      tourGoTo(next);
+    };
+    // Un temps de lecture avant le premier mouvement, puis un mode toutes les 1,6 s.
+    c.first = setTimeout(() => {
+      tick();
+      c.timer = setInterval(tick, 1600);
+    }, 1100);
+  }, [timers.length, stopTourCycle, tourGoTo]);
+  useEffect(() => () => {
+    const c = tourCycleRef.current;
+    if (c.first) clearTimeout(c.first);
+    if (c.timer) clearInterval(c.timer);
+  }, []);
+  // Arrivée sur une bulle : la première lance le défilement, les suivantes l'arrêtent
+  // (et attendent que le carrousel soit revenu en place avant que la zone soit mesurée).
+  const handleTourStepEnter = useCallback(
+    (id) => {
+      if (id === 'ring') {
+        startTourCycle();
+        return undefined;
+      }
+      return stopTourCycle() ? new Promise((resolve) => setTimeout(resolve, 850)) : undefined;
+    },
+    [startTourCycle, stopTourCycle]
+  );
+
   // Fin des bulles : « Passer » dès la première = tuto refusé (on ne le
   // reproposera pas), sinon le niveau 1 compte comme fait. « Voir la suite » ouvre
   // le niveau 2 (le menu puis le Profil), qui ramène ici.
   const handleTourDone = useCallback(
     ({ reason, index }) => {
+      stopTourCycle();
       setTourPhase('off');
       // Le paramètre est retiré pour qu'un prochain « Revoir le tutoriel » rejoue les bulles.
       if (tourParam === '1') router.setParams({ tour: undefined });
@@ -655,7 +727,7 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
         markTutorialOutcome('done1');
       }
     },
-    [router, tourParam]
+    [router, tourParam, stopTourCycle]
   );
 
   // Rectangle d'une zone du tour, en coordonnées de fenêtre ; null si elle n'est
@@ -1211,6 +1283,7 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
         <SpotlightTips
           steps={HOME_TOUR_STEPS}
           measureTarget={measureTourTarget}
+          onStepEnter={handleTourStepEnter}
           onDone={handleTourDone}
           moreLabel="Voir la suite"
         />
