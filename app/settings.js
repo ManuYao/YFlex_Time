@@ -286,6 +286,7 @@ export default function Settings() {
         'flexTimer_bodyWeight',
         // Scores des jeux (lib/gameScores.js) : données personnelles locales.
         'flexTimer_gameScores',
+        'flexTimer_gamePyramidScores',
       ]);
     } catch {}
     // Le cache mémoire des catégories perso survivrait à la purge du

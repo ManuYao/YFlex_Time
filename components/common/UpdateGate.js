@@ -15,7 +15,7 @@ import { waitSplashBeat } from '../../lib/splash';
 // l'onboarding. Dès que l'utilisateur quitte une de ces routes, la feuille
 // apparaît (l'effet dépend de `pathname`, donc il se redéclenche à la sortie
 // de l'onboarding).
-const HIDDEN_ROUTES = new Set(['/', '/index', '/onboarding', '/tutorial', '/season-recap', '/countdown', '/running', '/game-count']);
+const HIDDEN_ROUTES = new Set(['/', '/index', '/onboarding', '/tutorial', '/season-recap', '/countdown', '/running', '/game-count', '/game-pyramid']);
 
 /**
  * Monté une fois dans le layout racine. Affiche la feuille "Nouvelle version"

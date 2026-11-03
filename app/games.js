@@ -12,6 +12,7 @@ import { fonts } from '../lib/fonts';
 import { goBackSafe } from '../lib/navigation';
 import { EXERCISES, bestScore } from '../lib/gameCount';
 import { loadScores } from '../lib/gameScores';
+import { loadPyramidScores } from '../lib/gamePyramidScores';
 
 /**
  * Menu › Jeux. Une carte par jeu ; d'autres arriveront (autres exercices).
@@ -19,12 +20,16 @@ import { loadScores } from '../lib/gameScores';
 export default function Games() {
   const router = useRouter();
   const [scores, setScores] = useState(null);
+  const [pyramidScores, setPyramidScores] = useState(null);
 
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
       loadScores().then((list) => {
         if (!cancelled) setScores(list);
+      });
+      loadPyramidScores().then((list) => {
+        if (!cancelled) setPyramidScores(list);
       });
       return () => {
         cancelled = true;
@@ -33,6 +38,9 @@ export default function Games() {
   );
 
   const best = scores ? Math.max(0, ...Object.keys(EXERCISES).map((id) => bestScore(scores, id))) : 0;
+  // Les pyramides n'ont pas de record unique (chaque format et sommet a le sien) :
+  // la carte montre le plus gros total de répétitions d'une partie.
+  const pyramidBest = pyramidScores ? Math.max(0, ...pyramidScores.map((s) => s.total)) : 0;
 
   return (
     <GradientBackground colors={['#0F4252', '#0A2A35', '#04121A']} ambient>
@@ -74,6 +82,34 @@ export default function Games() {
             </Text>
             <Text style={styles.cardBest}>
               {scores === null ? ' ' : best > 0 ? `Ton record : ${best}` : 'Pas encore de record'}
+            </Text>
+            <Text style={styles.chevron}>›</Text>
+          </PressTap>
+
+          <PressTap
+            onPress={() => {
+              haptic.light();
+              router.push('/game-pyramid');
+            }}
+            tapScale={0.98}
+            accessibilityLabel="Ouvrir La pyramide"
+            style={styles.card}
+          >
+            <View style={styles.cardIcon}>
+              <AppIcon name="blocks" size={26} color="#FFFFFF" />
+            </View>
+            <Text style={styles.cardTag}>POIDS DU CORPS</Text>
+            <Text style={styles.cardTitle}>La pyramide</Text>
+            <Text style={styles.cardText}>
+              Des séries qui montent, qui descendent, ou les deux. La voix compte, tu te reposes entre
+              chaque. Jusqu’où iras-tu ?
+            </Text>
+            <Text style={styles.cardBest}>
+              {pyramidScores === null
+                ? ' '
+                : pyramidBest > 0
+                  ? `Meilleure partie : ${pyramidBest} répétitions`
+                  : 'Pas encore de record'}
             </Text>
             <Text style={styles.chevron}>›</Text>
           </PressTap>
