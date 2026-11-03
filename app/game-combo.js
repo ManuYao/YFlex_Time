@@ -45,14 +45,16 @@ import {
   WORD_MAX,
   bestComboScore,
   cleanText,
+  confirmValues,
   formatClock,
   planCalls,
+  sideLabel,
   setupProblem,
 } from '../lib/gameCombo';
 
 const KEEP_AWAKE_TAG = 'flextimer-game';
 const RING = 280;
-const CONFIRM_RANGE = 5;
+
 // Teinte du jeu : un rose vif, absent des 5 modes et différent du bleu-vert du
 // chef d'orchestre et de l'orange de la pyramide.
 const GAME_BG = ['#4A1230', '#2E0B1D', '#16050F'];
@@ -94,16 +96,18 @@ export default function GameCombo() {
   const [fresh, setFresh] = useState(false);
   const [remaining, setRemaining] = useState(DEFAULT_DURATION);
   const [scores, setScores] = useState([]);
-  const [result, setResult] = useState(null); // { total, record, complete }
-  const [finalCount, setFinalCount] = useState(0);
+  const [result, setResult] = useState(null); // { counts, total, record, complete }
+  const [finalCounts, setFinalCounts] = useState({ a: 0, b: 0 });
 
   const phaseRef = useRef('ready');
   const callsRef = useRef(0);
+  const sideCallsRef = useRef({ a: 0, b: 0 }); // appels criés pour chaque mot
+  const completeRef = useRef(false); // la partie est allée jusqu'au bout du temps
   const cfgRef = useRef(null); // réglages figés au lancement
   const timers = useRef([]);
   const tickTimer = useRef(null);
   const scoresRef = useRef([]);
-  const selectedRef = useRef(0);
+  const selectedRef = useRef({ a: 0, b: 0 }); // ce que la roue a choisi pour chaque mot
   const scrollRef = useRef(null);
   const contentRef = useRef(null);
 
@@ -162,17 +166,19 @@ export default function GameCombo() {
   }, []);
 
   // Enregistre le score définitif (après la confirmation) et montre le résultat.
-  const commitScore = async (value, complete = false) => {
+  // `counts` = { a, b } : répétitions faites pour chaque mot ; le score est leur somme.
+  const commitScore = async (counts, complete = false) => {
     if (phaseRef.current === 'done') return;
     const cfg = cfgRef.current;
+    const total = counts.a + counts.b;
     const previousBest = bestComboScore(scoresRef.current, cfg.duration);
     goPhase('done');
-    setResult({ total: value, record: value > 0 && value > previousBest, complete });
+    setResult({ counts, total, record: total > 0 && total > previousBest, complete });
     haptic.success();
-    if (value > 0) {
+    if (total > 0) {
       const list = await saveComboScore({
         duration: cfg.duration,
-        total: value,
+        counts,
         complete,
         setup: cfg.setup,
       });
@@ -181,32 +187,41 @@ export default function GameCombo() {
     }
   };
 
-  // Le temps est écoulé : partie complète, pas de confirmation à faire.
+  // Fin de partie, qu'on ait lâché ou que le temps soit écoulé : on demande tout
+  // de suite combien de répétitions ont été faites POUR CHAQUE EXERCICE (la roue,
+  // comme dans les autres jeux), déjà placée sur ce que la voix a crié. On ne peut
+  // pas toujours toucher le bouton pile à temps, donc chaque roue permet de corriger
+  // de 4 au plus vers le bas (jamais vers le haut : on ne peut pas avoir fait plus
+  // que ce qui a été crié). Rien n'a été crié : rien à confirmer.
+  const openConfirm = (complete) => {
+    const counts = { ...sideCallsRef.current };
+    completeRef.current = complete;
+    if (counts.a + counts.b <= 0) {
+      commitScore(counts, complete);
+      return;
+    }
+    if (complete) haptic.success();
+    else haptic.medium();
+    selectedRef.current = counts;
+    setFinalCounts(counts);
+    goPhase('confirm');
+  };
+
+  // Le temps est écoulé.
   const completeGame = () => {
     if (phaseRef.current !== 'playing') return;
     const cfg = cfgRef.current;
-    const total = callsRef.current;
     releaseGame();
-    commitScore(total, true);
+    openConfirm(true);
     // Le dernier mot est loin (marge de fin) : « Terminé. » ne le coupe pas.
     setTimeout(() => speakGame('Terminé.', cfg.gender, { interrupt: true }), 600);
   };
 
-  // « J'ai lâché » : on ne peut pas toujours toucher le bouton pile à temps, donc
-  // on demande de confirmer le score, ou de le corriger de 4 au plus vers le bas
-  // (jamais vers le haut : on ne peut pas avoir fait plus que ce qui a été crié).
+  // « J'ai lâché ».
   const finish = () => {
     if (phaseRef.current !== 'playing') return;
-    const final = callsRef.current;
     releaseGame();
-    if (final <= 0) {
-      commitScore(0);
-      return;
-    }
-    haptic.medium();
-    selectedRef.current = final;
-    setFinalCount(final);
-    goPhase('confirm');
+    openConfirm(false);
   };
 
   // Toute la partie est tirée d'avance ; chaque appel part à son heure exacte
@@ -217,6 +232,7 @@ export default function GameCombo() {
     const startedAt = Date.now();
     const endAt = startedAt + cfg.duration * 1000;
     callsRef.current = 0;
+    sideCallsRef.current = { a: 0, b: 0 };
     setCall(null);
     setRemaining(cfg.duration);
     goPhase('playing');
@@ -226,6 +242,7 @@ export default function GameCombo() {
         if (phaseRef.current !== 'playing') return;
         const n = callsRef.current + 1;
         callsRef.current = n;
+        sideCallsRef.current[side] += 1;
         setCall({ n, side });
         setFresh(true);
         haptic.light();
@@ -283,7 +300,7 @@ export default function GameCombo() {
         return true;
       }
       if (current === 'confirm') {
-        commitScore(selectedRef.current);
+        commitScore(selectedRef.current, completeRef.current);
         return true;
       }
       if (current === 'countdown') {
@@ -304,12 +321,6 @@ export default function GameCombo() {
 
   const setField = (side, field, value) =>
     setSetup((s) => ({ ...s, [side]: { ...s[side], [field]: value } }));
-
-  // Les 5 derniers appels possibles (le dernier = celui crié avant l'appui).
-  const confirmValues = Array.from(
-    { length: Math.min(CONFIRM_RANGE, finalCount + 1) },
-    (_, i) => finalCount - (Math.min(CONFIRM_RANGE, finalCount + 1) - 1) + i
-  );
 
   const problem = setupProblem(setup);
   const best = bestComboScore(scores, duration);
@@ -428,7 +439,7 @@ export default function GameCombo() {
                   <AppIcon name="trophies" size={18} color="#FFFFFF" />
                   <Text style={styles.bestText}>
                     {best > 0
-                      ? `Ton record sur ${durationLabel(duration)} : ${best} appels`
+                      ? `Ton record sur ${durationLabel(duration)} : ${best} répétitions`
                       : 'Pas encore de record ici — à toi de jouer'}
                   </Text>
                 </View>
@@ -450,7 +461,7 @@ export default function GameCombo() {
                       <View key={s.id} style={styles.scoreRow}>
                         <Text style={styles.scoreCount}>{s.total}</Text>
                         <Text style={styles.scoreMeta} numberOfLines={1}>
-                          {durationLabel(s.duration)} · {s.words} · {formatDay(s.at)}
+                          {durationLabel(s.duration)} · {s.detail || s.words} · {formatDay(s.at)}
                           {s.complete ? ' · terminée' : ''}
                         </Text>
                         <PressTap
@@ -543,7 +554,7 @@ export default function GameCombo() {
         {phase === 'confirm' && (
           <View style={styles.center}>
             <Text style={styles.tag}>FIN DE PARTIE</Text>
-            <Text style={[styles.bigNumber, styles.bigNumberDim]}>{finalCount}</Text>
+            <Text style={[styles.bigNumber, styles.bigNumberDim]}>{finalCounts.a + finalCounts.b}</Text>
           </View>
         )}
 
@@ -553,10 +564,22 @@ export default function GameCombo() {
             <View style={styles.center}>
               <Text style={styles.tag}>{result?.complete ? 'PARTIE TERMINÉE' : 'TON SCORE'}</Text>
               <Text style={styles.bigNumber}>{result?.total ?? 0}</Text>
-              <Text style={styles.hint}>appels sur {durationLabel(cfgRef.current?.duration)}</Text>
+              <Text style={styles.hint}>répétitions sur {durationLabel(cfgRef.current?.duration)}</Text>
+              {result && live && result.total > 0 && (
+                <View style={styles.doneSplit}>
+                  {['a', 'b'].map((side) => (
+                    <View key={side} style={styles.doneSplitItem}>
+                      <Text style={styles.doneSplitCount}>{result.counts[side]}</Text>
+                      <Text style={styles.doneSplitLabel} numberOfLines={1}>
+                        {sideLabel(live[side])}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              )}
               {result?.record && <Text style={styles.record}>NOUVEAU RECORD</Text>}
               {!result?.record && best > 0 && (
-                <Text style={styles.hint}>Ton record : {best} appels</Text>
+                <Text style={styles.hint}>Ton record : {best} répétitions</Text>
               )}
               <View style={styles.bottomBar}>
                 <Button
@@ -576,25 +599,52 @@ export default function GameCombo() {
         )}
       </SafeAreaView>
 
-      {/* Même feuille que la roue de l'app : fermer sans valider garde le score. */}
-      {phase === 'confirm' && (
-        <BottomSheet screenH={height} onClose={() => commitScore(selectedRef.current)} zIndex={140}>
+      {/* Même feuille que la roue de l'app, avec une roue par exercice : fermer sans
+          valider garde ce que la voix a crié. */}
+      {phase === 'confirm' && live && (
+        <BottomSheet
+          screenH={height}
+          onClose={() => commitScore(selectedRef.current, completeRef.current)}
+          zIndex={140}
+        >
           {({ close }) => (
             <View>
               <Text style={styles.sheetKicker}>MODIFIER</Text>
               <Text style={styles.sheetTitle}>TON SCORE</Text>
-              <Text style={styles.sheetHint}>Tu as lâché avant le bouton ? Corrige de 4 au plus.</Text>
-              <WheelPicker
-                key={finalCount}
-                values={confirmValues}
-                selectedValue={finalCount}
-                type="reps"
-                accentColor={ACCENT}
-                onChange={(v) => {
-                  selectedRef.current = v;
-                }}
-                visibleItems={5}
-              />
+              <Text style={styles.sheetHint}>
+                Combien en as-tu fait de chaque ? Corrige de 4 au plus pour chacun.
+              </Text>
+              <View style={styles.wheelRow}>
+                {['a', 'b'].map((side) => {
+                  const shouted = finalCounts[side];
+                  return (
+                    <View key={side} style={styles.wheelCol}>
+                      <Text style={styles.wheelTitle} numberOfLines={1}>
+                        {sideLabel(live[side])}
+                      </Text>
+                      <Text style={styles.wheelSub} numberOfLines={1}>
+                        {live[side].exo ? `« ${live[side].word} »` : ' '}
+                      </Text>
+                      {shouted > 0 ? (
+                        <WheelPicker
+                          key={`${side}${shouted}`}
+                          values={confirmValues(shouted)}
+                          selectedValue={shouted}
+                          type="reps"
+                          accentColor={ACCENT}
+                          onChange={(v) => {
+                            selectedRef.current = { ...selectedRef.current, [side]: v };
+                          }}
+                          visibleItems={5}
+                        />
+                      ) : (
+                        // Mot jamais crié : rien à corriger.
+                        <Text style={styles.wheelZero}>0</Text>
+                      )}
+                    </View>
+                  );
+                })}
+              </View>
               <Button
                 variant="solid"
                 icon="check"
@@ -833,6 +883,47 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   sheetCta: { marginTop: 16 },
+  wheelRow: { flexDirection: 'row', gap: 12 },
+  wheelCol: { flex: 1 },
+  wheelTitle: {
+    fontFamily: fonts.sansExtraBold,
+    fontSize: 15,
+    color: '#FFFFFF',
+    textAlign: 'center',
+  },
+  wheelSub: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.5)',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  wheelZero: {
+    fontFamily: fonts.display,
+    fontSize: 56,
+    lineHeight: 68,
+    color: 'rgba(255,255,255,0.4)',
+    textAlign: 'center',
+    paddingVertical: 76,
+  },
+  doneSplit: { flexDirection: 'row', gap: 12, alignSelf: 'stretch', marginTop: 18 },
+  doneSplitItem: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,95,162,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,95,162,0.28)',
+  },
+  doneSplitCount: { fontFamily: fonts.monoBold, fontSize: 24, color: '#FFFFFF' },
+  doneSplitLabel: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.7)',
+    marginTop: 2,
+  },
   scrollHint: {
     fontFamily: fonts.sansBold,
     fontSize: 11,

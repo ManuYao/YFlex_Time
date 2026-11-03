@@ -143,7 +143,7 @@ export default function Games() {
               {comboScores === null
                 ? ' '
                 : comboBest > 0
-                  ? `Meilleure partie : ${comboBest} appels`
+                  ? `Meilleure partie : ${comboBest} répétitions`
                   : 'Pas encore de record'}
             </Text>
             <Text style={styles.chevron}>›</Text>
