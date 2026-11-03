@@ -25,7 +25,6 @@ import {
   DEFAULT_TEMPO,
   EXERCISES,
   MUSCLE_GROUPS,
-  TEMPOS,
   exercisesOf,
   getExercise,
   tempoMs,
@@ -47,11 +46,11 @@ import {
 const KEEP_AWAKE_TAG = 'flextimer-game';
 const RING = 280;
 const CONFIRM_RANGE = 5;
-// Même teinte que « Le chef d'orchestre » : tous les jeux partagent leur identité.
-const GAME_BG = ['#0F4252', '#0A2A35', '#04121A'];
-const ACCENT = '#4DD8E8';
-const ACCENT_DIM = 'rgba(77,216,232,0.28)';
-const ACCENT_FAINT = 'rgba(77,216,232,0.12)';
+// Teinte du jeu : un orange terre cuite, absent des 5 modes et différent du bleu-vert du chef d'orchestre.
+const GAME_BG = ['#4A2410', '#2E1409', '#150904'];
+const ACCENT = '#FF9A4D';
+const ACCENT_DIM = 'rgba(255,154,77,0.28)';
+const ACCENT_FAINT = 'rgba(255,154,77,0.12)';
 
 const formatDay = (at) => {
   const d = new Date(at);
@@ -97,7 +96,6 @@ export default function GamePyramid() {
   const [phase, setPhase] = useState('ready'); // ready | countdown | set | rest | confirm | done
   const [formatId, setFormatId] = useState(DEFAULT_FORMAT);
   const [peak, setPeak] = useState(DEFAULT_PEAK);
-  const [tempoId, setTempoId] = useState(DEFAULT_TEMPO);
   const [exerciseId, setExerciseId] = useState(DEFAULT_EXERCISE);
   const [sets, setSets] = useState(() => buildSets(DEFAULT_FORMAT, DEFAULT_PEAK));
   const [setIndex, setSetIndex] = useState(0);
@@ -298,7 +296,8 @@ export default function GamePyramid() {
     const planned = buildSets(formatId, peak);
     setsRef.current = planned;
     setSets(planned);
-    cfgRef.current = { exerciseId, tempoId, formatId, peak, gender: settings.voiceGender };
+    // Le rythme est toujours « Normal » : pas de choix dans ce jeu.
+    cfgRef.current = { exerciseId, tempoId: DEFAULT_TEMPO, formatId, peak, gender: settings.voiceGender };
     activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(() => {});
     // Comme le vrai décompte : sons décodés d'avance, sinon le bip final saute.
     ['countdown1', 'countdown2', 'countdown3', 'go'].forEach(preloadSound);
@@ -369,7 +368,7 @@ export default function GamePyramid() {
   const best = bestPyramidScore(scores, exercise.id, formatId, peak);
   const mine = scores.filter((s) => EXERCISES[s.exercise] && FORMATS[s.format]).slice(0, 8);
   const total = totalReps(sets);
-  const minutes = Math.max(1, Math.round(plannedSeconds(sets, tempoMs(exercise.id, tempoId)) / 60));
+  const minutes = Math.max(1, Math.round(plannedSeconds(sets, tempoMs(exercise.id, DEFAULT_TEMPO)) / 60));
   const ring = Math.min(RING, Math.round(height * 0.34));
   const target = sets[setIndex] ?? 0;
   const nextTarget = sets[setIndex + 1] ?? 0;
@@ -504,28 +503,6 @@ export default function GamePyramid() {
                   </View>
                 </>
               )}
-
-              <Text style={styles.sectionLabel}>RYTHME</Text>
-              <View style={styles.chips}>
-                {Object.values(TEMPOS).map((t) => {
-                  const on = t.id === tempoId;
-                  return (
-                    <PressTap
-                      key={t.id}
-                      onPress={() => {
-                        haptic.selection();
-                        setTempoId(t.id);
-                      }}
-                      tapScale={0.96}
-                      containerStyle={styles.chipWrap}
-                      style={[styles.chip, on && styles.chipSoftOn]}
-                      accessibilityLabel={`Rythme ${t.label}`}
-                    >
-                      <Text style={[styles.chipText, on && styles.chipTextSoftOn]}>{t.label}</Text>
-                    </PressTap>
-                  );
-                })}
-              </View>
 
               <View style={styles.bestRow}>
                 <AppIcon name="trophies" size={18} color="#FFFFFF" />
@@ -781,7 +758,7 @@ const styles = StyleSheet.create({
   },
   chipOn: { backgroundColor: ACCENT, borderColor: ACCENT },
   chipText: { fontFamily: fonts.sansBold, fontSize: 13, color: '#FFFFFF' },
-  chipTextOn: { color: '#04121A' },
+  chipTextOn: { color: '#1A0C04' },
   // Sélection douce (sommet, exercice, rythme) : fond blanc léger, pas de bleu
   // plein, pour que le format et le groupe portent seuls la couleur vive.
   chipSoftOn: { backgroundColor: 'rgba(255,255,255,0.16)', borderColor: 'rgba(255,255,255,0.7)' },
@@ -796,9 +773,9 @@ const styles = StyleSheet.create({
     gap: 10,
     padding: 14,
     borderRadius: 20,
-    backgroundColor: 'rgba(77,216,232,0.07)',
+    backgroundColor: 'rgba(255,154,77,0.07)',
     borderWidth: 1,
-    borderColor: 'rgba(77,216,232,0.18)',
+    borderColor: 'rgba(255,154,77,0.18)',
   },
   previewText: {
     fontFamily: fonts.sansSemibold,
@@ -829,9 +806,9 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 14,
     borderRadius: 16,
-    backgroundColor: 'rgba(77,216,232,0.07)',
+    backgroundColor: 'rgba(255,154,77,0.07)',
     borderWidth: 1,
-    borderColor: 'rgba(77,216,232,0.18)',
+    borderColor: 'rgba(255,154,77,0.18)',
   },
   scoreCount: { fontFamily: fonts.monoBold, fontSize: 18, color: '#FFFFFF', minWidth: 44 },
   scoreMeta: { flex: 1, fontFamily: fonts.sansMedium, fontSize: 12, color: 'rgba(255,255,255,0.55)' },

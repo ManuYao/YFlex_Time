@@ -93,12 +93,12 @@ export default function Games() {
             }}
             tapScale={0.98}
             accessibilityLabel="Ouvrir La pyramide"
-            style={styles.card}
+            style={[styles.card, styles.cardWarm]}
           >
-            <View style={styles.cardIcon}>
+            <View style={[styles.cardIcon, styles.cardIconWarm]}>
               <AppIcon name="blocks" size={26} color="#FFFFFF" />
             </View>
-            <Text style={styles.cardTag}>POIDS DU CORPS</Text>
+            <Text style={[styles.cardTag, styles.cardTagWarm]}>POIDS DU CORPS</Text>
             <Text style={styles.cardTitle}>La pyramide</Text>
             <Text style={styles.cardText}>
               Des séries qui montent, qui descendent, ou les deux. La voix compte, tu te reposes entre
@@ -147,6 +147,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(77,216,232,0.28)',
   },
+  // La pyramide a sa propre teinte (orange), comme son écran de jeu.
+  cardWarm: {
+    backgroundColor: 'rgba(255,154,77,0.08)',
+    borderColor: 'rgba(255,154,77,0.3)',
+  },
+  cardIconWarm: {
+    backgroundColor: 'rgba(255,154,77,0.16)',
+    borderColor: 'rgba(255,154,77,0.4)',
+  },
+  cardTagWarm: { color: '#FF9A4D' },
   cardIcon: {
     width: 46,
     height: 46,
