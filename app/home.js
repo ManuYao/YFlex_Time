@@ -641,19 +641,36 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   // Bulle « Choisis ton mode » : pendant qu'on la lit, le carrousel défile tout seul
   // d'un mode à l'autre (vers la droite jusqu'au bout, puis vers la gauche…), sous
   // le rond éclairé. Au départ de la bulle il revient EXACTEMENT au mode de départ.
-  // Comme un saut des points de pagination (handleDotPress), mais SANS vibration à
-  // chaque défilement : hapticIndexRef est mis à jour en silence.
+  // Le défilement natif d'un scrollToIndex dure à peine un quart de seconde : trop
+  // vif pour une démonstration. On pilote donc le glissement nous-mêmes (une position
+  // par image, courbe douce) : une seconde et demie par mode, avec une vraie pause.
+  // Comme un saut des points de pagination (handleDotPress), mais SANS vibration :
+  // hapticIndexRef est mis à jour en silence.
+  const TOUR_SWAP_MS = 1400; // un glissement de mode à mode
+  const TOUR_BACK_MS = 1000; // le retour au mode de départ
+  const TOUR_PERIOD_MS = 3200; // glissement + pause avant le suivant
   const tourCycleRef = useRef({ first: null, timer: null, moved: false, start: 0, cur: 0, dir: 1 });
-  const tourGoTo = useCallback((index) => {
+  const tourFrameRef = useRef(null);
+  const tourGoTo = useCallback((index, duration) => {
+    if (tourFrameRef.current != null) cancelAnimationFrame(tourFrameRef.current);
     hapticIndexRef.current = index;
-    setSettledIndex(index);
-    flatListRef.current?.scrollToIndex({ index, animated: true });
-    setTimeout(() => {
-      if (activeIndexRef.current !== index) {
-        activeIndexRef.current = index;
-        setActiveIndex(index);
+    const from = scrollX.value;
+    const to = index * pageW.value;
+    const t0 = Date.now();
+    const frame = () => {
+      const k = Math.min(1, (Date.now() - t0) / duration);
+      const eased = 0.5 - 0.5 * Math.cos(Math.PI * k); // démarre et s'arrête en douceur
+      flatListRef.current?.scrollToOffset({ offset: from + (to - from) * eased, animated: false });
+      if (k < 1) {
+        tourFrameRef.current = requestAnimationFrame(frame);
+        return;
       }
-    }, 700);
+      tourFrameRef.current = null;
+      activeIndexRef.current = index;
+      setActiveIndex(index);
+      setSettledIndex(index);
+    };
+    tourFrameRef.current = requestAnimationFrame(frame);
   }, []);
   // Arrête le défilement ; renvoie true s'il a bougé le carrousel (qu'on a alors
   // ramené au mode de départ : l'appelant attend la fin du mouvement).
@@ -663,9 +680,16 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
     if (c.timer) clearInterval(c.timer);
     c.first = null;
     c.timer = null;
-    if (!c.moved) return false;
+    if (!c.moved) {
+      // Rien n'a bougé : si un glissement était en cours, on l'arrête là où il est.
+      if (tourFrameRef.current != null) {
+        cancelAnimationFrame(tourFrameRef.current);
+        tourFrameRef.current = null;
+      }
+      return false;
+    }
     c.moved = false;
-    tourGoTo(c.start);
+    tourGoTo(c.start, TOUR_BACK_MS);
     return true;
   }, [tourGoTo]);
   const startTourCycle = useCallback(() => {
@@ -683,18 +707,19 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
       }
       c.cur = next;
       c.moved = true;
-      tourGoTo(next);
+      tourGoTo(next, TOUR_SWAP_MS);
     };
-    // Un temps de lecture avant le premier mouvement, puis un mode toutes les 1,6 s.
+    // Un temps de lecture avant le premier mouvement, puis un mode toutes les 3,2 s.
     c.first = setTimeout(() => {
       tick();
-      c.timer = setInterval(tick, 1600);
-    }, 1100);
+      c.timer = setInterval(tick, TOUR_PERIOD_MS);
+    }, 1400);
   }, [timers.length, stopTourCycle, tourGoTo]);
   useEffect(() => () => {
     const c = tourCycleRef.current;
     if (c.first) clearTimeout(c.first);
     if (c.timer) clearInterval(c.timer);
+    if (tourFrameRef.current != null) cancelAnimationFrame(tourFrameRef.current);
   }, []);
   // Arrivée sur une bulle : la première lance le défilement, les suivantes l'arrêtent
   // (et attendent que le carrousel soit revenu en place avant que la zone soit mesurée).
@@ -704,7 +729,7 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
         startTourCycle();
         return undefined;
       }
-      return stopTourCycle() ? new Promise((resolve) => setTimeout(resolve, 850)) : undefined;
+      return stopTourCycle() ? new Promise((resolve) => setTimeout(resolve, TOUR_BACK_MS + 250)) : undefined;
     },
     [startTourCycle, stopTourCycle]
   );
