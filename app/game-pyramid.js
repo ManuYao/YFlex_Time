@@ -274,17 +274,19 @@ export default function GamePyramid() {
     setRestTotal(total);
     setRestLeft(total);
     haptic.light();
-    later(700, () => speakGame('Repos.', cfg.gender));
+    // « Repos. » dure un demi-seconde : dit tout de suite, il est fini avant le premier
+    // bip du décompte, même pour le repos le plus court (5 s → premier bip à 1,15 s).
+    later(250, () => speakGame('Repos.', cfg.gender));
     // Les premiers chiffres de la série suivante sont rechargés bien avant son
     // départ (un chiffre déjà dit doit être rechargé) : le dernier chiffre de la
-    // série finie a eu le temps de s'achever, le repos dure 10 s au moins.
-    later(2500, () => callerRef.current?.preload(1, 3));
+    // série finie a eu le temps de s'achever, et il reste 3,5 s au moins avant le départ.
+    later(1500, () => callerRef.current?.preload(1, 3));
     [
       [-3850, 'countdown1'],
       [-2850, 'countdown2'],
       [-1850, 'countdown3'],
       [-850, 'go'],
-    ].forEach(([delta, key]) => later(total * 1000 + delta, () => playSound(key)));
+    ].forEach(([delta, key]) => later(Math.max(0, total * 1000 + delta), () => playSound(key)));
     later(total * 1000, () => startSet(i + 1));
 
     const tickRest = () => {
