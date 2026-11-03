@@ -19,8 +19,6 @@ import Button from '../components/common/Button';
 import PressTap from '../components/common/PressTap';
 import AppIcon from '../components/common/AppIcon';
 import TickRing from '../components/common/TickRing';
-import WheelPicker from '../components/common/WheelPicker';
-import BottomSheet from '../components/common/BottomSheet';
 import { useSettings } from '../contexts/SettingsContext';
 import { haptic } from '../hooks/useHaptic';
 import { useKeyboardHeight, scrollToFocusedInput } from '../hooks/useKeyboardHeight';
@@ -45,10 +43,8 @@ import {
   WORD_MAX,
   bestComboScore,
   cleanText,
-  confirmValues,
   formatClock,
   planCalls,
-  sideLabel,
   setupProblem,
 } from '../lib/gameCombo';
 
@@ -88,7 +84,7 @@ export default function GameCombo() {
   const { height } = useWindowDimensions();
   const { settings } = useSettings();
 
-  const [phase, setPhase] = useState('ready'); // ready | countdown | playing | confirm | done
+  const [phase, setPhase] = useState('ready'); // ready | countdown | playing | done
   const [duration, setDuration] = useState(DEFAULT_DURATION);
   const [setup, setSetup] = useState(DEFAULT_SETUP);
   const [countdown, setCountdown] = useState(3);
@@ -97,18 +93,15 @@ export default function GameCombo() {
   const [remaining, setRemaining] = useState(DEFAULT_DURATION);
   const [scores, setScores] = useState([]);
   const [result, setResult] = useState(null); // { counts, total, record, complete }
-  const [finalCounts, setFinalCounts] = useState({ a: 0, b: 0 });
   const [audioReady, setAudioReady] = useState(false); // les mots sont préchargés
 
   const phaseRef = useRef('ready');
   const callsRef = useRef(0);
   const sideCallsRef = useRef({ a: 0, b: 0 }); // appels criés pour chaque mot
-  const completeRef = useRef(false); // la partie est allée jusqu'au bout du temps
   const cfgRef = useRef(null); // réglages figés au lancement
   const timers = useRef([]);
   const tickTimer = useRef(null);
   const scoresRef = useRef([]);
-  const selectedRef = useRef({ a: 0, b: 0 }); // ce que la roue a choisi pour chaque mot
   const scrollRef = useRef(null);
   const contentRef = useRef(null);
 
@@ -193,8 +186,8 @@ export default function GameCombo() {
     };
   }, [wordsKey, voiceGender]);
 
-  // Enregistre le score définitif (après la confirmation) et montre le résultat.
-  // `counts` = { a, b } : répétitions faites pour chaque mot ; le score est leur somme.
+  // Enregistre le score et montre le résultat.
+  // `counts` = { a, b } : mots criés pour chaque mot ; le score est leur somme.
   const commitScore = async (counts, complete = false) => {
     if (phaseRef.current === 'done') return;
     const cfg = cfgRef.current;
@@ -215,32 +208,15 @@ export default function GameCombo() {
     }
   };
 
-  // Fin de partie, qu'on ait lâché ou que le temps soit écoulé : on demande tout
-  // de suite combien de répétitions ont été faites POUR CHAQUE EXERCICE (la roue,
-  // comme dans les autres jeux), déjà placée sur ce que la voix a crié. On ne peut
-  // pas toujours toucher le bouton pile à temps, donc chaque roue permet de corriger
-  // de 4 au plus vers le bas (jamais vers le haut : on ne peut pas avoir fait plus
-  // que ce qui a été crié). Rien n'a été crié : rien à confirmer.
-  const openConfirm = (complete) => {
-    const counts = { ...sideCallsRef.current };
-    completeRef.current = complete;
-    if (counts.a + counts.b <= 0) {
-      commitScore(counts, complete);
-      return;
-    }
-    if (complete) haptic.success();
-    else haptic.medium();
-    selectedRef.current = counts;
-    setFinalCounts(counts);
-    goPhase('confirm');
-  };
-
+  // Fin de partie : le score est enregistré et affiché tout de suite, sans rien
+  // demander (choix de l'utilisateur pour ce jeu : pas de roue de confirmation
+  // comme dans les autres jeux). Le score est le nombre de mots criés.
   // Le temps est écoulé.
   const completeGame = () => {
     if (phaseRef.current !== 'playing') return;
     const cfg = cfgRef.current;
     releaseGame();
-    openConfirm(true);
+    commitScore({ ...sideCallsRef.current }, true);
     // Le dernier mot est loin (marge de fin) : « Terminé. » ne le coupe pas.
     setTimeout(() => speakGame('Terminé.', cfg.gender, { interrupt: true }), 600);
   };
@@ -249,7 +225,7 @@ export default function GameCombo() {
   const finish = () => {
     if (phaseRef.current !== 'playing') return;
     releaseGame();
-    openConfirm(false);
+    commitScore({ ...sideCallsRef.current }, false);
   };
 
   // Toute la partie est tirée d'avance ; chaque appel part à son heure exacte
@@ -325,10 +301,6 @@ export default function GameCombo() {
       const current = phaseRef.current;
       if (current === 'playing') {
         finish();
-        return true;
-      }
-      if (current === 'confirm') {
-        commitScore(selectedRef.current, completeRef.current);
         return true;
       }
       if (current === 'countdown') {
@@ -580,13 +552,6 @@ export default function GameCombo() {
           </View>
         )}
 
-        {phase === 'confirm' && (
-          <View style={styles.center}>
-            <Text style={styles.tag}>FIN DE PARTIE</Text>
-            <Text style={[styles.bigNumber, styles.bigNumberDim]}>{finalCounts.a + finalCounts.b}</Text>
-          </View>
-        )}
-
         {phase === 'done' && (
           <>
             {renderTop('Combo Bi-Exo')}
@@ -594,18 +559,6 @@ export default function GameCombo() {
               <Text style={styles.tag}>{result?.complete ? 'PARTIE TERMINÉE' : 'TON SCORE'}</Text>
               <Text style={styles.bigNumber}>{result?.total ?? 0}</Text>
               <Text style={styles.hint}>répétitions sur {durationLabel(cfgRef.current?.duration)}</Text>
-              {result && live && result.total > 0 && (
-                <View style={styles.doneSplit}>
-                  {['a', 'b'].map((side) => (
-                    <View key={side} style={styles.doneSplitItem}>
-                      <Text style={styles.doneSplitCount}>{result.counts[side]}</Text>
-                      <Text style={styles.doneSplitLabel} numberOfLines={1}>
-                        {sideLabel(live[side])}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-              )}
               {result?.record && <Text style={styles.record}>NOUVEAU RECORD</Text>}
               {!result?.record && best > 0 && (
                 <Text style={styles.hint}>Ton record : {best} répétitions</Text>
@@ -628,66 +581,6 @@ export default function GameCombo() {
         )}
       </SafeAreaView>
 
-      {/* Même feuille que la roue de l'app, avec une roue par exercice : fermer sans
-          valider garde ce que la voix a crié. */}
-      {phase === 'confirm' && live && (
-        <BottomSheet
-          screenH={height}
-          onClose={() => commitScore(selectedRef.current, completeRef.current)}
-          zIndex={140}
-        >
-          {({ close }) => (
-            <View>
-              <Text style={styles.sheetKicker}>MODIFIER</Text>
-              <Text style={styles.sheetTitle}>TON SCORE</Text>
-              <Text style={styles.sheetHint}>
-                Combien en as-tu fait de chaque ? Corrige de 4 au plus pour chacun.
-              </Text>
-              <View style={styles.wheelRow}>
-                {['a', 'b'].map((side) => {
-                  const shouted = finalCounts[side];
-                  return (
-                    <View key={side} style={styles.wheelCol}>
-                      <Text style={styles.wheelTitle} numberOfLines={1}>
-                        {sideLabel(live[side])}
-                      </Text>
-                      <Text style={styles.wheelSub} numberOfLines={1}>
-                        {live[side].exo ? `« ${live[side].word} »` : ' '}
-                      </Text>
-                      {shouted > 0 ? (
-                        <WheelPicker
-                          key={`${side}${shouted}`}
-                          values={confirmValues(shouted)}
-                          selectedValue={shouted}
-                          type="reps"
-                          accentColor={ACCENT}
-                          onChange={(v) => {
-                            selectedRef.current = { ...selectedRef.current, [side]: v };
-                          }}
-                          visibleItems={5}
-                        />
-                      ) : (
-                        // Mot jamais crié : rien à corriger.
-                        <Text style={styles.wheelZero}>0</Text>
-                      )}
-                    </View>
-                  );
-                })}
-              </View>
-              <Button
-                variant="solid"
-                icon="check"
-                label="Valider"
-                haptic={haptic.medium}
-                onPress={close}
-                fullWidth
-                style={styles.sheetCta}
-              />
-              <Text style={styles.scrollHint}>FAIS DÉFILER POUR CHOISIR</Text>
-            </View>
-          )}
-        </BottomSheet>
-      )}
     </GradientBackground>
   );
 }
@@ -887,79 +780,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     includeFontPadding: false,
     textAlign: 'center',
-  },
-  bigNumberDim: { color: 'rgba(255,255,255,0.45)' },
-  sheetKicker: {
-    fontFamily: fonts.sansBold,
-    fontSize: 11,
-    letterSpacing: 2,
-    color: 'rgba(255,255,255,0.5)',
-    textAlign: 'center',
-  },
-  sheetTitle: {
-    fontFamily: fonts.sansExtraBold,
-    fontSize: 20,
-    color: '#FFFFFF',
-    textAlign: 'center',
-    marginTop: 4,
-  },
-  sheetHint: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.6)',
-    textAlign: 'center',
-    marginTop: 6,
-    marginBottom: 8,
-  },
-  sheetCta: { marginTop: 16 },
-  wheelRow: { flexDirection: 'row', gap: 12 },
-  wheelCol: { flex: 1 },
-  wheelTitle: {
-    fontFamily: fonts.sansExtraBold,
-    fontSize: 15,
-    color: '#FFFFFF',
-    textAlign: 'center',
-  },
-  wheelSub: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.5)',
-    textAlign: 'center',
-    marginBottom: 4,
-  },
-  wheelZero: {
-    fontFamily: fonts.display,
-    fontSize: 56,
-    lineHeight: 68,
-    color: 'rgba(255,255,255,0.4)',
-    textAlign: 'center',
-    paddingVertical: 76,
-  },
-  doneSplit: { flexDirection: 'row', gap: 12, alignSelf: 'stretch', marginTop: 18 },
-  doneSplitItem: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 10,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,95,162,0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,95,162,0.28)',
-  },
-  doneSplitCount: { fontFamily: fonts.monoBold, fontSize: 24, color: '#FFFFFF' },
-  doneSplitLabel: {
-    fontFamily: fonts.sansSemibold,
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.7)',
-    marginTop: 2,
-  },
-  scrollHint: {
-    fontFamily: fonts.sansBold,
-    fontSize: 11,
-    letterSpacing: 3,
-    color: 'rgba(255,255,255,0.45)',
-    textAlign: 'center',
-    marginTop: 14,
   },
   countdownNumber: {
     fontFamily: fonts.display,
