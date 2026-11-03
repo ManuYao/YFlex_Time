@@ -10,6 +10,7 @@ import Button from '../components/common/Button';
 import AppIcon from '../components/common/AppIcon';
 import { SkeletonGroup, SkeletonBlock } from '../components/common/Skeleton';
 import { AdvancedCards } from '../components/screens/ProfileAnalytics';
+import GameStatsCards from '../components/screens/GameStatsCards';
 import { useTimers } from '../contexts/TimersContext';
 import { usePremium } from '../hooks/usePremium';
 import { useScreenReady } from '../hooks/useScreenReady';
@@ -19,12 +20,18 @@ import { fonts } from '../lib/fonts';
 import { GOLD } from '../lib/buttonTokens';
 import { computeProfileStats } from '../lib/profileStats';
 import { loadHistory } from '../lib/history';
+import { computeGameStats } from '../lib/gameStats';
+import { loadScores } from '../lib/gameScores';
+import { loadPyramidScores } from '../lib/gamePyramidScores';
+import { loadComboScores } from '../lib/gameComboStore';
 
 /**
  * Page « Analyse avancée » : les statistiques détaillées (temps sous tension,
- * formats, temps par format, comparatif mensuel, rythme), ouverte par « Voir
- * plus » dans le Profil. Réservée à Premium, comme l'aperçu du Profil : sans
- * Premium la page n'affiche que l'invitation (le Profil n'y mène pas non plus).
+ * formats, temps par format, comparatif mensuel, rythme) puis celles des jeux,
+ * ouverte par « Voir plus » dans le Profil. Réservée à Premium, comme l'aperçu du
+ * Profil : sans Premium la page n'affiche que l'invitation (le Profil n'y mène pas
+ * non plus). Les jeux gardent leurs propres scores, visibles par tout le monde
+ * dans leur écran : seule l'analyse d'ensemble est ici.
  */
 export default function Analysis() {
   const router = useRouter();
@@ -33,6 +40,7 @@ export default function Analysis() {
   const { isPremium, loaded: premiumLoaded } = usePremium();
 
   const [sessions, setSessions] = useState([]);
+  const [gameLists, setGameLists] = useState(null);
   const [dataLoaded, setDataLoaded] = useState(false);
   const { ready, skeletonGone, contentStyle, skeletonStyle } = useScreenReady({
     dataReady: dataLoaded,
@@ -43,9 +51,15 @@ export default function Analysis() {
     React.useCallback(() => {
       let cancelled = false;
       (async () => {
-        const hist = await loadHistory();
+        const [hist, count, pyramid, combo] = await Promise.all([
+          loadHistory(),
+          loadScores(),
+          loadPyramidScores(),
+          loadComboScores(),
+        ]);
         if (cancelled) return;
         setSessions(hist);
+        setGameLists({ count, pyramid, combo });
         setDataLoaded(true);
       })();
       return () => {
@@ -58,6 +72,10 @@ export default function Analysis() {
   const stats = useMemo(
     () => computeProfileStats(ready && isPremium ? sessions : [], timers),
     [ready, isPremium, sessions, timers]
+  );
+  const gameStats = useMemo(
+    () => computeGameStats(ready && isPremium && gameLists ? gameLists : {}),
+    [ready, isPremium, gameLists]
   );
 
   return (
@@ -83,17 +101,24 @@ export default function Analysis() {
               {ready && (
                 <Animated.View style={contentStyle}>
                   {isPremium ? (
-                    stats.hasData ? (
-                      <AdvancedCards stats={stats} />
-                    ) : (
-                      <Text style={styles.empty}>
-                        Dès ta première séance, ces analyses se remplissent toutes seules.
-                      </Text>
-                    )
+                    <>
+                      {stats.hasData ? <AdvancedCards stats={stats} /> : null}
+                      {gameStats.hasData ? (
+                        <>
+                          <Text style={styles.sectionTitle}>JEUX</Text>
+                          <GameStatsCards stats={gameStats} />
+                        </>
+                      ) : null}
+                      {!stats.hasData && !gameStats.hasData ? (
+                        <Text style={styles.empty}>
+                          Dès ta première séance ou ta première partie, ces analyses se remplissent toutes seules.
+                        </Text>
+                      ) : null}
+                    </>
                   ) : (
                     <View style={styles.locked}>
                       <Text style={styles.lockedText}>
-                        L’analyse avancée fait partie de Premium : temps sous tension, formats, comparatif mensuel…
+                        L’analyse avancée fait partie de Premium : temps sous tension, formats, comparatif mensuel, stats de tes jeux…
                       </Text>
                       <Button
                         variant="premium"
@@ -152,6 +177,15 @@ const styles = StyleSheet.create({
   skeletonLayer: { ...StyleSheet.absoluteFill, overflow: 'hidden' },
   skeleton: { paddingHorizontal: 20 },
   skeletonGap: { marginTop: 10 },
+  sectionTitle: {
+    fontFamily: fonts.sansBold,
+    fontSize: 10,
+    letterSpacing: 3,
+    color: 'rgba(255,255,255,0.50)',
+    marginTop: 28,
+    marginBottom: 8,
+    paddingHorizontal: 4,
+  },
   empty: {
     fontFamily: fonts.sansSemibold,
     fontSize: 13,

@@ -34,7 +34,7 @@ const BENEFITS = [
   {
     icon: 'pulse',
     title: 'Statistiques avancées',
-    desc: 'Temps sous tension, graphiques et régularité : vois précisément où tu progresses.',
+    desc: 'Temps sous tension, graphiques, régularité et analyse de tes jeux (parties, records, progression) : vois précisément où tu progresses.',
   },
   {
     icon: 'palette',

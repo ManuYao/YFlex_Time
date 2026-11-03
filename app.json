@@ -2,7 +2,7 @@
   "expo": {
     "name": "Flex Timer",
     "slug": "flex-timer",
-    "version": "17.8.2",
+    "version": "17.9.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -19,7 +19,7 @@
         "monochromeImage": "./assets/adaptive-icon-monochrome.png"
       },
       "package": "com.flextimer.app",
-      "versionCode": 170802,
+      "versionCode": 170900,
       "permissions": [
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.FOREGROUND_SERVICE",

@@ -151,6 +151,7 @@ const LOCKED_ITEMS = [
   { icon: 'clock', title: 'Temps sous tension', caption: 'Ton effort réel, repos exclus' },
   { icon: 'sessions', title: 'Répartition des formats', caption: 'Ce que tu fais vraiment le plus' },
   { icon: 'calendar', title: 'Comparatif mensuel', caption: 'Tu progresses ? Mois contre mois' },
+  { icon: 'play', title: 'Analyse de tes jeux', caption: 'Parties, records et progression' },
 ];
 
 function LockedList({ sessionCount }) {

@@ -253,6 +253,51 @@ export function TrophiesCard({ recap, ink }) {
   );
 }
 
+// Les parties de la saison, pour tout le monde (Premium ou non : mêmes chiffres, une
+// seule carte pour ne pas alourdir le bilan). N'existe que si on a joué.
+export function GamesCard({ recap, ink }) {
+  const g = recap.games;
+  return (
+    <View style={styles.center}>
+      <Reveal>
+        <Eyebrow ink={ink}>TES JEUX</Eyebrow>
+      </Reveal>
+      <Reveal delay={100} style={styles.statBlock}>
+        <CountUp to={g.plays} style={[styles.bigNumber, { color: ink.primary }]} />
+        <Text style={[styles.unit, { color: ink.tertiary }]}>{plural(g.plays, 'PARTIE JOUÉE', 'PARTIES JOUÉES')}</Text>
+      </Reveal>
+      <Reveal delay={240} style={styles.statBlock}>
+        <CountUp to={g.totalReps} style={[styles.midNumber, { color: ink.primary }]} />
+        <Text style={[styles.unit, { color: ink.tertiary }]}>RÉPÉTITIONS AU TOTAL</Text>
+      </Reveal>
+      <View style={styles.exList}>
+        {g.list.map((game, i) => (
+          <Reveal key={game.id} delay={340 + i * 90}>
+            <View style={styles.exRow}>
+              <View style={styles.gameNameRow}>
+                <View style={[styles.legendDot, { backgroundColor: game.color }]} />
+                <Text style={[styles.gameName, { color: ink.primary }]} numberOfLines={1}>
+                  {game.label}
+                </Text>
+              </View>
+              <Text style={[styles.exCount, { color: ink.secondary }]}>
+                {`${game.plays} ${plural(game.plays, 'partie', 'parties')} · record ${game.best}`}
+              </Text>
+            </View>
+          </Reveal>
+        ))}
+      </View>
+      {g.recordsBroken > 0 ? (
+        <Reveal delay={400 + g.list.length * 90}>
+          <Text style={[styles.caption, { color: ink.tertiary }]}>
+            {`${g.recordsBroken} ${plural(g.recordsBroken, 'record battu', 'records battus')} cette saison.`}
+          </Text>
+        </Reveal>
+      ) : null}
+    </View>
+  );
+}
+
 /* ───────────── Cartes Premium ───────────── */
 
 export function TensionCard({ recap, ink }) {
@@ -490,6 +535,8 @@ const styles = StyleSheet.create({
   exList: { alignSelf: 'stretch', gap: 14, marginTop: 4, paddingHorizontal: 8 },
   exRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 },
   exName: { flex: 1, fontFamily: fonts.sansBold, fontSize: 17, marginRight: 10 },
+  gameNameRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, marginRight: 10 },
+  gameName: { flexShrink: 1, fontFamily: fonts.sansBold, fontSize: 16 },
   exCount: { fontFamily: fonts.monoBold, fontSize: 14 },
   exTrack: { height: 7, borderRadius: 4, overflow: 'hidden' },
   exFill: { height: 7, borderRadius: 4 },

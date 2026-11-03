@@ -9,6 +9,7 @@ import TutorialFrame from '../components/screens/TutorialFrame';
 import {
   EndCard,
   ExercisesCard,
+  GamesCard,
   IntroCard,
   LoadsCard,
   LockedCard,
@@ -24,6 +25,9 @@ import IconButton from '../components/common/IconButton';
 import { AMBIANCES } from '../lib/ambiance';
 import { loadHistory } from '../lib/history';
 import { loadArchives } from '../lib/planning';
+import { loadScores } from '../lib/gameScores';
+import { loadPyramidScores } from '../lib/gamePyramidScores';
+import { loadComboScores } from '../lib/gameComboStore';
 import { loadProfile } from '../lib/profile';
 import { computeSeasonRecap, seasonRangeByKey } from '../lib/seasonRecap';
 import { markSeasonSeen } from '../lib/seasonRecapState';
@@ -37,7 +41,7 @@ import { useHaptic } from '../hooks/useHaptic';
 // Ouvert automatiquement au premier lancement après la fin d'une saison
 // (app/home.js, une seule fois par saison) et rouvrable depuis le Profil.
 //
-// Gratuit : ouverture, chiffres, mode, régularité, trophées, fin.
+// Gratuit : ouverture, chiffres, mode, régularité, trophées, jeux (si on a joué), fin.
 // Premium : temps sous tension, exercices, rythme, charges. Les non-Premium
 // voient ces cartes verrouillées (aucune vraie donnée derrière).
 
@@ -94,9 +98,16 @@ export default function SeasonRecap() {
         setData({ error: true });
         return;
       }
-      const [sessions, archives, profile] = await Promise.all([loadHistory(), loadArchives(), loadProfile()]);
+      const [sessions, archives, profile, count, pyramid, combo] = await Promise.all([
+        loadHistory(),
+        loadArchives(),
+        loadProfile(),
+        loadScores(),
+        loadPyramidScores(),
+        loadComboScores(),
+      ]);
       if (cancelled) return;
-      const recap = computeSeasonRecap(sessions, TIMERS, range, { archives });
+      const recap = computeSeasonRecap(sessions, TIMERS, range, { archives, games: { count, pyramid, combo } });
       setData({ recap, pseudo: profile?.pseudo });
       markSeasonSeen(range.key);
     })();
@@ -131,6 +142,8 @@ export default function SeasonRecap() {
     if (mode) list.push({ id: 'mode', colors: mode.bgColors, textMode: mode.textMode, Card: ModeCard });
     list.push({ id: 'regularity', colors: sc, textMode: 'light', Card: RegularityCard });
     if (recap.trophies.length) list.push({ id: 'trophies', colors: sc, textMode: 'light', Card: TrophiesCard });
+    // Gratuite et identique pour tous : une seule carte, jamais de version verrouillée.
+    if (recap.games) list.push({ id: 'games', colors: sc, textMode: 'light', Card: GamesCard });
 
     const premiumCards = [];
     if (recap.tension.seconds > 0) {
