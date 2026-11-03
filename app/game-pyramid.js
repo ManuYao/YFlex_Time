@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 
+import AmbianceBackdrop from '../components/common/AmbianceBackdrop';
 import GradientBackground from '../components/common/GradientBackground';
 import IconButton from '../components/common/IconButton';
 import Button from '../components/common/Button';
@@ -395,6 +396,8 @@ export default function GamePyramid() {
 
   return (
     <GradientBackground colors={GAME_BG} ambient>
+      {/* Décor de la saison une fois la partie lancée, jamais dans le réglage (règle des jeux) */}
+      {phase !== 'ready' && <AmbianceBackdrop tone="light" />}
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         {phase === 'ready' && (
           <>
@@ -557,7 +560,7 @@ export default function GamePyramid() {
 
         {phase === 'countdown' && (
           <View style={styles.center}>
-            <Text style={styles.countdownNumber}>{countdown}</Text>
+            <Text style={[styles.countdownNumber, countdown === 1 && styles.countdownGo]}>{countdown}</Text>
             <Text style={styles.hint}>Mets-toi en position</Text>
             <View style={styles.bottomBar}>
               <Button variant="glass" label="Annuler" haptic={haptic.light} onPress={cancelCountdown} fullWidth />
@@ -886,6 +889,8 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     includeFontPadding: false,
   },
+  // Le « 1 » final prend la couleur du jeu : c'est le moment de commencer.
+  countdownGo: { color: ACCENT },
   hint: {
     fontFamily: fonts.sansSemibold,
     fontSize: 15,
