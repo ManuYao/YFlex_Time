@@ -273,6 +273,8 @@ export default function Settings() {
         'flexTimer_coachNudge',
         // Alerte « ambiance de saison » (lib/seasonNudge.js) : redevient proposable.
         'flexTimer_seasonNudge',
+        // Bulles d'explication du menu (lib/hubTips.js) : redeviennent à montrer.
+        'flexTimer_hubTips',
         // Tutoriel de démarrage (lib/tutorial.js) : après un reset la personne
         // repart de zéro, le pop-up qui le propose peut revenir.
         'flexTimer_tutorial',

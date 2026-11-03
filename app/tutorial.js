@@ -13,7 +13,8 @@ import { useHaptic } from '../hooks/useHaptic';
 //
 // Niveau 1 : le menu (`menu`) → chrono de test dans le VRAI décompte et le VRAI
 //            chrono (/countdown puis /running avec tutorial=1) → bilan (`bilan`)
-// Niveau 2 : Historique, Planning, Profil (`tour`), facultatif
+// Niveau 2 : le menu (Mix, Historique, Planning, Jeux) puis le Profil (`tour`),
+//            facultatif ; « C'est parti » ramène à l'accueil
 //
 // L'état d'étape vit dans les paramètres de la route (`step`, `done`) : le test
 // passe par d'autres écrans, qui y reviennent par `router.replace`.

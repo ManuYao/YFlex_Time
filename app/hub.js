@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -13,6 +13,8 @@ import TickRing from '../components/common/TickRing';
 import AmbianceBackdrop from '../components/common/AmbianceBackdrop';
 import { SkeletonGroup, SkeletonBlock } from '../components/common/Skeleton';
 import { MIX_COLOR } from '../components/common/MixPill';
+import HubTips from '../components/screens/HubTips';
+import { HUB_TIPS, loadHubTipsSeen, markHubTipsSeen, shouldShowHubTips } from '../lib/hubTips';
 import { useTimers } from '../contexts/TimersContext';
 import useAmbiance from '../hooks/useAmbiance';
 import { haptic } from '../hooks/useHaptic';
@@ -66,6 +68,75 @@ export default function Hub() {
         cancelled = true;
       };
     }, [])
+  );
+
+  // Petites bulles d'explication (lib/hubTips.js) : on mesure chaque entrée pour
+  // l'éclairer. `scrollYRef` suit le défilement pour pouvoir ramener à l'écran
+  // une entrée cachée (petit téléphone) avant de la mesurer.
+  const scrollRef = useRef(null);
+  const scrollYRef = useRef(0);
+  const targets = useRef({
+    mix: React.createRef(),
+    history: React.createRef(),
+    planning: React.createRef(),
+    games: React.createRef(),
+  }).current;
+  const [tipsOn, setTipsOn] = useState(false);
+  const dataReady = sessions !== null && planning !== null;
+
+  // Elles démarrent une fois les tuiles remplies (leur hauteur ne bouge plus) et
+  // les animations d'entrée finies, jamais pendant un retour depuis une sous-page
+  // (le menu reste monté dessous : cet effet ne rejoue pas).
+  useEffect(() => {
+    if (!dataReady) return undefined;
+    let cancelled = false;
+    let timer = null;
+    loadHubTipsSeen().then((seen) => {
+      if (cancelled || !shouldShowHubTips({ seen })) return;
+      timer = setTimeout(() => {
+        if (!cancelled) setTipsOn(true);
+      }, 900);
+    });
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [dataReady]);
+
+  const closeTips = useCallback(() => {
+    setTipsOn(false);
+    markHubTipsSeen();
+  }, []);
+
+  const measureTarget = useCallback(
+    (id) =>
+      new Promise((resolve) => {
+        const target = targets[id]?.current;
+        const list = scrollRef.current;
+        if (!target?.measureInWindow || !list?.measureInWindow) {
+          resolve(null);
+          return;
+        }
+        const read = (onRect) =>
+          list.measureInWindow((_lx, ly, _lw, lh) => {
+            target.measureInWindow((x, y, width, height) => onRect({ x, y, width, height }, ly, lh));
+          });
+        read((r, ly, lh) => {
+          const top = ly + 8;
+          const bottom = ly + lh - 8;
+          const delta = r.y < top ? r.y - top : r.y + r.height > bottom ? r.y + r.height - bottom : 0;
+          if (!delta) {
+            resolve(r.width > 0 && r.height > 0 ? r : null);
+            return;
+          }
+          // Entrée cachée : on fait défiler, puis on mesure à sa nouvelle place.
+          list.scrollTo?.({ y: Math.max(0, scrollYRef.current + delta), animated: false });
+          setTimeout(() => {
+            read((r2) => resolve(r2.width > 0 && r2.height > 0 ? r2 : null));
+          }, 90);
+        });
+      }),
+    [targets]
   );
 
   const mixTimer = timers.find((t) => t.id === 'mix');
@@ -127,12 +198,19 @@ export default function Hub() {
         </View>
 
         <ScrollView
+          ref={scrollRef}
           style={styles.list}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          scrollEnabled={!tipsOn}
+          scrollEventThrottle={32}
+          onScroll={(e) => {
+            scrollYRef.current = e.nativeEvent.contentOffset.y;
+          }}
         >
           {/* ── Mix et Partage : la grande carte ── */}
           <Animated.View entering={slideInY(24, D.big, 0)}>
+            <View ref={targets.mix} collapsable={false}>
             <PressTap
               onPress={() => go('/mix-hub')}
               tapScale={0.98}
@@ -206,41 +284,51 @@ export default function Hub() {
                 </View>
               </View>
             </PressTap>
+            </View>
           </Animated.View>
 
           {/* ── Historique et Planning : deux tuiles ── */}
           <View style={styles.tiles}>
             <Animated.View entering={slideInY(24, D.big, 90)} style={styles.tileWrap}>
-              <HubTile
-                icon="history"
-                title="Mon historique"
-                summary={historySummary}
-                rim={tileRim}
-                onPress={() => go('/history')}
-              />
+              <View ref={targets.history} collapsable={false} style={styles.tileMeasure}>
+                <HubTile
+                  icon="history"
+                  title="Mon historique"
+                  summary={historySummary}
+                  rim={tileRim}
+                  onPress={() => go('/history')}
+                />
+              </View>
             </Animated.View>
             <Animated.View entering={slideInY(24, D.big, 170)} style={styles.tileWrap}>
-              <HubTile
-                icon="calendar"
-                title="Mon planning"
-                summary={planningSummary}
-                rim={tileRim}
-                onPress={() => go({ pathname: '/history', params: { page: 'planning' } })}
-              />
+              <View ref={targets.planning} collapsable={false} style={styles.tileMeasure}>
+                <HubTile
+                  icon="calendar"
+                  title="Mon planning"
+                  summary={planningSummary}
+                  rim={tileRim}
+                  onPress={() => go({ pathname: '/history', params: { page: 'planning' } })}
+                />
+              </View>
             </Animated.View>
             <Animated.View entering={slideInY(24, D.big, 250)} style={styles.tileWrapFull}>
-              <HubTile
-                icon="puzzle"
-                title="Jeux"
-                summary="Fais du sport en t’amusant"
-                rim={tileRim}
-                compact
-                onPress={() => go('/games')}
-              />
+              <View ref={targets.games} collapsable={false} style={styles.tileMeasure}>
+                <HubTile
+                  icon="puzzle"
+                  title="Jeux"
+                  summary="Fais du sport en t’amusant"
+                  rim={tileRim}
+                  compact
+                  onPress={() => go('/games')}
+                />
+              </View>
             </Animated.View>
           </View>
         </ScrollView>
       </SafeAreaView>
+
+      {/* Bulles d'explication : au-dessus de tout le menu, montées seulement quand il faut. */}
+      {tipsOn ? <HubTips steps={HUB_TIPS} measureTarget={measureTarget} onDone={closeTips} /> : null}
     </GradientBackground>
   );
 }
@@ -440,6 +528,11 @@ const styles = StyleSheet.create({
   },
   tileCompact: {
     minHeight: 0,
+  },
+  // Repère de mesure des bulles d'explication : une vue simple autour de la
+  // tuile, qui garde la hauteur de la rangée (flexGrow, jamais flex: 1).
+  tileMeasure: {
+    flexGrow: 1,
   },
   // Les deux tuiles d'une rangée ont la même hauteur, même si l'une des deux
   // résume sur plus de lignes que l'autre.

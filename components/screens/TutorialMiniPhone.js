@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -24,15 +24,18 @@ import { fonts } from '../../lib/fonts';
 //
 // Props:
 // - target  : 'hub' (menu, en haut à gauche) | 'profile' (en haut à droite)
-// - popover : 'history' | 'planning' | null — le petit menu qui s'ouvre sous
-//             le bouton de gauche, avec la ligne visée mise en évidence
+// - menu    : [{ icon, label }] | null — le petit menu qui s'ouvre sous le
+//             bouton de gauche ; ses lignes s'allument une à une, en boucle
+//             (1, 2, 3, 4…), pour montrer TOUTES les portes sur une seule page
 // - dark    : le texte de la page est noir (fond jaune de TABATA)
 // - k       : échelle (1 = 170 × 300), réduite dans une fenêtre basse
 
 const PHONE_W = 170;
 const PHONE_H = 300;
+const MENU_OPEN_DELAY = 450;
+const MENU_STEP_MS = 1250;
 
-export default function TutorialMiniPhone({ target, popover = null, dark = false, k = 1 }) {
+export default function TutorialMiniPhone({ target, menu = null, dark = false, k = 1 }) {
   const reduceMotion = useReducedMotion();
   const ink = dark ? '#0A0A0A' : '#FFFFFF';
   const inkSoft = dark ? 'rgba(10,10,10,0.14)' : 'rgba(255,255,255,0.16)';
@@ -63,8 +66,34 @@ export default function TutorialMiniPhone({ target, popover = null, dark = false
   const open = useSharedValue(reduceMotion ? 1 : 0);
   useEffect(() => {
     open.value = reduceMotion ? 1 : 0;
-    if (popover && !reduceMotion) open.value = withDelay(450, withSpring(1, { damping: 14, stiffness: 240 }));
-  }, [popover]);
+    if (menu && !reduceMotion) open.value = withDelay(MENU_OPEN_DELAY, withSpring(1, { damping: 14, stiffness: 240 }));
+  }, [!!menu]);
+
+  // Ligne allumée : aucune tant que le menu n'est pas ouvert, puis 0, 1, 2…
+  // et on recommence. Un simple minuteur d'illustration (rien à voir avec le
+  // chrono : pas de précision à tenir), arrêté au démontage.
+  const [active, setActive] = useState(-1);
+  const rowCount = menu ? menu.length : 0;
+  useEffect(() => {
+    setActive(-1);
+    if (!rowCount) return undefined;
+    let i = 0;
+    let timer = null;
+    const first = setTimeout(
+      () => {
+        setActive(0);
+        timer = setInterval(() => {
+          i = (i + 1) % rowCount;
+          setActive(i);
+        }, MENU_STEP_MS);
+      },
+      reduceMotion ? 300 : MENU_OPEN_DELAY + 500
+    );
+    return () => {
+      clearTimeout(first);
+      if (timer) clearInterval(timer);
+    };
+  }, [rowCount, reduceMotion]);
   const popStyle = useAnimatedStyle(() => ({
     opacity: Math.min(1, open.value),
     transform: [{ scale: 0.82 + 0.18 * Math.min(1, open.value) }],
@@ -133,7 +162,7 @@ export default function TutorialMiniPhone({ target, popover = null, dark = false
         ]}
       />
 
-      {popover ? (
+      {menu ? (
         <Animated.View
           style={[
             styles.popover,
@@ -141,38 +170,46 @@ export default function TutorialMiniPhone({ target, popover = null, dark = false
             popStyle,
           ]}
         >
-          <PopRow icon="history" label="Historique" active={popover === 'history'} k={k} ink={ink} />
-          <PopRow icon="calendar" label="Planning" active={popover === 'planning'} k={k} ink={ink} />
+          {menu.map((row, idx) => (
+            <PopRow key={row.label} icon={row.icon} label={row.label} active={idx === active} k={k} />
+          ))}
         </Animated.View>
       ) : null}
     </View>
   );
 }
 
-function PopRow({ icon, label, active, k, ink }) {
+// Une ligne du petit menu. L'allumage se fond (opacité seulement) au lieu de
+// sauter d'une ligne à l'autre.
+function PopRow({ icon, label, active, k }) {
   const s = (v) => Math.round(v * k);
+  const lit = useSharedValue(active ? 1 : 0);
+  useEffect(() => {
+    lit.value = withTiming(active ? 1 : 0, { duration: 240 });
+  }, [active]);
+  const glowStyle = useAnimatedStyle(() => ({ opacity: lit.value }));
+  const contentStyle = useAnimatedStyle(() => ({ opacity: 0.55 + 0.45 * lit.value }));
   return (
     <View
       style={[
         styles.popRow,
-        {
-          borderRadius: s(10),
-          paddingVertical: s(7),
-          paddingHorizontal: s(8),
-          backgroundColor: active ? 'rgba(255,255,255,0.20)' : 'transparent',
-        },
+        { borderRadius: s(10), paddingVertical: s(7), paddingHorizontal: s(8) },
       ]}
     >
-      <AppIcon name={icon} size={s(15)} color="#FFFFFF" opacity={active ? 1 : 0.6} />
-      <Text
+      <Animated.View
+        pointerEvents="none"
         style={[
-          styles.popLabel,
-          { fontSize: s(12), color: '#FFFFFF', opacity: active ? 1 : 0.6 },
+          StyleSheet.absoluteFill,
+          { borderRadius: s(10), backgroundColor: 'rgba(255,255,255,0.20)' },
+          glowStyle,
         ]}
-        numberOfLines={1}
-      >
-        {label}
-      </Text>
+      />
+      <Animated.View style={[styles.popContent, contentStyle]}>
+        <AppIcon name={icon} size={s(15)} color="#FFFFFF" />
+        <Text style={[styles.popLabel, { fontSize: s(12), color: '#FFFFFF' }]} numberOfLines={1}>
+          {label}
+        </Text>
+      </Animated.View>
     </View>
   );
 }
@@ -210,6 +247,9 @@ const styles = StyleSheet.create({
     transformOrigin: 'top left',
   },
   popRow: {
+    justifyContent: 'center',
+  },
+  popContent: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
