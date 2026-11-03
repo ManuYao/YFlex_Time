@@ -13,7 +13,7 @@ import TickRing from '../components/common/TickRing';
 import AmbianceBackdrop from '../components/common/AmbianceBackdrop';
 import { SkeletonGroup, SkeletonBlock } from '../components/common/Skeleton';
 import { MIX_COLOR } from '../components/common/MixPill';
-import HubTips from '../components/screens/HubTips';
+import SpotlightTips from '../components/screens/SpotlightTips';
 import { HUB_TIPS, loadHubTipsSeen, markHubTipsSeen, shouldShowHubTips } from '../lib/hubTips';
 import { useTimers } from '../contexts/TimersContext';
 import useAmbiance from '../hooks/useAmbiance';
@@ -328,7 +328,7 @@ export default function Hub() {
       </SafeAreaView>
 
       {/* Bulles d'explication : au-dessus de tout le menu, montées seulement quand il faut. */}
-      {tipsOn ? <HubTips steps={HUB_TIPS} measureTarget={measureTarget} onDone={closeTips} /> : null}
+      {tipsOn ? <SpotlightTips steps={HUB_TIPS} measureTarget={measureTarget} onDone={closeTips} /> : null}
     </GradientBackground>
   );
 }

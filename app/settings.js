@@ -612,7 +612,7 @@ export default function Settings() {
             />
             <LinkRow
               label="Revoir le tutoriel"
-              sub="Le tour guidé, en 2 minutes"
+              sub="Le tour guidé, en une minute"
               onPress={() => {
                 haptic.light();
                 router.push({ pathname: '/tutorial', params: { step: 'menu' } });

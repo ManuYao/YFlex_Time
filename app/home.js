@@ -87,11 +87,13 @@ import {
   dismissCoachNudgeForever,
 } from '../lib/coachNudge';
 import {
+  HOME_TOUR_STEPS,
   loadTutorialState,
   markTutorialInviteShown,
   markTutorialOutcome,
   shouldInviteTutorial,
 } from '../lib/tutorial';
+import SpotlightTips from '../components/screens/SpotlightTips';
 import { onSplashCleared } from '../lib/splash';
 import { markAppReady } from '../lib/appReady';
 import useIntroReveal from '../hooks/useIntroReveal';
@@ -271,6 +273,8 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   // décompte (components/common/LaunchTransition.js).
   const ringRef = useRef(null);
   const [ringRect, setRingRect] = useState(null);
+  // Rangée de réglages de la carte active : zone éclairée par les bulles du tour guidé.
+  const statsRef = useRef(null);
   const { timers, updateStat, hydrated } = useTimers();
   const { settings, update: updateSetting } = useSettings();
   const { getStatus: getCooldownStatusRaw } = useCooldown();
@@ -402,6 +406,21 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   // components/common/TutorialInviteSheet.js. Première de la file de démarrage.
   const [showTutorialInvite, setShowTutorialInvite] = useState(false);
 
+  // Tour guidé niveau 1 : trois bulles posées sur CET écran (choisir un mode,
+  // régler, lancer), sans rien lancer. 'off' | 'wait' (on laisse les animations
+  // d'entrée finir) | 'on'. Déclenché par « C'est parti » du pop-up ci-dessus ou
+  // par le paramètre `tour=1` (Paramètres › Revoir le tutoriel, via /tutorial).
+  const { tour: tourParam } = useLocalSearchParams();
+  const [tourPhase, setTourPhase] = useState(tourParam === '1' ? 'wait' : 'off');
+  useEffect(() => {
+    if (tourParam === '1') setTourPhase((p) => (p === 'off' ? 'wait' : p));
+  }, [tourParam]);
+  useEffect(() => {
+    if (tourPhase !== 'wait' || !hydrated) return undefined;
+    const timer = setTimeout(() => setTourPhase('on'), 1300);
+    return () => clearTimeout(timer);
+  }, [tourPhase, hydrated]);
+
   // Séance interrompue au dernier lancement (batterie vide, plantage) :
   // récupérée depuis le brouillon (lib/sessionDraft.js), annoncée par un petit
   // message qui disparaît tout seul. La promesse est mémorisée : la même pour
@@ -455,7 +474,7 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   const overlayBusyRef = useRef(false);
   overlayBusyRef.current =
     isLaunching || statsOpen || !!picker || badgeQueue.length > 0 || !!primerLaunch ||
-    showCoachNudge || showSeasonNudge || showTutorialInvite || modePickerOpen;
+    showCoachNudge || showSeasonNudge || showTutorialInvite || modePickerOpen || tourPhase !== 'off';
 
   useEffect(() => {
     shouldShowPermissionPrimer('firstSession').then((due) => {
@@ -614,9 +633,45 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
     if (choice === 'never') {
       markTutorialOutcome('declined');
     } else if (choice === 'accept') {
-      router.replace({ pathname: '/tutorial', params: { step: 'menu' } });
+      // Les bulles se jouent ici, sur l'accueil : pas de changement d'écran.
+      setTourPhase('wait');
     }
-  }, [router]);
+  }, []);
+
+  // Fin des bulles : « Passer » dès la première = tuto refusé (on ne le
+  // reproposera pas), sinon le niveau 1 compte comme fait. « Voir la suite » ouvre
+  // le niveau 2 (le menu puis le Profil), qui ramène ici.
+  const handleTourDone = useCallback(
+    ({ reason, index }) => {
+      setTourPhase('off');
+      // Le paramètre est retiré pour qu'un prochain « Revoir le tutoriel » rejoue les bulles.
+      if (tourParam === '1') router.setParams({ tour: undefined });
+      if (reason === 'skip' && index === 0) {
+        markTutorialOutcome('declined');
+      } else if (reason === 'more') {
+        markTutorialOutcome('done1');
+        router.replace({ pathname: '/tutorial', params: { step: 'tour' } });
+      } else {
+        markTutorialOutcome('done1');
+      }
+    },
+    [router, tourParam]
+  );
+
+  // Rectangle d'une zone du tour, en coordonnées de fenêtre ; null si elle n'est
+  // pas à l'écran (fenêtre réduite : la bulle correspondante est sautée).
+  const measureTourTarget = useCallback((id) => {
+    const node = (id === 'ring' ? ringRef : id === 'stats' ? statsRef : ctaRef).current;
+    return new Promise((resolve) => {
+      if (!node?.measureInWindow) {
+        resolve(null);
+        return;
+      }
+      node.measureInWindow((x, y, width, height) => {
+        resolve(width > 0 && height > 0 ? { x, y, width, height } : null);
+      });
+    });
+  }, []);
 
   // Alerte « ambiance de saison » : marquée vue à la fermeture (quel que soit le
   // chemin), « Désactiver » coupe l'ambiance tout de suite.
@@ -976,6 +1031,7 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
         heatCount={heatMap[item.id] || 0}
         cooldown={getCooldownStatus(item.id)}
         ringRef={ringRef}
+        statsRef={statsRef}
         onStatPress={handleStatPress}
         onMixEdit={handleMixEdit}
         onStatHaptic={haptic.light}
@@ -1147,6 +1203,17 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
       {/* (U ter) Proposition du tutoriel — voir lib/tutorial.js. */}
       {showTutorialInvite && (
         <TutorialInviteSheet screenH={rootH} onClose={handleTutorialInviteClose} />
+      )}
+
+      {/* (U quater) Tour guidé niveau 1 : trois bulles sur le vrai accueil. Le calque
+          avale tous les appuis : rien ne se lance, rien ne se règle pendant le tour. */}
+      {tourPhase === 'on' && (
+        <SpotlightTips
+          steps={HOME_TOUR_STEPS}
+          measureTarget={measureTourTarget}
+          onDone={handleTourDone}
+          moreLabel="Voir la suite"
+        />
       )}
 
       {/* (U bis) Découverte du coach vocal — voir lib/coachNudge.js. Même
@@ -1448,7 +1515,7 @@ function TopBar({ tag, tokens, tone, onProfile, onHub, onTapHaptic, isLaunching 
 /* ─────────────────────────────────────────────────────────────────
    TimerCard — orchestration des animations sur isActive
    ────────────────────────────────────────────────────────────────*/
-const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, heatCount, cooldown, ringRef, onStatPress, onMixEdit, onStatHaptic, onOpenStats, onGoPremium }) {
+const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, heatCount, cooldown, ringRef, statsRef, onStatPress, onMixEdit, onStatHaptic, onOpenStats, onGoPremium }) {
   const t = getTokens(timer.textMode);
   const hero = getTimerHero(timer);
   const description = getTimerDescription(timer);
@@ -1724,6 +1791,8 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
           la fenêtre grandit. */}
       {!isMini && (
       <View
+        ref={isActive ? statsRef : undefined}
+        collapsable={false}
         style={[
           statsCompact ? styles.statsRowCompact : styles.statsRow,
           isReduced && styles.statsRowReduced,
