@@ -27,7 +27,7 @@ import { useKeyboardHeight, scrollToFocusedInput } from '../hooks/useKeyboardHei
 import { fonts } from '../lib/fonts';
 import { goBackSafe } from '../lib/navigation';
 import { playSound, preloadSound } from '../lib/sounds';
-import { scanPhoneVoices, speakGame, stopVoiceCoach } from '../lib/voiceCoach';
+import { areGameWordsReady, prepareGameWords, speakGame, stopVoiceCoach } from '../lib/voiceCoach';
 import {
   loadComboScores,
   saveComboScore,
@@ -98,6 +98,7 @@ export default function GameCombo() {
   const [scores, setScores] = useState([]);
   const [result, setResult] = useState(null); // { counts, total, record, complete }
   const [finalCounts, setFinalCounts] = useState({ a: 0, b: 0 });
+  const [audioReady, setAudioReady] = useState(false); // les mots sont préchargés
 
   const phaseRef = useRef('ready');
   const callsRef = useRef(0);
@@ -158,12 +159,39 @@ export default function GameCombo() {
   // Quitte l'écran : plus de voix, plus de minuterie.
   useEffect(() => releaseGame, []);
 
-  // Les mots sont dits par la voix du téléphone : on repère d'avance sa voix
-  // « homme » (sinon le choix de voix serait ignoré ici) et on réveille le moteur
-  // vocal, pour que le premier mot ne se fasse pas attendre.
+  // Les mots sont dits par la voix du téléphone. Dès qu'ils changent (et au départ),
+  // on les précharge : le moteur vocal est réveillé et la voix « homme » repérée,
+  // pour que le premier mot ne se fasse pas attendre. Tant que ce n'est pas fait,
+  // « Lancer » reste éteint et le dit. Un mot déjà préparé ne fait rien attendre.
+  const voiceGender = settings.voiceGender;
+  const wordsKey = `${setup.a.word}|${setup.b.word}`;
   useEffect(() => {
-    scanPhoneVoices().catch(() => {});
-  }, []);
+    if (setupProblem(setup)) {
+      // Rien à charger tant qu'il n'y a pas deux mots : le bouton dit déjà pourquoi.
+      setAudioReady(false);
+      return undefined;
+    }
+    const words = [cleanText(setup.a.word, WORD_MAX), cleanText(setup.b.word, WORD_MAX)];
+    if (areGameWordsReady(words, voiceGender)) {
+      setAudioReady(true);
+      return undefined;
+    }
+    setAudioReady(false);
+    let cancelled = false;
+    // On laisse finir la frappe avant de charger.
+    const timer = setTimeout(() => {
+      // Même si le moteur ne répond pas, on débloque (la parole n'en dépend pas).
+      prepareGameWords(words, voiceGender)
+        .catch(() => false)
+        .then(() => {
+          if (!cancelled) setAudioReady(true);
+        });
+    }, 500);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [wordsKey, voiceGender]);
 
   // Enregistre le score définitif (après la confirmation) et montre le résultat.
   // `counts` = { a, b } : répétitions faites pour chaque mot ; le score est leur somme.
@@ -266,7 +294,7 @@ export default function GameCombo() {
   };
 
   const startGame = () => {
-    if (setupProblem(setup)) return;
+    if (setupProblem(setup) || !audioReady) return;
     haptic.medium();
     const clean = {
       a: { word: cleanText(setup.a.word, WORD_MAX), exo: cleanText(setup.a.exo, EXO_MAX) },
@@ -323,6 +351,7 @@ export default function GameCombo() {
     setSetup((s) => ({ ...s, [side]: { ...s[side], [field]: value } }));
 
   const problem = setupProblem(setup);
+  const loadingAudio = !problem && !audioReady;
   const best = bestComboScore(scores, duration);
   const mine = scores.filter((s) => durationLabel(s.duration)).slice(0, 8);
   const ring = Math.min(RING, Math.round(height * 0.34));
@@ -446,11 +475,11 @@ export default function GameCombo() {
 
                 <Button
                   variant="solid"
-                  icon="play"
-                  label="Lancer"
+                  icon={loadingAudio ? undefined : 'play'}
+                  label={loadingAudio ? 'Chargement des audios…' : 'Lancer'}
                   haptic={haptic.medium}
                   onPress={startGame}
-                  disabled={!!problem}
+                  disabled={!!problem || loadingAudio}
                   fullWidth
                 />
 
