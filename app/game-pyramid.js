@@ -275,6 +275,10 @@ export default function GamePyramid() {
     setRestLeft(total);
     haptic.light();
     later(700, () => speakGame('Repos.', cfg.gender));
+    // Les premiers chiffres de la série suivante sont rechargés bien avant son
+    // départ (un chiffre déjà dit doit être rechargé) : le dernier chiffre de la
+    // série finie a eu le temps de s'achever, le repos dure 10 s au moins.
+    later(2500, () => callerRef.current?.preload(1, 3));
     [
       [-3850, 'countdown1'],
       [-2850, 'countdown2'],
