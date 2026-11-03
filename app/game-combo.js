@@ -351,18 +351,7 @@ export default function GameCombo() {
           style={styles.input}
           accessibilityLabel={`${label}, le mot crié`}
         />
-        <TextInput
-          value={value.exo}
-          onChangeText={(v) => setField(side, 'exo', v)}
-          onFocus={() => setTimeout(() => scrollToFocusedInput(scrollRef, contentRef), 60)}
-          placeholder="L’exercice à faire"
-          placeholderTextColor="rgba(255,255,255,0.30)"
-          autoCapitalize="sentences"
-          autoCorrect={false}
-          maxLength={EXO_MAX}
-          style={styles.input}
-          accessibilityLabel={`${label}, l’exercice`}
-        />
+        <Text style={styles.sideSub}>EXERCICE</Text>
         <View style={styles.suggestions}>
           {EXO_SUGGESTIONS.map((name) => {
             const on = value.exo === name;
@@ -371,7 +360,8 @@ export default function GameCombo() {
                 key={name}
                 onPress={() => {
                   haptic.selection();
-                  setField(side, 'exo', name);
+                  // Retoucher l'exercice choisi l'enlève : il reste facultatif.
+                  setField(side, 'exo', on ? '' : name);
                 }}
                 tapScale={0.95}
                 style={[styles.suggestion, on && styles.suggestionOn]}
@@ -690,6 +680,13 @@ const styles = StyleSheet.create({
     fontSize: 11,
     letterSpacing: 2.4,
     color: ACCENT,
+  },
+  sideSub: {
+    fontFamily: fonts.sansBold,
+    fontSize: 10,
+    letterSpacing: 2,
+    color: 'rgba(255,255,255,0.45)',
+    marginTop: 4,
   },
   input: {
     backgroundColor: 'rgba(255,255,255,0.05)',
