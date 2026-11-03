@@ -105,6 +105,10 @@ function Hero({ icon, title, subtitle, accent, hero }) {
   const { value, label, ring = 0, bars = [], tiles = [], dots = [] } = hero;
   const [digitMid, setDigitMid] = useState(measuredDigitMid);
   const tileBg = solidTileBg(accent);
+  // Plus l'anneau est rempli, plus ses graduations allumées sont discrètes : quelques
+  // traits à 50 % se lisent comme un filigrane, mais un anneau entièrement allumé
+  // (le meilleur résultat tout juste égalé) devenait le premier élément de la carte.
+  const ringAlpha = 0.5 - 0.3 * Math.min(1, Math.max(0, ring));
 
   // Où se trouve le MILIEU des chiffres dans la boîte du texte ? Cela dépend de la
   // police (le vide sous les chiffres, pour les jambages, n'est pas le même partout) :
@@ -122,7 +126,7 @@ function Hero({ icon, title, subtitle, accent, hero }) {
     <View style={[styles.hero, { borderColor: withAlpha(accent, 0.34), backgroundColor: withAlpha(accent, 0.07) }]}>
       {/* Anneau de graduations en filigrane, rogné dans le coin. */}
       <View style={styles.ring} pointerEvents="none">
-        <TickRing progress={ring} size={RING_SIZE} colorActive={withAlpha(accent, 0.5)} colorInactive="rgba(255,255,255,0.07)" />
+        <TickRing progress={ring} size={RING_SIZE} colorActive={withAlpha(accent, ringAlpha)} colorInactive="rgba(255,255,255,0.07)" />
       </View>
 
       <View style={styles.heroHead}>
