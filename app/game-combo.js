@@ -24,6 +24,7 @@ import { haptic } from '../hooks/useHaptic';
 import { useKeyboardHeight, scrollToFocusedInput } from '../hooks/useKeyboardHeight';
 import { fonts } from '../lib/fonts';
 import { goBackSafe } from '../lib/navigation';
+import { DEFAULT_TEMPO, TEMPOS } from '../lib/gameCount';
 import { playSound, preloadSound } from '../lib/sounds';
 import { areGameWordsReady, prepareGameWords, speakGame, stopVoiceCoach } from '../lib/voiceCoach';
 import {
@@ -34,11 +35,10 @@ import {
   saveComboSetup,
 } from '../lib/gameComboStore';
 import {
-  DEFAULT_DURATION,
   DEFAULT_SETUP,
-  DURATIONS,
   EXO_MAX,
   EXO_SUGGESTIONS,
+  GAME_SECONDS,
   PROBLEM_TEXT,
   WORD_MAX,
   bestComboScore,
@@ -68,7 +68,6 @@ const formatDay = (at) => {
 // Taille du mot selon sa longueur, pour qu'il tienne dans l'anneau.
 const wordSize = (len) => (len <= 4 ? 104 : len <= 6 ? 80 : len <= 8 ? 62 : len <= 10 ? 50 : 42);
 
-const durationLabel = (id) => DURATIONS.find((d) => d.id === id)?.label ?? '';
 
 /**
  * « Combo Bi-Exo » — deux mots, deux exercices. La voix crie un des deux mots au
@@ -85,12 +84,12 @@ export default function GameCombo() {
   const { settings } = useSettings();
 
   const [phase, setPhase] = useState('ready'); // ready | countdown | playing | done
-  const [duration, setDuration] = useState(DEFAULT_DURATION);
+  const [tempoId, setTempoId] = useState(DEFAULT_TEMPO);
   const [setup, setSetup] = useState(DEFAULT_SETUP);
   const [countdown, setCountdown] = useState(3);
   const [call, setCall] = useState(null); // { n, side }
   const [fresh, setFresh] = useState(false);
-  const [remaining, setRemaining] = useState(DEFAULT_DURATION);
+  const [remaining, setRemaining] = useState(GAME_SECONDS);
   const [scores, setScores] = useState([]);
   const [result, setResult] = useState(null); // { counts, total, record, complete }
   const [audioReady, setAudioReady] = useState(false); // les mots sont préchargés
@@ -192,13 +191,13 @@ export default function GameCombo() {
     if (phaseRef.current === 'done') return;
     const cfg = cfgRef.current;
     const total = counts.a + counts.b;
-    const previousBest = bestComboScore(scoresRef.current, cfg.duration);
+    const previousBest = bestComboScore(scoresRef.current, cfg.tempoId);
     goPhase('done');
     setResult({ counts, total, record: total > 0 && total > previousBest, complete });
     haptic.success();
     if (total > 0) {
       const list = await saveComboScore({
-        duration: cfg.duration,
+        tempo: cfg.tempoId,
         counts,
         complete,
         setup: cfg.setup,
@@ -232,13 +231,13 @@ export default function GameCombo() {
   // (calculée depuis le départ, donc sans dérive).
   const startPlaying = () => {
     const cfg = cfgRef.current;
-    const plan = planCalls(cfg.duration);
+    const plan = planCalls(cfg.setup, cfg.tempoId);
     const startedAt = Date.now();
-    const endAt = startedAt + cfg.duration * 1000;
+    const endAt = startedAt + GAME_SECONDS * 1000;
     callsRef.current = 0;
     sideCallsRef.current = { a: 0, b: 0 };
     setCall(null);
-    setRemaining(cfg.duration);
+    setRemaining(GAME_SECONDS);
     goPhase('playing');
 
     plan.forEach(({ atMs, side }) => {
@@ -254,9 +253,9 @@ export default function GameCombo() {
         later(FRESH_MS, () => setFresh(false));
       });
     });
-    later(cfg.duration * 1000, completeGame);
+    later(GAME_SECONDS * 1000, completeGame);
 
-    let shown = cfg.duration;
+    let shown = GAME_SECONDS;
     const tick = () => {
       if (phaseRef.current !== 'playing') return;
       const left = Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
@@ -276,7 +275,7 @@ export default function GameCombo() {
       a: { word: cleanText(setup.a.word, WORD_MAX), exo: cleanText(setup.a.exo, EXO_MAX) },
       b: { word: cleanText(setup.b.word, WORD_MAX), exo: cleanText(setup.b.exo, EXO_MAX) },
     };
-    cfgRef.current = { duration, setup: clean, gender: settings.voiceGender };
+    cfgRef.current = { tempoId, setup: clean, gender: settings.voiceGender };
     saveComboSetup(clean);
     activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(() => {});
     // Comme le vrai décompte : sons décodés d'avance, sinon le bip final saute.
@@ -324,8 +323,8 @@ export default function GameCombo() {
 
   const problem = setupProblem(setup);
   const loadingAudio = !problem && !audioReady;
-  const best = bestComboScore(scores, duration);
-  const mine = scores.filter((s) => durationLabel(s.duration)).slice(0, 8);
+  const best = bestComboScore(scores, tempoId);
+  const mine = scores.slice(0, 8);
   const ring = Math.min(RING, Math.round(height * 0.34));
   const live = cfgRef.current?.setup;
   const callWord = call && live ? live[call.side].word : '';
@@ -405,27 +404,27 @@ export default function GameCombo() {
                 <Text style={styles.tag}>JEU · DEUX MOTS, DEUX EXERCICES</Text>
                 <Text style={styles.rules}>
                   Choisis deux mots et un exercice pour chacun. La voix en crie un au hasard : tu fais
-                  tout de suite UNE répétition de l’exercice qui va avec. Enchaîne jusqu’à la fin du
-                  temps.
+                  tout de suite UNE répétition de l’exercice qui va avec. Enchaîne pendant 3 min 30. Le
+                  temps entre deux mots s’adapte aux exercices : se relever en demande plus.
                 </Text>
 
-                <Text style={styles.sectionLabel}>DURÉE</Text>
+                <Text style={styles.sectionLabel}>RYTHME</Text>
                 <View style={styles.chips}>
-                  {DURATIONS.map((d) => {
-                    const on = d.id === duration;
+                  {Object.values(TEMPOS).map((t) => {
+                    const on = t.id === tempoId;
                     return (
                       <PressTap
-                        key={d.id}
+                        key={t.id}
                         onPress={() => {
                           haptic.selection();
-                          setDuration(d.id);
+                          setTempoId(t.id);
                         }}
                         tapScale={0.96}
                         containerStyle={styles.chipWrap}
                         style={[styles.chip, on && styles.chipOn]}
-                        accessibilityLabel={`Durée ${d.label}`}
+                        accessibilityLabel={`Rythme ${t.label}`}
                       >
-                        <Text style={[styles.chipText, on && styles.chipTextOn]}>{d.label}</Text>
+                        <Text style={[styles.chipText, on && styles.chipTextOn]}>{t.label}</Text>
                       </PressTap>
                     );
                   })}
@@ -440,7 +439,7 @@ export default function GameCombo() {
                   <AppIcon name="trophies" size={18} color="#FFFFFF" />
                   <Text style={styles.bestText}>
                     {best > 0
-                      ? `Ton record sur ${durationLabel(duration)} : ${best} répétitions`
+                      ? `Ton record (${TEMPOS[tempoId].label}) : ${best} répétitions`
                       : 'Pas encore de record ici — à toi de jouer'}
                   </Text>
                 </View>
@@ -462,7 +461,7 @@ export default function GameCombo() {
                       <View key={s.id} style={styles.scoreRow}>
                         <Text style={styles.scoreCount}>{s.total}</Text>
                         <Text style={styles.scoreMeta} numberOfLines={1}>
-                          {durationLabel(s.duration)} · {s.detail || s.words} · {formatDay(s.at)}
+                          {TEMPOS[s.tempo]?.label} · {s.detail || s.words} · {formatDay(s.at)}
                           {s.complete ? ' · terminée' : ''}
                         </Text>
                         <PressTap
@@ -498,7 +497,7 @@ export default function GameCombo() {
             <Text style={styles.clock}>{formatClock(remaining)}</Text>
             <View style={[styles.ringWrap, { width: ring, height: ring }]}>
               <TickRing
-                progress={cfgRef.current ? 1 - remaining / cfgRef.current.duration : 0}
+                progress={1 - remaining / GAME_SECONDS}
                 size={ring}
                 colorActive={ACCENT}
                 colorInactive={ACCENT_FAINT}
@@ -558,7 +557,7 @@ export default function GameCombo() {
             <View style={styles.center}>
               <Text style={styles.tag}>{result?.complete ? 'PARTIE TERMINÉE' : 'TON SCORE'}</Text>
               <Text style={styles.bigNumber}>{result?.total ?? 0}</Text>
-              <Text style={styles.hint}>répétitions sur {durationLabel(cfgRef.current?.duration)}</Text>
+              <Text style={styles.hint}>répétitions en {formatClock(GAME_SECONDS)}</Text>
               {result?.record && <Text style={styles.record}>NOUVEAU RECORD</Text>}
               {!result?.record && best > 0 && (
                 <Text style={styles.hint}>Ton record : {best} répétitions</Text>
