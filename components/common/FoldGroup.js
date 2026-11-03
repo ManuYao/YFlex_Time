@@ -82,6 +82,20 @@ export default function FoldGroup({ icon, title, subtitle, accent = '#FFFFFF', h
   );
 }
 
+// Diamètre de l'anneau en filigrane (dp).
+const RING_SIZE = 200;
+
+// Fond PLEIN des trois repères du bas (accent très dilué sur le fond sombre). Il doit
+// être opaque : un fond translucide laisse voir l'anneau de graduations qui passe
+// derrière, et ses traits se mettaient à traverser les textes des repères.
+function solidTileBg(accent) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(accent);
+  if (!m) return '#1A1A1A';
+  const n = parseInt(m[1], 16);
+  const ch = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((c) => Math.round(10 + c * 0.04 + 255 * 0.03));
+  return `rgb(${ch[0]},${ch[1]},${ch[2]})`;
+}
+
 // Hauteur du milieu des chiffres, mesurée une fois sur le téléphone (elle ne dépend
 // que de la police) : les cartes qu'on replie puis rouvre n'attendent plus la mesure.
 let measuredDigitMid = null;
@@ -90,6 +104,7 @@ let measuredDigitMid = null;
 function Hero({ icon, title, subtitle, accent, hero }) {
   const { value, label, ring = 0, bars = [], tiles = [], dots = [] } = hero;
   const [digitMid, setDigitMid] = useState(measuredDigitMid);
+  const tileBg = solidTileBg(accent);
 
   // Où se trouve le MILIEU des chiffres dans la boîte du texte ? Cela dépend de la
   // police (le vide sous les chiffres, pour les jambages, n'est pas le même partout) :
@@ -107,7 +122,7 @@ function Hero({ icon, title, subtitle, accent, hero }) {
     <View style={[styles.hero, { borderColor: withAlpha(accent, 0.34), backgroundColor: withAlpha(accent, 0.07) }]}>
       {/* Anneau de graduations en filigrane, rogné dans le coin. */}
       <View style={styles.ring} pointerEvents="none">
-        <TickRing progress={ring} size={250} colorActive={withAlpha(accent, 0.5)} colorInactive="rgba(255,255,255,0.07)" />
+        <TickRing progress={ring} size={RING_SIZE} colorActive={withAlpha(accent, 0.5)} colorInactive="rgba(255,255,255,0.07)" />
       </View>
 
       <View style={styles.heroHead}>
@@ -156,7 +171,7 @@ function Hero({ icon, title, subtitle, accent, hero }) {
 
       <View style={styles.tiles}>
         {tiles.map((t) => (
-          <View key={t.label} style={styles.tile}>
+          <View key={t.label} style={[styles.tile, { backgroundColor: tileBg }]}>
             <Text style={styles.tileLabel} numberOfLines={1}>
               {t.label}
             </Text>
@@ -184,7 +199,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     overflow: 'hidden',
   },
-  ring: { position: 'absolute', right: -78, top: 54 },
+  // L'anneau tient dans la zone entre l'en-tête et les trois repères (derrière le
+  // graphique) et n'est rogné que par le bord droit de la carte ; les repères, opaques
+  // et dessinés après lui, le recouvrent si une carte basse le fait déborder.
+  ring: { position: 'absolute', right: -62, top: 66 },
   heroHead: { flexDirection: 'row', alignItems: 'center' },
   heroTitle: { fontFamily: fonts.sansExtraBold, fontSize: 19, letterSpacing: -0.3, color: '#FFFFFF' },
   openChip: {
@@ -218,7 +236,6 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 10,
     borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.06)',
   },
   tileLabel: { fontFamily: fonts.monoRegular, fontSize: 8.5, letterSpacing: 0.8, color: 'rgba(255,255,255,0.5)' },
   tileValue: { marginTop: 4, fontFamily: fonts.display, fontSize: 21, color: '#FFFFFF', includeFontPadding: false },
