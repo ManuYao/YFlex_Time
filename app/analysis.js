@@ -102,7 +102,12 @@ export default function Analysis() {
                 <Animated.View style={contentStyle}>
                   {isPremium ? (
                     <>
-                      {stats.hasData ? <AdvancedCards stats={stats} /> : null}
+                      {stats.hasData ? (
+                        <>
+                          <Text style={[styles.sectionTitle, styles.sectionFirst]}>SÉANCES</Text>
+                          <AdvancedCards stats={stats} />
+                        </>
+                      ) : null}
                       {gameStats.hasData ? (
                         <>
                           <Text style={styles.sectionTitle}>JEUX</Text>
@@ -186,6 +191,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     paddingHorizontal: 4,
   },
+  sectionFirst: { marginTop: 0 },
   empty: {
     fontFamily: fonts.sansSemibold,
     fontSize: 13,

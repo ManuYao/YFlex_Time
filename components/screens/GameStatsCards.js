@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import AppIcon from '../common/AppIcon';
 import BarChart from '../common/BarChart';
+import FoldPanel from '../common/FoldPanel';
 import { fonts } from '../../lib/fonts';
 import { GOLD } from '../../lib/buttonTokens';
 import { withAlpha } from '../../lib/phase-colors';
@@ -12,15 +13,23 @@ const plural = (n, one, many) => (n > 1 ? many : one);
 // Statistiques des jeux, page « Analyse avancée » (Premium). Les données viennent
 // de lib/gameStats.js (computeGameStats, toutes les parties gardées sur le
 // téléphone). Sans Premium, chaque jeu montre toujours ses propres scores dans son
-// écran : ici on ne trouve que l'analyse d'ensemble.
+// écran : ici on ne trouve que l'analyse d'ensemble. Toutes les cartes sont pliées
+// au départ (FoldPanel) : la personne déplie ce qu'elle veut voir.
 export default function GameStatsCards({ stats }) {
   return (
     <View>
-      <View style={styles.tiles}>
-        <Tile icon="play" label="PARTIES" value={String(stats.plays)} caption={`${stats.activeDays} ${plural(stats.activeDays, 'jour', 'jours')} de jeu`} />
-        <Tile icon="repeat" label="RÉPÉTITIONS" value={String(stats.totalReps)} caption="au total" />
-        <Tile icon="medal" label="RECORDS" value={String(stats.recordsBroken)} caption={plural(stats.recordsBroken, 'battu', 'battus')} />
-      </View>
+      <FoldPanel
+        foldable
+        title="Vue d’ensemble"
+        subtitle="Tous tes jeux réunis"
+        summary={{ label: 'PARTIES', value: String(stats.plays) }}
+      >
+        <View style={styles.tiles}>
+          <Tile icon="play" label="PARTIES" value={String(stats.plays)} caption={`${stats.activeDays} ${plural(stats.activeDays, 'jour', 'jours')} de jeu`} />
+          <Tile icon="repeat" label="RÉPÉTITIONS" value={String(stats.totalReps)} caption="au total" />
+          <Tile icon="medal" label="RECORDS" value={String(stats.recordsBroken)} caption={plural(stats.recordsBroken, 'battu', 'battus')} />
+        </View>
+      </FoldPanel>
 
       {stats.games.map((g) => (
         <View key={g.id} style={styles.cardSpaced}>
@@ -30,13 +39,12 @@ export default function GameStatsCards({ stats }) {
 
       {stats.plays >= 2 ? (
         <View style={styles.cardSpaced}>
-          <View style={styles.card}>
-            <CardHeader
-              title="Parties par semaine"
-              subtitle="8 dernières semaines, tous jeux confondus"
-              rightLabel="FAVORI"
-              rightValue={stats.favorite ? stats.favorite.label : '—'}
-            />
+          <FoldPanel
+            foldable
+            title="Parties par semaine"
+            subtitle="8 dernières semaines, tous jeux confondus"
+            summary={{ label: 'FAVORI', value: stats.favorite ? stats.favorite.label : '—' }}
+          >
             <BarChart
               data={stats.weeklyPlays}
               labels={stats.weeklyLabels}
@@ -45,7 +53,7 @@ export default function GameStatsCards({ stats }) {
               dimOpacity={0.3}
               interactive
             />
-          </View>
+          </FoldPanel>
         </View>
       ) : null}
     </View>
@@ -57,14 +65,14 @@ function GameCard({ game }) {
   const showSeries = main.series.length >= 2;
   const delta = main.delta;
   return (
-    <View style={styles.card}>
-      <CardHeader
-        title={game.label}
-        subtitle={`${main.label} · ${main.plays} ${plural(main.plays, 'partie', 'parties')}`}
-        rightLabel="RECORD"
-        rightValue={String(game.best.value)}
-        dot={game.color}
-      />
+    <FoldPanel
+      foldable
+      title={game.label}
+      subtitle={`${main.label} · ${main.plays} ${plural(main.plays, 'partie', 'parties')}`}
+      rightLabel="RECORD"
+      rightValue={String(game.best.value)}
+      dot={game.color}
+    >
       <View style={styles.miniTiles}>
         <MiniTile label="PARTIES" value={String(game.plays)} />
         <MiniTile label="RÉPS TOTAL" value={String(game.totalReps)} />
@@ -91,7 +99,7 @@ function GameCard({ game }) {
           <Fact icon="check" text={`${game.finishedPct} % de tes parties menées jusqu’au bout`} />
         ) : null}
       </View>
-    </View>
+    </FoldPanel>
   );
 }
 
@@ -134,44 +142,20 @@ function Fact({ icon, text }) {
   );
 }
 
-function CardHeader({ title, subtitle, rightLabel, rightValue, dot }) {
-  return (
-    <View style={styles.cardHead}>
-      <View style={styles.cardHeadText}>
-        <View style={styles.titleRow}>
-          {dot ? <View style={[styles.dot, { backgroundColor: dot }]} /> : null}
-          <Text style={styles.cardTitle} numberOfLines={1}>
-            {title}
-          </Text>
-        </View>
-        {subtitle ? (
-          <Text style={styles.cardSubtitle} numberOfLines={2}>
-            {subtitle}
-          </Text>
-        ) : null}
-      </View>
-      {rightValue ? (
-        <View style={styles.cardHeadRight}>
-          <Text style={styles.cardRightLabel}>{rightLabel}</Text>
-          <Text style={styles.cardRightValue} numberOfLines={1}>
-            {rightValue}
-          </Text>
-        </View>
-      ) : null}
-    </View>
-  );
-}
-
-const CARD = {
-  backgroundColor: 'rgba(255,255,255,0.04)',
-  borderWidth: 1,
-  borderColor: 'rgba(255,255,255,0.10)',
-  borderRadius: 18,
-};
-
 const styles = StyleSheet.create({
+  cardSpaced: { marginTop: 10 },
+
+  // Dans la carte « Vue d'ensemble » : trois cases côte à côte.
   tiles: { flexDirection: 'row', alignSelf: 'stretch', gap: 8 },
-  tile: { ...CARD, flexGrow: 1, flexBasis: 0, minWidth: 0, paddingHorizontal: 12, paddingVertical: 12 },
+  tile: {
+    flexGrow: 1,
+    flexBasis: 0,
+    minWidth: 0,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+  },
   tileHead: { flexDirection: 'row', alignItems: 'center' },
   tileLabel: {
     flexShrink: 1,
@@ -194,28 +178,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: 'rgba(255,255,255,0.45)',
   },
-
-  card: { ...CARD, padding: 16 },
-  cardSpaced: { marginTop: 10 },
-  cardHead: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 14 },
-  cardHeadText: { flexGrow: 1, flexShrink: 1 },
-  titleRow: { flexDirection: 'row', alignItems: 'center' },
-  dot: { width: 8, height: 8, borderRadius: 4, marginRight: 8 },
-  cardTitle: { flexShrink: 1, fontFamily: fonts.sansBold, fontSize: 14, color: '#FFFFFF' },
-  cardSubtitle: {
-    marginTop: 2,
-    fontFamily: fonts.sansMedium,
-    fontSize: 11.5,
-    color: 'rgba(255,255,255,0.50)',
-  },
-  cardHeadRight: { alignItems: 'flex-end', marginLeft: 12, maxWidth: 130 },
-  cardRightLabel: {
-    fontFamily: fonts.monoRegular,
-    fontSize: 9,
-    letterSpacing: 1,
-    color: 'rgba(255,255,255,0.45)',
-  },
-  cardRightValue: { marginTop: 2, fontFamily: fonts.monoBold, fontSize: 12, color: '#FFFFFF' },
 
   miniTiles: { flexDirection: 'row', gap: 8, marginBottom: 14 },
   miniTile: {

@@ -9,6 +9,7 @@ import PressTap from '../common/PressTap';
 import BarChart from '../common/BarChart';
 import HeatmapGrid from '../common/HeatmapGrid';
 import DonutChart from '../common/DonutChart';
+import FoldPanel from '../common/FoldPanel';
 import { fonts } from '../../lib/fonts';
 import { GOLD } from '../../lib/buttonTokens';
 import { withAlpha } from '../../lib/phase-colors';
@@ -184,13 +185,17 @@ function LockedList({ sessionCount }) {
 }
 
 // Aperçu verrouillé : la forme est visible, pas les chiffres (ils se gagnent).
-function TensionCard({ stats, preview = false }) {
+function TensionCard({ stats, preview = false, foldable = false }) {
   const tut = stats.tension;
   const deltaLabel = tut.deltaPct === null ? '—' : `${tut.deltaPct > 0 ? '+' : ''}${tut.deltaPct} %`;
   const shown = (text) => (preview ? String(text).replace(/\d/g, '•') : text);
   return (
-    <View style={styles.card}>
-      <CardHeader title="Temps sous tension" subtitle="Effort réel, repos exclus · ce mois" />
+    <FoldPanel
+      foldable={foldable}
+      title="Temps sous tension"
+      subtitle="Effort réel, repos exclus · ce mois"
+      summary={{ label: 'CE MOIS', value: tut.label }}
+    >
       <View style={styles.tutRow}>
         <View style={styles.tutLeft}>
           <Text style={styles.tutValue} numberOfLines={1}>
@@ -208,29 +213,34 @@ function TensionCard({ stats, preview = false }) {
           <Text style={styles.tutBarsCaption}>4 SEM.</Text>
         </View>
       </View>
-    </View>
+    </FoldPanel>
   );
 }
 
-function FormatsCard({ stats }) {
+function FormatsCard({ stats, foldable = false }) {
+  const total = stats.formatBreakdown.reduce((s, f) => s + f.count, 0);
   return (
-    <View style={styles.card}>
-      <CardHeader title="Répartition des formats" subtitle="Toutes tes séances" />
+    <FoldPanel
+      foldable={foldable}
+      title="Répartition des formats"
+      subtitle="Toutes tes séances"
+      summary={{ label: 'SÉANCES', value: String(total) }}
+    >
       <FormatBreakdown data={stats.formatBreakdown} />
-    </View>
+    </FoldPanel>
   );
 }
 
-function MonthlyCard({ stats }) {
+function MonthlyCard({ stats, foldable = false }) {
   const monthlyAvg = Math.round(average(stats.monthlyCounts));
   return (
-    <View style={styles.card}>
-      <CardHeader
-        title="Comparatif mensuel"
-        subtitle="6 derniers mois"
-        rightLabel="MOY."
-        rightValue={`${monthlyAvg}/mois`}
-      />
+    <FoldPanel
+      foldable={foldable}
+      title="Comparatif mensuel"
+      subtitle="6 derniers mois"
+      rightLabel="MOY."
+      rightValue={`${monthlyAvg}/mois`}
+    >
       <BarChart
         data={stats.monthlyCounts}
         labels={stats.monthlyLabels}
@@ -239,17 +249,21 @@ function MonthlyCard({ stats }) {
         dimOpacity={0.3}
         interactive
       />
-    </View>
+    </FoldPanel>
   );
 }
 
 // Temps passé dans chaque mode : une barre par format, la plus longue pleine.
-function TimePerFormatCard({ stats }) {
+function TimePerFormatCard({ stats, foldable = false }) {
   const rows = (stats.modeTimes || []).filter((m) => m.seconds > 0);
   const max = Math.max(1, ...rows.map((m) => m.seconds));
   return (
-    <View style={styles.card}>
-      <CardHeader title="Temps par format" subtitle="Durée totale passée dans chaque mode" />
+    <FoldPanel
+      foldable={foldable}
+      title="Temps par format"
+      subtitle="Durée totale passée dans chaque mode"
+      summary={{ label: 'TOTAL', value: stats.timeLabel }}
+    >
       {rows.length === 0 ? (
         <Text style={styles.emptyNote}>Pas encore de séance : ce détail se remplit tout seul.</Text>
       ) : (
@@ -268,7 +282,7 @@ function TimePerFormatCard({ stats }) {
           </View>
         ))
       )}
-    </View>
+    </FoldPanel>
   );
 }
 
@@ -282,15 +296,16 @@ const shortDuration = (seconds) => {
 };
 
 // Rythme : durée moyenne, plus longue séance, jour de la semaine préféré.
-function RhythmCard({ stats }) {
+function RhythmCard({ stats, foldable = false }) {
   const r = stats.rhythm;
   const fav = r.favoriteWeekday;
   return (
-    <View style={styles.card}>
-      <CardHeader
-        title="Ton rythme"
-        subtitle={fav === null ? 'Le jour préféré apparaît après quelques séances' : `Tu t’entraînes surtout le ${WEEKDAY_NAMES[fav]}`}
-      />
+    <FoldPanel
+      foldable={foldable}
+      title="Ton rythme"
+      subtitle={fav === null ? 'Le jour préféré apparaît après quelques séances' : `Tu t’entraînes surtout le ${WEEKDAY_NAMES[fav]}`}
+      summary={{ label: 'SÉANCE MOY.', value: r.avgSeconds > 0 ? shortDuration(r.avgSeconds) : '—' }}
+    >
       <View style={styles.rhythmTiles}>
         <View style={styles.rhythmTile}>
           <Text style={styles.rhythmLabel}>SÉANCE MOY.</Text>
@@ -314,26 +329,28 @@ function RhythmCard({ stats }) {
         interactive
         showValue
       />
-    </View>
+    </FoldPanel>
   );
 }
 
-// Toutes les cartes de la page « Analyse avancée » (app/analysis.js).
+// Toutes les cartes de la page « Analyse avancée » (app/analysis.js). Elles sont
+// pliées au départ : chacun déplie ce qui l'intéresse, et rien ne se construit
+// tant qu'une carte reste fermée.
 export function AdvancedCards({ stats }) {
   return (
     <View>
-      <TensionCard stats={stats} />
+      <TensionCard stats={stats} foldable />
       <View style={styles.cardSpaced}>
-        <FormatsCard stats={stats} />
+        <FormatsCard stats={stats} foldable />
       </View>
       <View style={styles.cardSpaced}>
-        <TimePerFormatCard stats={stats} />
+        <TimePerFormatCard stats={stats} foldable />
       </View>
       <View style={styles.cardSpaced}>
-        <MonthlyCard stats={stats} />
+        <MonthlyCard stats={stats} foldable />
       </View>
       <View style={styles.cardSpaced}>
-        <RhythmCard stats={stats} />
+        <RhythmCard stats={stats} foldable />
       </View>
     </View>
   );
