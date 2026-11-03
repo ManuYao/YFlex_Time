@@ -603,7 +603,7 @@ export default function GamePyramid() {
                 colorInactive={ACCENT_FAINT}
               />
               <View style={styles.ringCenter} pointerEvents="none">
-                <Text style={[styles.bigNumber, styles.bigNumberDim]}>{restLeft}</Text>
+                <Text style={styles.bigNumber}>{restLeft}</Text>
               </View>
             </View>
             <Text style={styles.hint}>
