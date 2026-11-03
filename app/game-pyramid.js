@@ -17,7 +17,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { haptic } from '../hooks/useHaptic';
 import { fonts } from '../lib/fonts';
 import { goBackSafe } from '../lib/navigation';
-import { playSound, preloadSound } from '../lib/sounds';
+import { playGameGo, preloadGameSounds } from '../lib/gameSounds';
 import { createNumberCaller } from '../lib/gameVoice';
 import { speakGame, stopVoiceCoach } from '../lib/voiceCoach';
 import { loadPyramidScores, savePyramidScore, deletePyramidScore } from '../lib/gamePyramidScores';
@@ -266,8 +266,8 @@ export default function GamePyramid() {
     startRest(i);
   };
 
-  // Le repos suit la plus grosse des deux séries voisines ; les 3 dernières
-  // secondes sont celles du vrai décompte (3-2-1-GO), puis la série repart.
+  // Le repos suit la plus grosse des deux séries voisines ; seul le bip final
+  // (« go », 0,85 s avant la fin) sonne, pas les bips 3-2-1 (règle des jeux).
   const startRest = (i) => {
     const cfg = cfgRef.current;
     const all = setsRef.current;
@@ -277,19 +277,14 @@ export default function GamePyramid() {
     setRestTotal(total);
     setRestLeft(total);
     haptic.light();
-    // « Repos. » dure un demi-seconde : dit tout de suite, il est fini avant le premier
-    // bip du décompte, même pour le repos le plus court (5 s → premier bip à 1,15 s).
+    // « Repos. » dure un demi-seconde : dit tout de suite, il est fini avant le bip
+    // final, même pour le repos le plus court (5 s → bip à 4,15 s).
     later(250, () => speakGame('Repos.', cfg.gender));
     // Les premiers chiffres de la série suivante sont rechargés bien avant son
     // départ (un chiffre déjà dit doit être rechargé) : le dernier chiffre de la
     // série finie a eu le temps de s'achever, et il reste 3,5 s au moins avant le départ.
     later(1500, () => callerRef.current?.preload(1, 3));
-    [
-      [-3850, 'countdown1'],
-      [-2850, 'countdown2'],
-      [-1850, 'countdown3'],
-      [-850, 'go'],
-    ].forEach(([delta, key]) => later(Math.max(0, total * 1000 + delta), () => playSound(key)));
+    later(Math.max(0, total * 1000 - 850), playGameGo);
     later(total * 1000, () => startSet(i + 1));
 
     const tickRest = () => {
@@ -308,18 +303,17 @@ export default function GamePyramid() {
     // Le rythme est toujours « Normal » : pas de choix dans ce jeu.
     cfgRef.current = { exerciseId, tempoId: DEFAULT_TEMPO, formatId, peak, gender: settings.voiceGender };
     activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(() => {});
-    // Comme le vrai décompte : sons décodés d'avance, sinon le bip final saute.
-    ['countdown1', 'countdown2', 'countdown3', 'go'].forEach(preloadSound);
+    // Son décodé d'avance, sinon le bip final saute.
+    preloadGameSounds();
     // Prépare les premiers chiffres pendant le décompte (décodage des MP3).
     callerRef.current = createNumberCaller(settings.voiceGender);
     callerRef.current.preload(1, 3);
     setSetIndex(0);
     goPhase('countdown');
     setCountdown(3);
-    playSound('countdown1');
-    later(1000, () => { setCountdown(2); playSound('countdown2'); });
-    later(2000, () => { setCountdown(1); playSound('countdown3'); });
-    later(3000, () => { playSound('go'); });
+    later(1000, () => { setCountdown(2); });
+    later(2000, () => { setCountdown(1); });
+    later(3000, playGameGo);
     later(3850, () => startSet(0));
   };
 

@@ -26,7 +26,7 @@ import { useKeyboardHeight, scrollToFocusedInput } from '../hooks/useKeyboardHei
 import { fonts } from '../lib/fonts';
 import { goBackSafe } from '../lib/navigation';
 import { DEFAULT_TEMPO, TEMPOS } from '../lib/gameCount';
-import { playSound, preloadSound } from '../lib/sounds';
+import { playGameGo, preloadGameSounds } from '../lib/gameSounds';
 import { areGameWordsReady, prepareGameWords, speakGame, stopVoiceCoach } from '../lib/voiceCoach';
 import {
   loadComboScores,
@@ -281,14 +281,13 @@ export default function GameCombo() {
     cfgRef.current = { tempoId, setup: clean, gender: settings.voiceGender };
     saveComboSetup(clean);
     activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(() => {});
-    // Comme le vrai décompte : sons décodés d'avance, sinon le bip final saute.
-    ['countdown1', 'countdown2', 'countdown3', 'go'].forEach(preloadSound);
+    // Son décodé d'avance, sinon le bip final saute.
+    preloadGameSounds();
     goPhase('countdown');
     setCountdown(3);
-    playSound('countdown1');
-    later(1000, () => { setCountdown(2); playSound('countdown2'); });
-    later(2000, () => { setCountdown(1); playSound('countdown3'); });
-    later(3000, () => { playSound('go'); });
+    later(1000, () => { setCountdown(2); });
+    later(2000, () => { setCountdown(1); });
+    later(3000, playGameGo);
     later(3850, startPlaying);
   };
 

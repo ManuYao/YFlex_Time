@@ -17,7 +17,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { haptic } from '../hooks/useHaptic';
 import { fonts } from '../lib/fonts';
 import { goBackSafe } from '../lib/navigation';
-import { playSound, preloadSound } from '../lib/sounds';
+import { playGameGo, preloadGameSounds } from '../lib/gameSounds';
 import { createNumberCaller } from '../lib/gameVoice';
 import { loadScores, saveScore, deleteScore } from '../lib/gameScores';
 import {
@@ -193,18 +193,17 @@ export default function GameCount() {
   const startGame = () => {
     haptic.medium();
     activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(() => {});
-    // Comme le vrai décompte : sons décodés d'avance, sinon le bip final saute.
-    ['countdown1', 'countdown2', 'countdown3', 'go'].forEach(preloadSound);
+    // Son décodé d'avance, sinon le bip final saute.
+    preloadGameSounds();
     // Prépare les premiers chiffres pendant le décompte (décodage des MP3).
     callerRef.current = createNumberCaller(settings.voiceGender);
     callerRef.current.preload(1, 3);
     goPhase('countdown');
     setCountdown(3);
-    playSound('countdown1');
     const steps = [
-      [1000, () => { setCountdown(2); playSound('countdown2'); }],
-      [2000, () => { setCountdown(1); playSound('countdown3'); }],
-      [3000, () => { playSound('go'); }],
+      [1000, () => { setCountdown(2); }],
+      [2000, () => { setCountdown(1); }],
+      [3000, playGameGo],
       [3850, startPlaying],
     ];
     countdownTimers.current = steps.map(([ms, fn]) => setTimeout(fn, ms));
