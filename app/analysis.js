@@ -11,6 +11,7 @@ import AppIcon from '../components/common/AppIcon';
 import { SkeletonGroup, SkeletonBlock } from '../components/common/Skeleton';
 import { AdvancedCards } from '../components/screens/ProfileAnalytics';
 import GameStatsCards from '../components/screens/GameStatsCards';
+import FoldGroup from '../components/common/FoldGroup';
 import { useTimers } from '../contexts/TimersContext';
 import { usePremium } from '../hooks/usePremium';
 import { useScreenReady } from '../hooks/useScreenReady';
@@ -26,9 +27,10 @@ import { loadPyramidScores } from '../lib/gamePyramidScores';
 import { loadComboScores } from '../lib/gameComboStore';
 
 /**
- * Page « Analyse avancée » : les statistiques détaillées (temps sous tension,
- * formats, temps par format, comparatif mensuel, rythme) puis celles des jeux,
- * ouverte par « Voir plus » dans le Profil. Réservée à Premium, comme l'aperçu du
+ * Page « Analyse avancée » : les statistiques détaillées rangées en deux grands
+ * groupes pliés au départ (« Tes séances » : temps, formats, régularité ; « Tes
+ * jeux »), chacun contenant de petits groupes qui se déplient à leur tour. Ouverte
+ * par « Voir plus » dans le Profil. Réservée à Premium, comme l'aperçu du
  * Profil : sans Premium la page n'affiche que l'invitation (le Profil n'y mène pas
  * non plus). Les jeux gardent leurs propres scores, visibles par tout le monde
  * dans leur écran : seule l'analyse d'ensemble est ici.
@@ -77,6 +79,11 @@ export default function Analysis() {
     () => computeGameStats(ready && isPremium && gameLists ? gameLists : {}),
     [ready, isPremium, gameLists]
   );
+  // Même total que la carte « Répartition des formats » : un seul chiffre partout.
+  const sessionTotal = useMemo(
+    () => stats.formatBreakdown.reduce((s, f) => s + f.count, 0),
+    [stats]
+  );
 
   return (
     <View style={styles.root}>
@@ -103,16 +110,26 @@ export default function Analysis() {
                   {isPremium ? (
                     <>
                       {stats.hasData ? (
-                        <>
-                          <Text style={[styles.sectionTitle, styles.sectionFirst]}>SÉANCES</Text>
+                        <FoldGroup
+                          icon="sessions"
+                          title="Tes séances"
+                          subtitle="Temps, formats et régularité"
+                          summary={{ label: 'SÉANCES', value: String(sessionTotal) }}
+                        >
                           <AdvancedCards stats={stats} />
-                        </>
+                        </FoldGroup>
                       ) : null}
                       {gameStats.hasData ? (
-                        <>
-                          <Text style={styles.sectionTitle}>JEUX</Text>
-                          <GameStatsCards stats={gameStats} />
-                        </>
+                        <View style={stats.hasData ? styles.groupSpaced : null}>
+                          <FoldGroup
+                            icon="puzzle"
+                            title="Tes jeux"
+                            subtitle="Parties, records et progression"
+                            summary={{ label: 'PARTIES', value: String(gameStats.plays) }}
+                          >
+                            <GameStatsCards stats={gameStats} />
+                          </FoldGroup>
+                        </View>
                       ) : null}
                       {!stats.hasData && !gameStats.hasData ? (
                         <Text style={styles.empty}>
@@ -182,16 +199,7 @@ const styles = StyleSheet.create({
   skeletonLayer: { ...StyleSheet.absoluteFill, overflow: 'hidden' },
   skeleton: { paddingHorizontal: 20 },
   skeletonGap: { marginTop: 10 },
-  sectionTitle: {
-    fontFamily: fonts.sansBold,
-    fontSize: 10,
-    letterSpacing: 3,
-    color: 'rgba(255,255,255,0.50)',
-    marginTop: 28,
-    marginBottom: 8,
-    paddingHorizontal: 4,
-  },
-  sectionFirst: { marginTop: 0 },
+  groupSpaced: { marginTop: 14 },
   empty: {
     fontFamily: fonts.sansSemibold,
     fontSize: 13,

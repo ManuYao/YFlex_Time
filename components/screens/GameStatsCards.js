@@ -3,7 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import AppIcon from '../common/AppIcon';
 import BarChart from '../common/BarChart';
-import FoldPanel from '../common/FoldPanel';
+import FoldPanel, { FoldDivider } from '../common/FoldPanel';
 import { fonts } from '../../lib/fonts';
 import { GOLD } from '../../lib/buttonTokens';
 import { withAlpha } from '../../lib/phase-colors';
@@ -13,11 +13,13 @@ const plural = (n, one, many) => (n > 1 ? many : one);
 // Statistiques des jeux, page « Analyse avancée » (Premium). Les données viennent
 // de lib/gameStats.js (computeGameStats, toutes les parties gardées sur le
 // téléphone). Sans Premium, chaque jeu montre toujours ses propres scores dans son
-// écran : ici on ne trouve que l'analyse d'ensemble. Toutes les cartes sont pliées
-// au départ (FoldPanel) : la personne déplie ce qu'elle veut voir.
+// écran : ici on ne trouve que l'analyse d'ensemble. C'est le contenu du grand groupe
+// « Tes jeux » (app/analysis.js) : un petit groupe d'ensemble (les chiffres de tous
+// les jeux + leur rythme par semaine), puis un petit groupe par jeu. Tous pliés au
+// départ (FoldPanel) : la personne déplie ce qu'elle veut voir.
 export default function GameStatsCards({ stats }) {
   return (
-    <View>
+    <>
       <FoldPanel
         foldable
         title="Vue d’ensemble"
@@ -29,34 +31,31 @@ export default function GameStatsCards({ stats }) {
           <Tile icon="repeat" label="RÉPÉTITIONS" value={String(stats.totalReps)} caption="au total" />
           <Tile icon="medal" label="RECORDS" value={String(stats.recordsBroken)} caption={plural(stats.recordsBroken, 'battu', 'battus')} />
         </View>
+        {stats.plays >= 2 ? (
+          <>
+            <FoldDivider />
+            <FoldPanel
+              bare
+              title="Parties par semaine"
+              subtitle={stats.favorite ? `8 dernières semaines · favori : ${stats.favorite.label}` : '8 dernières semaines, tous jeux confondus'}
+            >
+              <BarChart
+                data={stats.weeklyPlays}
+                labels={stats.weeklyLabels}
+                height={120}
+                color={GOLD}
+                dimOpacity={0.3}
+                interactive
+              />
+            </FoldPanel>
+          </>
+        ) : null}
       </FoldPanel>
 
       {stats.games.map((g) => (
-        <View key={g.id} style={styles.cardSpaced}>
-          <GameCard game={g} />
-        </View>
+        <GameCard key={g.id} game={g} />
       ))}
-
-      {stats.plays >= 2 ? (
-        <View style={styles.cardSpaced}>
-          <FoldPanel
-            foldable
-            title="Parties par semaine"
-            subtitle="8 dernières semaines, tous jeux confondus"
-            summary={{ label: 'FAVORI', value: stats.favorite ? stats.favorite.label : '—' }}
-          >
-            <BarChart
-              data={stats.weeklyPlays}
-              labels={stats.weeklyLabels}
-              height={120}
-              color={GOLD}
-              dimOpacity={0.3}
-              interactive
-            />
-          </FoldPanel>
-        </View>
-      ) : null}
-    </View>
+    </>
   );
 }
 
@@ -143,8 +142,6 @@ function Fact({ icon, text }) {
 }
 
 const styles = StyleSheet.create({
-  cardSpaced: { marginTop: 10 },
-
   // Dans la carte « Vue d'ensemble » : trois cases côte à côte.
   tiles: { flexDirection: 'row', alignSelf: 'stretch', gap: 8 },
   tile: {

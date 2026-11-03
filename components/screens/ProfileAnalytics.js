@@ -9,7 +9,7 @@ import PressTap from '../common/PressTap';
 import BarChart from '../common/BarChart';
 import HeatmapGrid from '../common/HeatmapGrid';
 import DonutChart from '../common/DonutChart';
-import FoldPanel from '../common/FoldPanel';
+import FoldPanel, { FoldDivider } from '../common/FoldPanel';
 import { fonts } from '../../lib/fonts';
 import { GOLD } from '../../lib/buttonTokens';
 import { withAlpha } from '../../lib/phase-colors';
@@ -185,13 +185,14 @@ function LockedList({ sessionCount }) {
 }
 
 // Aperçu verrouillé : la forme est visible, pas les chiffres (ils se gagnent).
-function TensionCard({ stats, preview = false, foldable = false }) {
+function TensionCard({ stats, preview = false, foldable = false, bare = false }) {
   const tut = stats.tension;
   const deltaLabel = tut.deltaPct === null ? '—' : `${tut.deltaPct > 0 ? '+' : ''}${tut.deltaPct} %`;
   const shown = (text) => (preview ? String(text).replace(/\d/g, '•') : text);
   return (
     <FoldPanel
       foldable={foldable}
+      bare={bare}
       title="Temps sous tension"
       subtitle="Effort réel, repos exclus · ce mois"
       summary={{ label: 'CE MOIS', value: tut.label }}
@@ -217,11 +218,12 @@ function TensionCard({ stats, preview = false, foldable = false }) {
   );
 }
 
-function FormatsCard({ stats, foldable = false }) {
+function FormatsCard({ stats, foldable = false, bare = false }) {
   const total = stats.formatBreakdown.reduce((s, f) => s + f.count, 0);
   return (
     <FoldPanel
       foldable={foldable}
+      bare={bare}
       title="Répartition des formats"
       subtitle="Toutes tes séances"
       summary={{ label: 'SÉANCES', value: String(total) }}
@@ -231,11 +233,12 @@ function FormatsCard({ stats, foldable = false }) {
   );
 }
 
-function MonthlyCard({ stats, foldable = false }) {
+function MonthlyCard({ stats, foldable = false, bare = false }) {
   const monthlyAvg = Math.round(average(stats.monthlyCounts));
   return (
     <FoldPanel
       foldable={foldable}
+      bare={bare}
       title="Comparatif mensuel"
       subtitle="6 derniers mois"
       rightLabel="MOY."
@@ -254,12 +257,13 @@ function MonthlyCard({ stats, foldable = false }) {
 }
 
 // Temps passé dans chaque mode : une barre par format, la plus longue pleine.
-function TimePerFormatCard({ stats, foldable = false }) {
+function TimePerFormatCard({ stats, foldable = false, bare = false }) {
   const rows = (stats.modeTimes || []).filter((m) => m.seconds > 0);
   const max = Math.max(1, ...rows.map((m) => m.seconds));
   return (
     <FoldPanel
       foldable={foldable}
+      bare={bare}
       title="Temps par format"
       subtitle="Durée totale passée dans chaque mode"
       summary={{ label: 'TOTAL', value: stats.timeLabel }}
@@ -296,12 +300,13 @@ const shortDuration = (seconds) => {
 };
 
 // Rythme : durée moyenne, plus longue séance, jour de la semaine préféré.
-function RhythmCard({ stats, foldable = false }) {
+function RhythmCard({ stats, foldable = false, bare = false }) {
   const r = stats.rhythm;
   const fav = r.favoriteWeekday;
   return (
     <FoldPanel
       foldable={foldable}
+      bare={bare}
       title="Ton rythme"
       subtitle={fav === null ? 'Le jour préféré apparaît après quelques séances' : `Tu t’entraînes surtout le ${WEEKDAY_NAMES[fav]}`}
       summary={{ label: 'SÉANCE MOY.', value: r.avgSeconds > 0 ? shortDuration(r.avgSeconds) : '—' }}
@@ -333,26 +338,37 @@ function RhythmCard({ stats, foldable = false }) {
   );
 }
 
-// Toutes les cartes de la page « Analyse avancée » (app/analysis.js). Elles sont
-// pliées au départ : chacun déplie ce qui l'intéresse, et rien ne se construit
-// tant qu'une carte reste fermée.
+// Le contenu du grand groupe « Tes séances » (app/analysis.js) : deux petits
+// groupes qui vont ensemble, pliés au départ. Dans chacun, les rubriques voisines
+// s'affichent à la suite (sans cadre propre) : tout le temps d'un côté, la
+// régularité de l'autre. Rien ne se construit tant qu'un groupe reste fermé.
 export function AdvancedCards({ stats }) {
+  const monthlyAvg = Math.round(average(stats.monthlyCounts));
   return (
-    <View>
-      <TensionCard stats={stats} foldable />
-      <View style={styles.cardSpaced}>
-        <FormatsCard stats={stats} foldable />
-      </View>
-      <View style={styles.cardSpaced}>
-        <TimePerFormatCard stats={stats} foldable />
-      </View>
-      <View style={styles.cardSpaced}>
-        <MonthlyCard stats={stats} foldable />
-      </View>
-      <View style={styles.cardSpaced}>
-        <RhythmCard stats={stats} foldable />
-      </View>
-    </View>
+    <>
+      <FoldPanel
+        foldable
+        title="Temps et formats"
+        subtitle="Ton effort réel, mode par mode"
+        summary={{ label: 'CE MOIS', value: stats.tension.label }}
+      >
+        <TensionCard stats={stats} bare />
+        <FoldDivider />
+        <TimePerFormatCard stats={stats} bare />
+        <FoldDivider />
+        <FormatsCard stats={stats} bare />
+      </FoldPanel>
+      <FoldPanel
+        foldable
+        title="Régularité"
+        subtitle="Tes mois et ta semaine type"
+        summary={{ label: 'MOY.', value: `${monthlyAvg}/mois` }}
+      >
+        <MonthlyCard stats={stats} bare />
+        <FoldDivider />
+        <RhythmCard stats={stats} bare />
+      </FoldPanel>
+    </>
   );
 }
 

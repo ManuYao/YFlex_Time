@@ -16,6 +16,8 @@ import { haptic } from '../../hooks/useHaptic';
  *  - `rightLabel` / `rightValue` : le chiffre d'en-tête quand elle est ouverte (ou
  *    toujours, sans `summary`).
  *  - `dot` : pastille de couleur devant le titre (une couleur de jeu).
+ *  - `bare` : sans le cadre de carte, pour une rubrique rangée DANS une autre carte
+ *    (un petit groupe en contient plusieurs, séparées par un `FoldDivider`).
  */
 export default function FoldPanel({
   title,
@@ -25,6 +27,7 @@ export default function FoldPanel({
   rightValue,
   dot,
   foldable = false,
+  bare = false,
   children,
 }) {
   const [open, setOpen] = useState(false);
@@ -64,7 +67,7 @@ export default function FoldPanel({
   );
 
   return (
-    <View style={styles.card}>
+    <View style={bare ? null : styles.card}>
       {foldable ? (
         <PressTap
           onPress={() => {
@@ -90,7 +93,13 @@ export default function FoldPanel({
   );
 }
 
+// Trait fin entre deux rubriques rangées dans le même petit groupe.
+export function FoldDivider() {
+  return <View style={styles.divider} />;
+}
+
 const styles = StyleSheet.create({
+  divider: { height: StyleSheet.hairlineWidth, backgroundColor: 'rgba(255,255,255,0.10)', marginVertical: 16 },
   card: {
     backgroundColor: 'rgba(255,255,255,0.04)',
     borderWidth: 1,
