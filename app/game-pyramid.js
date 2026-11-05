@@ -40,6 +40,7 @@ import {
   buildSets,
   getFormat,
   plannedSeconds,
+  repStepMs,
   repsDone,
   restSeconds,
   totalReps,
@@ -232,7 +233,11 @@ export default function GamePyramid() {
   const startSet = (i) => {
     const cfg = cfgRef.current;
     const target = setsRef.current[i];
-    const stepMs = tempoMs(cfg.exerciseId, cfg.tempoId);
+    const baseMs = tempoMs(cfg.exerciseId, cfg.tempoId);
+    // Répétitions déjà faites avant cette série, et total prévu : la voix ralentit
+    // peu à peu avec la fatigue (voir FATIGUE_SLOWDOWN dans lib/gamePyramid.js).
+    const doneBefore = repsDone(setsRef.current, i);
+    const plannedTotal = totalReps(setsRef.current);
     const caller = callerRef.current;
     if (!caller) return;
     setIndexRef.current = i;
@@ -248,7 +253,7 @@ export default function GamePyramid() {
       countRef.current = n;
       caller.say(n);
       setCount(n);
-      nextAt += stepMs;
+      nextAt += repStepMs(baseMs, doneBefore + n, plannedTotal);
       // Après la dernière répétition, on laisse le temps de la finir avant le repos.
       loopTimer.current = setTimeout(n >= target ? endSet : tick, Math.max(0, nextAt - Date.now()));
     };
