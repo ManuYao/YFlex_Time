@@ -19,7 +19,7 @@ import { haptic } from '../hooks/useHaptic';
 import { fonts } from '../lib/fonts';
 import { goBackSafe } from '../lib/navigation';
 import { playGameGo, preloadGameSounds } from '../lib/gameSounds';
-import { createNumberCaller } from '../lib/gameVoice';
+import { createFixedNumberCaller } from '../lib/gameVoice';
 import { speakGame, stopVoiceCoach } from '../lib/voiceCoach';
 import { loadPyramidScores, savePyramidScore, deletePyramidScore } from '../lib/gamePyramidScores';
 import {
@@ -240,7 +240,6 @@ export default function GamePyramid() {
     countRef.current = 0;
     setCount(0);
     goPhase('set');
-    caller.preload(1, 3);
     let nextAt = Date.now();
 
     const tick = () => {
@@ -248,7 +247,6 @@ export default function GamePyramid() {
       const n = countRef.current + 1;
       countRef.current = n;
       caller.say(n);
-      caller.preload(n + 1, 2);
       setCount(n);
       nextAt += stepMs;
       // Après la dernière répétition, on laisse le temps de la finir avant le repos.
@@ -281,10 +279,6 @@ export default function GamePyramid() {
     // « Repos. » dure un demi-seconde : dit tout de suite, il est fini avant le bip
     // final, même pour le repos le plus court (5 s → bip à 4,15 s).
     later(250, () => speakGame('Repos.', cfg.gender));
-    // Les premiers chiffres de la série suivante sont rechargés bien avant son
-    // départ (un chiffre déjà dit doit être rechargé) : le dernier chiffre de la
-    // série finie a eu le temps de s'achever, et il reste 3,5 s au moins avant le départ.
-    later(1500, () => callerRef.current?.preload(1, 3));
     later(Math.max(0, total * 1000 - 850), playGameGo);
     later(total * 1000, () => startSet(i + 1));
 
@@ -306,9 +300,10 @@ export default function GamePyramid() {
     activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(() => {});
     // Son décodé d'avance, sinon le bip final saute.
     preloadGameSounds();
-    // Prépare les premiers chiffres pendant le décompte (décodage des MP3).
-    callerRef.current = createNumberCaller(settings.voiceGender);
-    callerRef.current.preload(1, 3);
+    // Un lecteur par chiffre de la pyramide, créé pendant le décompte (décodage
+    // des MP3) puis jamais rechargé : voir lib/gameVoice.js.
+    callerRef.current = createFixedNumberCaller(settings.voiceGender, Math.max(...planned));
+    callerRef.current.preload(1, Math.max(...planned));
     setSetIndex(0);
     goPhase('countdown');
     setCountdown(3);
