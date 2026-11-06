@@ -24,7 +24,6 @@ import { springEnergetic } from '../../lib/animations';
  *   sur une de ses étiquettes
  * - pressRetentionOffset : marge (dp) dont le doigt peut dériver hors de la
  *   zone sans que l'appui soit annulé (défaut RN : 20)
- * - delayLongPress : durée (ms) avant que onLongPress se déclenche (défaut RN : 500)
  * - pressValue : SharedValue optionnelle, menée de 0 à 1 pendant l'appui — permet
  *   au parent d'animer d'autres couches (voile, lueur) sur le même geste, sans
  *   seconde mécanique d'appui (voir components/common/Button.js)
@@ -33,7 +32,6 @@ export default function PressTap({
   children,
   onPress,
   onLongPress,
-  delayLongPress,
   disabled = false,
   tapScale = 0.96,
   style,
@@ -68,7 +66,6 @@ export default function PressTap({
       }}
       onPress={onPress}
       onLongPress={onLongPress}
-      delayLongPress={delayLongPress}
       disabled={disabled}
       hitSlop={hitSlop}
       pressRetentionOffset={pressRetentionOffset}

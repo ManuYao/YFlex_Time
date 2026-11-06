@@ -45,10 +45,19 @@ const CHIPS_MAX_HEIGHT = 190;
  * - accent   : couleur du jeu (hex)
  * - initial  : exercices déjà notés pour ce score
  * - custom   : la liste des exercices ajoutés par la personne (le plus récent en premier)
+ * - persist  : faux = démo, ajouts et suppressions ne touchent pas à la liste enregistrée
  * - onSave   : (exercises: string[]) => void, appelé au « Enregistrer »
  * - onClose  : la fenêtre est fermée (avec ou sans enregistrement)
  */
-export default function GameExerciseSheet({ screenH, accent, initial, custom, onSave, onClose }) {
+export default function GameExerciseSheet({
+  screenH,
+  accent,
+  initial,
+  custom,
+  persist = true,
+  onSave,
+  onClose,
+}) {
   const scrollRef = useRef(null);
   const [selected, setSelected] = useState(() => normalizeExercises(initial));
   const [draft, setDraft] = useState('');
@@ -78,7 +87,7 @@ export default function GameExerciseSheet({ screenH, accent, initial, custom, on
     haptic.light();
     if (!isBuiltInExercise(label) && !isCustom(label)) {
       setLibrary((l) => addToLibrary(l, label));
-      addGameExercise(label);
+      if (persist) addGameExercise(label);
     }
     setRemoved((r) => r.filter((x) => !same(x, label)));
     if (!shown.some((x) => same(x, label))) setAdded((a) => [label, ...a]);
@@ -93,7 +102,7 @@ export default function GameExerciseSheet({ screenH, accent, initial, custom, on
     setLibrary((l) => removeFromLibrary(l, label));
     setRemoved((r) => [...r, label]);
     setSelected((s) => s.filter((x) => !same(x, label)));
-    removeGameExercise(label);
+    if (persist) removeGameExercise(label);
   };
 
   return (

@@ -622,6 +622,14 @@ export default function Settings() {
                 router.push({ pathname: '/tutorial', params: { step: 'menu' } });
               }}
             />
+            <LinkRow
+              label="Revoir l'astuce des jeux"
+              sub="La bulle de la toute première partie finie"
+              onPress={() => {
+                haptic.light();
+                router.push({ pathname: '/game-pyramid', params: { demo: '1' } });
+              }}
+            />
             <LinkRow label="Conditions d'utilisation" onPress={() => router.push('/terms')} />
             <LinkRow label="Politique de confidentialité" onPress={() => router.push('/privacy')} />
             <LinkRow

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BackHandler, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 
 import AmbianceBackdrop from '../components/common/AmbianceBackdrop';
@@ -31,7 +31,7 @@ import {
   setPyramidScoreExercises,
 } from '../lib/gamePyramidScores';
 import { recordGameSession, setGameSessionExercises } from '../lib/gameHistory';
-import { exercisesLabel, shouldHalo } from '../lib/gameExercises';
+import { exercisesLabel, normalizeExercises, shouldHalo } from '../lib/gameExercises';
 import { hasSeenGameTagTip, loadGameExercises, markGameTagTipSeen } from '../lib/gameExercisesStore';
 import {
   DEFAULT_FORMAT,
@@ -50,6 +50,7 @@ import {
 } from '../lib/gamePyramid';
 
 const KEEP_AWAKE_TAG = 'flextimer-game';
+const DEMO_SCORE_ID = 'demo'; // score d'exemple de la démo de la bulle (jamais enregistré)
 const RING = 280;
 const CONFIRM_RANGE = 5;
 // Teinte du jeu : un orange terre cuite, absent des 5 modes et différent du bleu-vert du chef d'orchestre.
@@ -100,8 +101,11 @@ export default function GamePyramid() {
   const router = useRouter();
   const { height } = useWindowDimensions();
   const { settings } = useSettings();
+  // Démo (Paramètres › À propos › « Revoir l'astuce des jeux ») : on arrive directement sur un
+  // résultat d'exemple, pour revoir la bulle d'explication sans jouer. Rien n'est enregistré.
+  const isDemo = useLocalSearchParams().demo === '1';
 
-  const [phase, setPhase] = useState('ready'); // ready | countdown | set | rest | confirm | done
+  const [phase, setPhase] = useState(isDemo ? 'done' : 'ready'); // ready | countdown | set | rest | confirm | done
   const [formatId, setFormatId] = useState(DEFAULT_FORMAT);
   const [peak, setPeak] = useState(DEFAULT_PEAK);
   const [sets, setSets] = useState(() => buildSets(DEFAULT_FORMAT, DEFAULT_PEAK));
@@ -111,7 +115,10 @@ export default function GamePyramid() {
   const [restLeft, setRestLeft] = useState(0);
   const [restTotal, setRestTotal] = useState(1);
   const [scores, setScores] = useState([]);
-  const [result, setResult] = useState(null); // { total, record, complete }
+  const [result, setResult] = useState(
+    isDemo ? { total: 36, record: false, complete: true, scoreId: DEMO_SCORE_ID } : null
+  ); // { total, record, complete, scoreId }
+  const [demoExercises, setDemoExercises] = useState([]); // exercice noté dans la démo (jamais enregistré)
   const [finalCount, setFinalCount] = useState(0);
   // Noter son exercice : jamais ouvert tout seul, seulement en MAINTENANT un score.
   const [tagId, setTagId] = useState(null); // score dont on note l'exercice
@@ -120,7 +127,9 @@ export default function GamePyramid() {
   const scoreBlockRef = useRef(null);
   const tipCheckedRef = useRef(false);
 
-  const phaseRef = useRef('ready');
+  const tipShownRef = useRef(false); // la bulle a réellement pu s'afficher (zone mesurée)
+
+  const phaseRef = useRef(isDemo ? 'done' : 'ready');
   const countRef = useRef(0);
   const setIndexRef = useRef(0);
   const setsRef = useRef([]);
@@ -231,7 +240,7 @@ export default function GamePyramid() {
   // ajout ou une suppression faits dans un autre jeu.
   const openTag = async (id) => {
     if (!id) return;
-    haptic.success();
+    // (La vibration de réussite est déjà faite par le maintien : HoldToTag.)
     setCustomExercises(await loadGameExercises());
     setTagId(id);
   };
@@ -239,6 +248,10 @@ export default function GamePyramid() {
   // Enregistre l'exercice noté : dans le score ET dans la séance JEU de l'Historique.
   // (Les exercices ajoutés à la main sont déjà gardés par la fenêtre, tout de suite.)
   const applyExercises = async (id, exercises) => {
+    if (id === DEMO_SCORE_ID) {
+      setDemoExercises(normalizeExercises(exercises)); // démo : rien n'est enregistré
+      return;
+    }
     const score = scoresRef.current.find((s) => s.id === id);
     const list = await setPyramidScoreExercises(id, exercises);
     scoresRef.current = list;
@@ -255,7 +268,8 @@ export default function GamePyramid() {
     let cancelled = false;
     let timer = null;
     hasSeenGameTagTip().then((seen) => {
-      if (cancelled || seen) return;
+      // La démo montre la bulle même si elle a déjà été vue.
+      if (cancelled || (seen && !isDemo)) return;
       timer = setTimeout(() => {
         if (!cancelled) setShowTip(true);
       }, 800);
@@ -266,25 +280,35 @@ export default function GamePyramid() {
     };
   }, [phase, scoreId]);
 
-  const measureScoreBlock = useCallback(
-    () =>
-      new Promise((resolve) => {
+  // Mesure la zone du score ; réessaie si l'écran n'est pas encore posé. Si elle reste
+  // introuvable la bulle n'apparaît pas — et elle ne sera PAS comptée comme vue.
+  const measureScoreBlock = useCallback(async () => {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const rect = await new Promise((resolve) => {
         const node = scoreBlockRef.current;
         if (!node?.measureInWindow) {
           resolve(null);
           return;
         }
-        node.measureInWindow((x, y, width, height) => {
-          resolve(width > 0 && height > 0 ? { x, y, width, height } : null);
+        node.measureInWindow((x, y, width, h) => {
+          resolve(width > 0 && h > 0 ? { x, y, width, height: h } : null);
         });
-      }),
-    []
-  );
+      });
+      if (rect) {
+        tipShownRef.current = true;
+        return rect;
+      }
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    return null;
+  }, []);
 
   const closeTip = useCallback(() => {
-    markGameTagTipSeen();
+    // Vue pour de bon seulement si elle s'est affichée ; jamais comptée en démo.
+    if (tipShownRef.current && !isDemo) markGameTagTipSeen();
+    tipShownRef.current = false;
     setShowTip(false);
-  }, []);
+  }, [isDemo]);
 
   // Toute la pyramide faite : pas de confirmation, rien à corriger.
   const completePyramid = () => {
@@ -476,8 +500,10 @@ export default function GamePyramid() {
   const best = bestPyramidScore(scores, formatId, peak);
   const mine = useMemo(() => scores.filter((s) => FORMATS[s.format]), [scores]);
   // Le score qu'on vient de faire (écran de résultat) et le dernier de la liste.
-  const doneScore = result?.scoreId ? scores.find((s) => s.id === result.scoreId) : null;
-  const tagScore = tagId ? scores.find((s) => s.id === tagId) : null;
+  const demoScore = { id: DEMO_SCORE_ID, exercises: demoExercises };
+  const findScore = (id) => (id === DEMO_SCORE_ID ? demoScore : scores.find((s) => s.id === id));
+  const doneScore = result?.scoreId ? findScore(result.scoreId) : null;
+  const tagScore = tagId ? findScore(tagId) : null;
   const total = totalReps(sets);
   const minutes = Math.max(1, Math.round(plannedSeconds(sets, PYRAMID_REP_MS) / 60));
   const ring = Math.min(RING, Math.round(height * 0.34));
@@ -756,6 +782,7 @@ export default function GamePyramid() {
           accent={ACCENT}
           initial={tagScore.exercises ?? []}
           custom={customExercises}
+          persist={!isDemo}
           onSave={(exercises) => applyExercises(tagScore.id, exercises)}
           onClose={() => setTagId(null)}
         />
@@ -769,7 +796,7 @@ export default function GamePyramid() {
               id: 'score',
               icon: 'edit',
               title: 'Note ton exercice',
-              text: 'Maintiens ton score une seconde pour dire quel exercice tu as fait : tractions, pompes… Tu peux aussi ajouter le tien.',
+              text: 'Maintiens ton score une seconde : une barre se remplit, puis tu choisis l’exercice que tu as fait (tractions, pompes…) ou tu ajoutes le tien. Il sera noté dans ton historique.',
               radius: 36,
             },
           ]}
