@@ -608,10 +608,10 @@ export default function GamePyramid() {
               </View>
             </View>
             <Text style={styles.goalCaption}>{resting ? 'PROCHAINE SÉRIE' : 'OBJECTIF'}</Text>
-            <Text style={styles.goalNumber}>
-              {resting ? nextTarget : target}
-              <Text style={styles.goalUnit}> {exercise.unit}</Text>
-            </Text>
+            {/* Chiffre puis mot, l'un sous l'autre, tous deux sur l'axe central (comme le chiffre
+                de l'anneau) : côte à côte, le mot restait en bas à droite du chiffre, pas centré. */}
+            <Text style={styles.goalNumber}>{resting ? nextTarget : target}</Text>
+            <Text style={styles.goalUnit}>{exercise.unit}</Text>
             <View style={styles.liveBars}>
               {/* La barre blanche = la série dont parle le chiffre orange (en cours, ou la prochaine
                   pendant le repos) : on voit d'un coup d'œil si ça monte ou si ça redescend. */}
@@ -865,7 +865,14 @@ const styles = StyleSheet.create({
     includeFontPadding: false,
     textAlign: 'center',
   },
-  goalUnit: { fontFamily: fonts.sansExtraBold, fontSize: 24, color: '#FFFFFF' },
+  // marginTop négatif : la ligne d'Anton (×1,18) laisse du vide sous le chiffre.
+  goalUnit: {
+    fontFamily: fonts.sansExtraBold,
+    fontSize: 24,
+    color: '#FFFFFF',
+    textAlign: 'center',
+    marginTop: -8,
+  },
   // Repos : le mot REPOS au centre de l'anneau (taille calculée sur l'anneau, en ligne ×1,19).
   restWord: {
     fontFamily: fonts.display,
