@@ -613,7 +613,9 @@ export default function GamePyramid() {
               <Text style={styles.goalUnit}> {exercise.unit}</Text>
             </Text>
             <View style={styles.liveBars}>
-              <PyramidBars sets={sets} activeIndex={resting ? setIndex + 1 : setIndex} height={64} />
+              {/* La barre blanche = la série dont parle le chiffre orange (en cours, ou la prochaine
+                  pendant le repos) : on voit d'un coup d'œil si ça monte ou si ça redescend. */}
+              <PyramidBars sets={sets} activeIndex={resting ? setIndex + 1 : setIndex} height={92} />
             </View>
             <View style={styles.bottomBar}>
               <Button
