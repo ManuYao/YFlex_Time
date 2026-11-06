@@ -1,13 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  BackHandler,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-  useWindowDimensions,
-} from 'react-native';
+import { BackHandler, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
@@ -24,7 +16,7 @@ import BottomSheet from '../components/common/BottomSheet';
 import GameScoreList from '../components/screens/GameScoreList';
 import GameExerciseSheet from '../components/screens/GameExerciseSheet';
 import SpotlightTips from '../components/screens/SpotlightTips';
-import ScoreHalo from '../components/common/ScoreHalo';
+import HoldToTag from '../components/common/HoldToTag';
 import { useSettings } from '../contexts/SettingsContext';
 import { haptic } from '../hooks/useHaptic';
 import { fonts } from '../lib/fonts';
@@ -604,13 +596,14 @@ export default function GamePyramid() {
                 renderRow={(s, inDay) => (
                   // Maintenir 1 s une ligne = noter (ou changer) son exercice ; le halo
                   // n'éclaire que le dernier score, tant qu'il n'a pas d'exercice.
-                  <Pressable
+                  <HoldToTag
+                    color={ACCENT}
+                    radius={16}
+                    invite={shouldHalo(s, mine[0])}
+                    onHold={() => openTag(s.id)}
                     style={styles.scoreRow}
-                    onLongPress={() => openTag(s.id)}
-                    delayLongPress={1000}
                     accessibilityLabel={`Score ${s.total}. Maintiens pour noter ton exercice.`}
                   >
-                    {shouldHalo(s, mine[0]) && <ScoreHalo color={ACCENT} radius={16} />}
                     <Text style={styles.scoreCount}>{s.total}</Text>
                     <Text style={styles.scoreMeta}>
                       {FORMATS[s.format].label} {s.peak}
@@ -626,7 +619,7 @@ export default function GamePyramid() {
                     >
                       <AppIcon name="close" size={14} color="rgba(255,255,255,0.7)" />
                     </PressTap>
-                  </Pressable>
+                  </HoldToTag>
                 )}
               />
             </ScrollView>
@@ -715,17 +708,15 @@ export default function GamePyramid() {
             <View style={styles.center}>
               {/* Le score : un halo l'entoure tant que l'exercice n'est pas noté, et le MAINTENIR
                   1 s ouvre « Ton exercice ». Rien ne s'ouvre tout seul. */}
-              <Pressable
+              <HoldToTag
                 ref={scoreBlockRef}
-                collapsable={false}
-                onLongPress={() => openTag(result?.scoreId)}
-                delayLongPress={1000}
+                color={ACCENT}
+                radius={36}
+                invite={!!doneScore && !doneScore.exercises?.length}
+                onHold={() => openTag(result?.scoreId)}
                 style={styles.resultBlock}
                 accessibilityLabel="Ton score. Maintiens pour noter ton exercice."
               >
-                {!!doneScore && !doneScore.exercises?.length && (
-                  <ScoreHalo color={ACCENT} radius={36} />
-                )}
                 <Text style={styles.tag}>{result?.complete ? 'PYRAMIDE TERMINÉE' : 'TON SCORE'}</Text>
                 <Text style={styles.bigNumber}>{result?.total ?? 0}</Text>
                 <Text style={styles.hint}>
@@ -736,7 +727,7 @@ export default function GamePyramid() {
                     {exercisesLabel(doneScore.exercises)}
                   </Text>
                 )}
-              </Pressable>
+              </HoldToTag>
               {result?.record && <Text style={styles.record}>NOUVEAU RECORD</Text>}
               {!result?.record && best > 0 && (
                 <Text style={styles.hint}>
