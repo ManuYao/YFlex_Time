@@ -21,6 +21,7 @@ import { goBackSafe } from '../lib/navigation';
 import { playGameGo, preloadGameSounds } from '../lib/gameSounds';
 import { createNumberCaller } from '../lib/gameVoice';
 import { loadScores, saveScore, deleteScore } from '../lib/gameScores';
+import { recordGameSession } from '../lib/gameHistory';
 import {
   DEFAULT_TEMPO,
   MAX_COUNT,
@@ -76,6 +77,10 @@ export default function GameCount() {
   const scoresRef = useRef([]);
   const tempoRef = useRef(DEFAULT_TEMPO);
   const selectedRef = useRef(0);
+  // Début réel du jeu (après le décompte) et fin (avant la roue de confirmation) :
+  // la partie est ajoutée à l'Historique avec son temps (lib/gameHistory.js).
+  const playStartRef = useRef(null);
+  const playEndRef = useRef(null);
   const [finalCount, setFinalCount] = useState(0);
 
   const goPhase = (p) => {
@@ -122,6 +127,12 @@ export default function GameCount() {
     setResult({ count: value, record: value > 0 && value > previousBest });
     haptic.success();
     if (value > 0) {
+      recordGameSession({
+        game: 'count',
+        startedAt: playStartRef.current,
+        endedAt: playEndRef.current ?? Date.now(),
+        reps: value,
+      });
       const list = await saveScore({ count: value, tempo: tempoRef.current });
       scoresRef.current = list;
       setScores(list);
@@ -134,6 +145,7 @@ export default function GameCount() {
   const finish = () => {
     if (phaseRef.current !== 'playing') return;
     const final = countRef.current;
+    playEndRef.current = Date.now();
     releaseGame();
     setSilent(false);
     if (final <= 0) {
@@ -154,6 +166,8 @@ export default function GameCount() {
     countRef.current = 0;
     setCount(0);
     setSilent(false);
+    playStartRef.current = Date.now();
+    playEndRef.current = null;
     goPhase('playing');
     let nextAt = Date.now();
 

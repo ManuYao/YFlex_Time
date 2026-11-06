@@ -36,6 +36,7 @@ import {
   loadComboSetup,
   saveComboSetup,
 } from '../lib/gameComboStore';
+import { recordGameSession } from '../lib/gameHistory';
 import {
   DEFAULT_SETUP,
   EXO_MAX,
@@ -105,6 +106,9 @@ export default function GameCombo() {
   const timers = useRef([]);
   const tickTimer = useRef(null);
   const scoresRef = useRef([]);
+  // Début réel et fin de la partie, pour l'Historique (lib/gameHistory.js).
+  const playStartRef = useRef(null);
+  const playEndRef = useRef(null);
   const scrollRef = useRef(null);
   const contentRef = useRef(null);
 
@@ -200,6 +204,12 @@ export default function GameCombo() {
     setResult({ counts, total, record: total > 0 && total > previousBest, complete });
     haptic.success();
     if (total > 0) {
+      recordGameSession({
+        game: 'combo',
+        startedAt: playStartRef.current,
+        endedAt: playEndRef.current ?? Date.now(),
+        reps: total,
+      });
       const list = await saveComboScore({
         tempo: cfg.tempoId,
         counts,
@@ -218,6 +228,7 @@ export default function GameCombo() {
   const completeGame = () => {
     if (phaseRef.current !== 'playing') return;
     const cfg = cfgRef.current;
+    playEndRef.current = Date.now();
     releaseGame();
     commitScore({ ...sideCallsRef.current }, true);
     // Le dernier mot est loin (marge de fin) : « Terminé. » ne le coupe pas.
@@ -227,6 +238,7 @@ export default function GameCombo() {
   // « J'ai lâché ».
   const finish = () => {
     if (phaseRef.current !== 'playing') return;
+    playEndRef.current = Date.now();
     releaseGame();
     commitScore({ ...sideCallsRef.current }, false);
   };
@@ -240,6 +252,8 @@ export default function GameCombo() {
     const endAt = startedAt + GAME_SECONDS * 1000;
     callsRef.current = 0;
     sideCallsRef.current = { a: 0, b: 0 };
+    playStartRef.current = startedAt;
+    playEndRef.current = null;
     setCall(null);
     setRemaining(GAME_SECONDS);
     goPhase('playing');

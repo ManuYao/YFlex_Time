@@ -22,6 +22,7 @@ import { playGameGo, preloadGameSounds } from '../lib/gameSounds';
 import { createFixedNumberCaller } from '../lib/gameVoice';
 import { speakGame, stopVoiceCoach } from '../lib/voiceCoach';
 import { loadPyramidScores, savePyramidScore, deletePyramidScore } from '../lib/gamePyramidScores';
+import { recordGameSession } from '../lib/gameHistory';
 import {
   DEFAULT_FORMAT,
   DEFAULT_PEAK,
@@ -114,6 +115,12 @@ export default function GamePyramid() {
   const timers = useRef([]);
   const scoresRef = useRef([]);
   const selectedRef = useRef(0);
+  // Temps réel de la partie, pour l'Historique (lib/gameHistory.js) : début du
+  // premier set, fin (avant la roue de confirmation) et part passée à se reposer.
+  const playStartRef = useRef(null);
+  const playEndRef = useRef(null);
+  const restMsRef = useRef(0);
+  const restSinceRef = useRef(null);
 
   const format = getFormat(formatId);
 
@@ -160,6 +167,14 @@ export default function GamePyramid() {
   // Quitte l'écran : plus de voix, plus de minuterie.
   useEffect(() => releaseGame, []);
 
+  // Ferme le repos en cours (s'il y en a un) dans le compte du temps de repos.
+  const flushRest = () => {
+    if (restSinceRef.current != null) {
+      restMsRef.current += Date.now() - restSinceRef.current;
+      restSinceRef.current = null;
+    }
+  };
+
   // Enregistre le score définitif (après la confirmation) et montre le résultat.
   const commitScore = async (value, complete = false) => {
     if (phaseRef.current === 'done') return;
@@ -169,6 +184,13 @@ export default function GamePyramid() {
     setResult({ total: value, record: value > 0 && value > previousBest, complete });
     haptic.success();
     if (value > 0) {
+      recordGameSession({
+        game: 'pyramid',
+        startedAt: playStartRef.current,
+        endedAt: playEndRef.current ?? Date.now(),
+        reps: value,
+        restMs: restMsRef.current,
+      });
       const list = await savePyramidScore({
         format: cfg.formatId,
         peak: cfg.peak,
@@ -184,6 +206,7 @@ export default function GamePyramid() {
   const completePyramid = () => {
     const cfg = cfgRef.current;
     const all = totalReps(setsRef.current);
+    playEndRef.current = Date.now();
     releaseGame();
     commitScore(all, true);
     // La voix finit son dernier chiffre avant de dire « Terminé. »
@@ -202,6 +225,8 @@ export default function GamePyramid() {
       current === 'set'
         ? repsDone(setsRef.current, i, countRef.current)
         : repsDone(setsRef.current, i + 1);
+    playEndRef.current = Date.now();
+    flushRest();
     releaseGame();
     if (final <= 0) {
       commitScore(0);
@@ -232,6 +257,12 @@ export default function GamePyramid() {
     setSetIndex(i);
     countRef.current = 0;
     setCount(0);
+    flushRest();
+    if (i === 0) {
+      playStartRef.current = Date.now();
+      playEndRef.current = null;
+      restMsRef.current = 0;
+    }
     goPhase('set');
     let nextAt = Date.now();
 
@@ -265,6 +296,7 @@ export default function GamePyramid() {
     const all = setsRef.current;
     const total = restSeconds(all[i], all[i + 1]);
     const endAt = Date.now() + total * 1000;
+    restSinceRef.current = Date.now();
     goPhase('rest');
     setRestTotal(total);
     setRestLeft(total);

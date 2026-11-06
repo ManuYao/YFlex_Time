@@ -22,6 +22,7 @@ import MixPill from '../common/MixPill';
 import { goBackSafe } from '../../lib/navigation';
 import { TIMERS } from '../../lib/timers-config';
 import MixCompositionBar from '../common/MixCompositionBar';
+import { GAME_HISTORY_COLOR, GAME_HISTORY_NAME, isGameSession } from '../../lib/gameHistoryShape';
 import {
   loadHistory,
   removeSession,
@@ -42,7 +43,8 @@ import { useLongPress } from '../../hooks/useLongPress';
 import ChipRow from '../common/ChipRow';
 import HistorySkeleton from './HistorySkeleton';
 
-const FILTERS = ['TOUS', 'AMRAP', 'BASIC', 'EMOM', 'TABATA', 'MIX'];
+// « JEU » = les parties du menu Jeux (lib/gameHistory.js) : un jeu reste un exercice.
+const FILTERS = ['TOUS', 'AMRAP', 'BASIC', 'EMOM', 'TABATA', 'MIX', GAME_HISTORY_NAME];
 
 // Jours affichés d'un coup. Chaque jour monte plusieurs lignes Swipeable
 // (un gesture handler chacune) : en limiter le nombre garde la liste fluide
@@ -510,8 +512,9 @@ function SessionRow({ session, onPress, onDelete, onKeep }) {
   const color = session.color || '#FFFFFF';
   const tag = session.intensity || '—';
   const hasComposition = !!formatMixBreakdown(session);
-  const roundsLabel =
-    session.totalRounds && session.completedRounds != null
+  const roundsLabel = isGameSession(session)
+    ? `${session.reps || 0} rép.`
+    : session.totalRounds && session.completedRounds != null
       ? `${session.completedRounds} tours`
       : '∞';
   const swipeRef = useRef(null);
@@ -643,6 +646,7 @@ function Dot() {
 }
 
 const findColor = (name) => {
+  if (name === GAME_HISTORY_NAME) return GAME_HISTORY_COLOR;
   const t = TIMERS.find((x) => x.name === name);
   return t ? t.color : '#FFFFFF';
 };
