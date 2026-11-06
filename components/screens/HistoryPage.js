@@ -22,7 +22,12 @@ import MixPill from '../common/MixPill';
 import { goBackSafe } from '../../lib/navigation';
 import { TIMERS } from '../../lib/timers-config';
 import MixCompositionBar from '../common/MixCompositionBar';
-import { GAME_HISTORY_COLOR, GAME_HISTORY_NAME, isGameSession } from '../../lib/gameHistoryShape';
+import {
+  GAME_HISTORY_COLOR,
+  GAME_HISTORY_NAME,
+  gameTagLabel,
+  isGameSession,
+} from '../../lib/gameHistoryShape';
 import {
   loadHistory,
   removeSession,
@@ -510,7 +515,8 @@ function SessionRow({ session, onPress, onDelete, onKeep }) {
   // supprimer tout de suite, on la glisse dans l'autre sens comme une autre.
   const pending = !!session.pendingDelete;
   const color = session.color || '#FFFFFF';
-  const tag = session.intensity || '—';
+  // Une partie de jeu montre l'exercice noté par la personne (« Tractions + Pompes »), sinon le jeu.
+  const tag = isGameSession(session) ? gameTagLabel(session) : session.intensity || '—';
   const hasComposition = !!formatMixBreakdown(session);
   const roundsLabel = isGameSession(session)
     ? `${session.reps || 0} rép.`
@@ -615,7 +621,9 @@ function SessionRow({ session, onPress, onDelete, onKeep }) {
               <Text style={styles.rowMetaText}>{roundsLabel}</Text>
             )}
             <Dot />
-            <Text style={styles.rowMetaText}>{tag}</Text>
+            <Text style={[styles.rowMetaText, styles.rowMetaTag]} numberOfLines={1}>
+              {tag}
+            </Text>
           </View>
         </View>
 
@@ -986,6 +994,8 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: 'rgba(255,255,255,0.50)',
   },
+  // Le dernier mot de la ligne (mode, ou exercices d'une partie) rétrécit au lieu de déborder.
+  rowMetaTag: { flexShrink: 1 },
   metaDot: {
     width: 2,
     height: 2,

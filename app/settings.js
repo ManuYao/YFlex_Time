@@ -291,6 +291,10 @@ export default function Settings() {
         'flexTimer_gamePyramidScores',
         'flexTimer_gameComboScores',
         'flexTimer_gameComboSetup',
+        // « Noter mon exercice » des jeux (lib/gameExercisesStore.js) : exercices ajoutés
+        // à la main et bulle d'explication de la première partie.
+        'flexTimer_gameExercises',
+        'flexTimer_gameTagTip',
       ]);
     } catch {}
     // Le cache mémoire des catégories perso survivrait à la purge du

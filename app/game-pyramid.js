@@ -1,5 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BackHandler, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import {
+  BackHandler,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
@@ -14,6 +22,9 @@ import TickRing from '../components/common/TickRing';
 import WheelPicker from '../components/common/WheelPicker';
 import BottomSheet from '../components/common/BottomSheet';
 import GameScoreList from '../components/screens/GameScoreList';
+import GameExerciseSheet from '../components/screens/GameExerciseSheet';
+import SpotlightTips from '../components/screens/SpotlightTips';
+import ScoreHalo from '../components/common/ScoreHalo';
 import { useSettings } from '../contexts/SettingsContext';
 import { haptic } from '../hooks/useHaptic';
 import { fonts } from '../lib/fonts';
@@ -21,8 +32,20 @@ import { goBackSafe } from '../lib/navigation';
 import { playGameGo, preloadGameSounds } from '../lib/gameSounds';
 import { createFixedNumberCaller } from '../lib/gameVoice';
 import { speakGame, stopVoiceCoach } from '../lib/voiceCoach';
-import { loadPyramidScores, savePyramidScore, deletePyramidScore } from '../lib/gamePyramidScores';
-import { recordGameSession } from '../lib/gameHistory';
+import {
+  loadPyramidScores,
+  savePyramidScore,
+  deletePyramidScore,
+  setPyramidScoreExercises,
+} from '../lib/gamePyramidScores';
+import { recordGameSession, setGameSessionExercises } from '../lib/gameHistory';
+import { exercisesLabel, recentExercises, shouldHalo } from '../lib/gameExercises';
+import {
+  hasSeenGameTagTip,
+  loadGameExercises,
+  markGameTagTipSeen,
+  rememberGameExercises,
+} from '../lib/gameExercisesStore';
 import {
   DEFAULT_FORMAT,
   DEFAULT_PEAK,
@@ -103,6 +126,12 @@ export default function GamePyramid() {
   const [scores, setScores] = useState([]);
   const [result, setResult] = useState(null); // { total, record, complete }
   const [finalCount, setFinalCount] = useState(0);
+  // Noter son exercice : jamais ouvert tout seul, seulement en MAINTENANT un score.
+  const [tagId, setTagId] = useState(null); // score dont on note l'exercice
+  const [customExercises, setCustomExercises] = useState([]);
+  const [showTip, setShowTip] = useState(false); // bulle de la toute première partie finie
+  const scoreBlockRef = useRef(null);
+  const tipCheckedRef = useRef(false);
 
   const phaseRef = useRef('ready');
   const countRef = useRef(0);
@@ -140,6 +169,9 @@ export default function GamePyramid() {
         if (cancelled) return;
         scoresRef.current = list;
         setScores(list);
+      });
+      loadGameExercises().then((list) => {
+        if (!cancelled) setCustomExercises(list);
       });
       return () => {
         cancelled = true;
@@ -184,7 +216,9 @@ export default function GamePyramid() {
     setResult({ total: value, record: value > 0 && value > previousBest, complete });
     haptic.success();
     if (value > 0) {
-      recordGameSession({
+      // La partie entre dans l'Historique ; son id est gardé dans le score pour y noter
+      // l'exercice plus tard (si la personne le maintient).
+      const entry = await recordGameSession({
         game: 'pyramid',
         startedAt: playStartRef.current,
         endedAt: playEndRef.current ?? Date.now(),
@@ -196,11 +230,72 @@ export default function GamePyramid() {
         peak: cfg.peak,
         total: value,
         complete,
+        historyId: entry?.id,
       });
       scoresRef.current = list;
       setScores(list);
+      // Le score qu'on vient d'ajouter est toujours le premier de la liste.
+      setResult((r) => (r ? { ...r, scoreId: list[0]?.id } : r));
     }
   };
+
+  // Ouvre « Ton exercice » : seulement sur un geste volontaire de la personne.
+  const openTag = (id) => {
+    if (!id) return;
+    haptic.success();
+    setTagId(id);
+  };
+
+  // Enregistre l'exercice noté : dans le score ET dans la séance JEU de l'Historique.
+  const applyExercises = async (id, exercises) => {
+    const score = scoresRef.current.find((s) => s.id === id);
+    const list = await setPyramidScoreExercises(id, exercises);
+    scoresRef.current = list;
+    setScores(list);
+    if (score?.historyId) setGameSessionExercises(score.historyId, exercises);
+    await rememberGameExercises(exercises);
+    setCustomExercises(await loadGameExercises());
+  };
+
+  // La toute première partie finie : une bulle explique qu'on peut maintenir son score
+  // (une seule fois pour tous les jeux). Rien d'autre ne s'ouvre.
+  const scoreId = result?.scoreId;
+  useEffect(() => {
+    if (phase !== 'done' || !scoreId || tipCheckedRef.current) return undefined;
+    tipCheckedRef.current = true;
+    let cancelled = false;
+    let timer = null;
+    hasSeenGameTagTip().then((seen) => {
+      if (cancelled || seen) return;
+      timer = setTimeout(() => {
+        if (!cancelled) setShowTip(true);
+      }, 800);
+    });
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [phase, scoreId]);
+
+  const measureScoreBlock = useCallback(
+    () =>
+      new Promise((resolve) => {
+        const node = scoreBlockRef.current;
+        if (!node?.measureInWindow) {
+          resolve(null);
+          return;
+        }
+        node.measureInWindow((x, y, width, height) => {
+          resolve(width > 0 && height > 0 ? { x, y, width, height } : null);
+        });
+      }),
+    []
+  );
+
+  const closeTip = useCallback(() => {
+    markGameTagTipSeen();
+    setShowTip(false);
+  }, []);
 
   // Toute la pyramide faite : pas de confirmation, rien à corriger.
   const completePyramid = () => {
@@ -391,6 +486,9 @@ export default function GamePyramid() {
 
   const best = bestPyramidScore(scores, formatId, peak);
   const mine = useMemo(() => scores.filter((s) => FORMATS[s.format]), [scores]);
+  // Le score qu'on vient de faire (écran de résultat) et le dernier de la liste.
+  const doneScore = result?.scoreId ? scores.find((s) => s.id === result.scoreId) : null;
+  const tagScore = tagId ? scores.find((s) => s.id === tagId) : null;
   const total = totalReps(sets);
   const minutes = Math.max(1, Math.round(plannedSeconds(sets, PYRAMID_REP_MS) / 60));
   const ring = Math.min(RING, Math.round(height * 0.34));
@@ -504,12 +602,21 @@ export default function GamePyramid() {
                 accent={ACCENT}
                 getValue={scoreValue}
                 renderRow={(s, inDay) => (
-                  <View style={styles.scoreRow}>
+                  // Maintenir 1 s une ligne = noter (ou changer) son exercice ; le halo
+                  // n'éclaire que le dernier score, tant qu'il n'a pas d'exercice.
+                  <Pressable
+                    style={styles.scoreRow}
+                    onLongPress={() => openTag(s.id)}
+                    delayLongPress={1000}
+                    accessibilityLabel={`Score ${s.total}. Maintiens pour noter ton exercice.`}
+                  >
+                    {shouldHalo(s, mine[0]) && <ScoreHalo color={ACCENT} radius={16} />}
                     <Text style={styles.scoreCount}>{s.total}</Text>
                     <Text style={styles.scoreMeta}>
                       {FORMATS[s.format].label} {s.peak}
                       {inDay ? '' : ` · ${formatDay(s.at)}`}
                       {s.complete ? ' · terminée' : ''}
+                      {s.exercises?.length ? ` · ${exercisesLabel(s.exercises)}` : ''}
                     </Text>
                     <PressTap
                       onPress={() => handleDelete(s.id)}
@@ -519,7 +626,7 @@ export default function GamePyramid() {
                     >
                       <AppIcon name="close" size={14} color="rgba(255,255,255,0.7)" />
                     </PressTap>
-                  </View>
+                  </Pressable>
                 )}
               />
             </ScrollView>
@@ -606,11 +713,30 @@ export default function GamePyramid() {
           <>
             {renderTop('La pyramide')}
             <View style={styles.center}>
-              <Text style={styles.tag}>{result?.complete ? 'PYRAMIDE TERMINÉE' : 'TON SCORE'}</Text>
-              <Text style={styles.bigNumber}>{result?.total ?? 0}</Text>
-              <Text style={styles.hint}>
-                répétitions sur {total}
-              </Text>
+              {/* Le score : un halo l'entoure tant que l'exercice n'est pas noté, et le MAINTENIR
+                  1 s ouvre « Ton exercice ». Rien ne s'ouvre tout seul. */}
+              <Pressable
+                ref={scoreBlockRef}
+                collapsable={false}
+                onLongPress={() => openTag(result?.scoreId)}
+                delayLongPress={1000}
+                style={styles.resultBlock}
+                accessibilityLabel="Ton score. Maintiens pour noter ton exercice."
+              >
+                {!!doneScore && !doneScore.exercises?.length && (
+                  <ScoreHalo color={ACCENT} radius={36} />
+                )}
+                <Text style={styles.tag}>{result?.complete ? 'PYRAMIDE TERMINÉE' : 'TON SCORE'}</Text>
+                <Text style={styles.bigNumber}>{result?.total ?? 0}</Text>
+                <Text style={styles.hint}>
+                  répétitions sur {total}
+                </Text>
+                {!!doneScore?.exercises?.length && (
+                  <Text style={styles.resultExo} numberOfLines={1}>
+                    {exercisesLabel(doneScore.exercises)}
+                  </Text>
+                )}
+              </Pressable>
               {result?.record && <Text style={styles.record}>NOUVEAU RECORD</Text>}
               {!result?.record && best > 0 && (
                 <Text style={styles.hint}>
@@ -634,6 +760,36 @@ export default function GamePyramid() {
           </>
         )}
       </SafeAreaView>
+
+      {/* « Ton exercice » : ouverte seulement quand la personne maintient un score. */}
+      {!!tagScore && (
+        <GameExerciseSheet
+          screenH={height}
+          accent={ACCENT}
+          initial={tagScore.exercises ?? []}
+          recent={recentExercises(scores)}
+          custom={customExercises}
+          onSave={(exercises) => applyExercises(tagScore.id, exercises)}
+          onClose={() => setTagId(null)}
+        />
+      )}
+
+      {/* La toute première partie finie : une bulle explique le maintien (une seule fois). */}
+      {showTip && phase === 'done' && !!doneScore && (
+        <SpotlightTips
+          steps={[
+            {
+              id: 'score',
+              icon: 'edit',
+              title: 'Note ton exercice',
+              text: 'Maintiens ton score une seconde pour dire quel exercice tu as fait : tractions, pompes… Tu peux aussi ajouter le tien.',
+              radius: 36,
+            },
+          ]}
+          measureTarget={measureScoreBlock}
+          onDone={closeTip}
+        />
+      )}
 
       {/* Même feuille que la roue de l'app : fermer sans valider garde le total. */}
       {phase === 'confirm' && (
@@ -778,6 +934,21 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,154,77,0.07)',
     borderWidth: 1,
     borderColor: 'rgba(255,154,77,0.18)',
+  },
+  // Le score de l'écran de résultat : la zone que le halo entoure et qu'on maintient.
+  resultBlock: {
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 22,
+    paddingHorizontal: 40,
+    borderRadius: 36,
+  },
+  resultExo: {
+    fontFamily: fonts.sansBold,
+    fontSize: 16,
+    color: ACCENT,
+    textAlign: 'center',
+    marginTop: 2,
   },
   scoreCount: { fontFamily: fonts.monoBold, fontSize: 18, color: '#FFFFFF', minWidth: 44 },
   scoreMeta: { flex: 1, fontFamily: fonts.sansMedium, fontSize: 12, color: 'rgba(255,255,255,0.55)' },

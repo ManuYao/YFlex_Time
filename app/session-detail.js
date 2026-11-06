@@ -9,7 +9,7 @@ import Button from '../components/common/Button';
 import IconButton from '../components/common/IconButton';
 import MixCompositionBar from '../components/common/MixCompositionBar';
 import { loadHistory, formatMixBreakdown } from '../lib/history';
-import { GAME_ROUTES, isGameSession } from '../lib/gameHistoryShape';
+import { GAME_ROUTES, gameTagLabel, isGameSession } from '../lib/gameHistoryShape';
 import { sessionWorkSeconds } from '../lib/profileStats';
 import { formatDuration } from '../lib/formatters';
 import { goBackSafe } from '../lib/navigation';
@@ -139,8 +139,8 @@ export default function SessionDetail() {
               </Text>
               <View style={styles.intensityRow}>
                 <View style={[styles.intensityBar, { backgroundColor: session.color }]} />
-                <Text style={[styles.intensityText, { color: session.color }]}>
-                  {session.intensity || '—'}
+                <Text style={[styles.intensityText, { color: session.color }]} numberOfLines={1}>
+                  {isGame ? gameTagLabel(session) : session.intensity || '—'}
                 </Text>
                 <View style={[styles.intensityBar, { backgroundColor: session.color }]} />
               </View>
