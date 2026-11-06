@@ -377,10 +377,7 @@ export default function GamePyramid() {
   const total = totalReps(sets);
   const minutes = Math.max(1, Math.round(plannedSeconds(sets, tempoMs(exercise.id, DEFAULT_TEMPO)) / 60));
   const ring = Math.min(RING, Math.round(height * 0.34));
-  // Repos : prochaine série en très gros, décompte dans un anneau plus petit.
-  const nextSize = Math.max(96, Math.min(170, Math.round(height * 0.19)));
-  const miniRing = Math.round(ring * 0.58);
-  const restNumSize = Math.min(64, Math.round(miniRing * 0.4));
+  const resting = phase === 'rest';
   const target = sets[setIndex] ?? 0;
   const nextTarget = sets[setIndex + 1] ?? 0;
 
@@ -572,90 +569,66 @@ export default function GamePyramid() {
           </View>
         )}
 
-        {phase === 'set' && (
+        {(phase === 'set' || phase === 'rest') && (
           <View style={styles.center}>
-            {/* Lisible de loin (téléphone posé au sol) : la série en cours, son objectif
-                et la suivante sont en gros, pas en petite ligne sous l'anneau. */}
+            {/* UN seul écran pour la série ET le repos : mêmes éléments, mêmes tailles, mêmes
+                places ; seul le contenu change (retour du 06/11 : deux mises en page
+                différentes d'une phase à l'autre « faisaient mal à la tête »). Gros chiffres,
+                lisibles de loin, téléphone posé au sol. Pendant le repos le décompte porte
+                son « s » et la série à venir est écrite sous l'anneau : sans cela, « 8 »
+                (secondes) se confondait avec « 8 » (répétitions de la série suivante). */}
             <Text style={styles.setHeader}>
-              SÉRIE {setIndex + 1}
-              <Text style={styles.setHeaderDim}> / {sets.length}</Text>
+              {resting ? 'REPOS' : `SÉRIE ${setIndex + 1}`}
+              {!resting && <Text style={styles.setHeaderDim}> / {sets.length}</Text>}
             </Text>
             <View style={[styles.ringWrap, { width: ring, height: ring }]}>
               <TickRing
-                progress={target > 0 ? count / target : 0}
+                progress={
+                  resting
+                    ? restTotal > 0
+                      ? 1 - restLeft / restTotal
+                      : 0
+                    : target > 0
+                      ? count / target
+                      : 0
+                }
                 size={ring}
-                colorActive={ACCENT}
-                colorInactive={ACCENT_FAINT}
-              />
-              <View style={styles.ringCenter} pointerEvents="none">
-                <Text style={styles.bigNumber}>{count}</Text>
-              </View>
-            </View>
-            <Text style={styles.goalCaption}>OBJECTIF DE LA SÉRIE</Text>
-            <Text style={styles.goalNumber}>
-              {target}
-              <Text style={styles.goalUnit}> {exercise.unit}</Text>
-            </Text>
-            <Text style={styles.nextHint}>
-              {nextTarget > 0 ? `Ensuite : ${nextTarget} ${exercise.unit}` : 'Dernière série !'}
-            </Text>
-            <View style={styles.liveBars}>
-              <PyramidBars sets={sets} activeIndex={setIndex} height={64} />
-            </View>
-            <View style={styles.bottomBar}>
-              <Button
-                variant="danger"
-                icon="stop"
-                label="J’ai lâché"
-                haptic={haptic.medium}
-                onPress={finish}
-                fullWidth
-              />
-            </View>
-          </View>
-        )}
-
-        {phase === 'rest' && (
-          <View style={styles.center}>
-            <Text style={styles.tag}>REPOS · SÉRIE {setIndex + 1} FAITE</Text>
-            {/* Ce qu'on veut savoir de loin pendant le repos : la PROCHAINE série, en très
-                gros. Le décompte est plus petit et porte son unité « s » : avant, il était
-                en gros au centre et, comme le repos vaut les répétitions de la plus grosse
-                série voisine, il affichait le même chiffre que la série suivante (« 8 » pour
-                8 secondes ET 8 pompes) : on croyait que c'était le nombre à faire. */}
-            <Text style={styles.nextLabel}>PROCHAINE SÉRIE</Text>
-            <Text style={[styles.nextBig, { fontSize: nextSize, lineHeight: Math.round(nextSize * 1.18) }]}>
-              {nextTarget}
-            </Text>
-            <Text style={styles.nextUnit}>{exercise.unit}</Text>
-            <View style={[styles.ringWrap, styles.restRing, { width: miniRing, height: miniRing }]}>
-              <TickRing
-                progress={restTotal > 0 ? 1 - restLeft / restTotal : 0}
-                size={miniRing}
-                colorActive={ACCENT_DIM}
+                colorActive={resting ? ACCENT_DIM : ACCENT}
                 colorInactive={ACCENT_FAINT}
               />
               <View style={styles.ringCenter} pointerEvents="none">
                 <Text
                   style={[
-                    styles.restNumber,
-                    { fontSize: restNumSize, lineHeight: Math.round(restNumSize * 1.19) },
-                    restLeft === 1 && styles.countdownGo,
+                    styles.bigNumber,
+                    resting && styles.bigNumberRest,
+                    resting && restLeft === 1 && styles.countdownGo,
                   ]}
                 >
-                  {restLeft}
-                  <Text style={styles.restUnit}> s</Text>
+                  {resting ? restLeft : count}
+                  {resting && <Text style={styles.restUnit}> s</Text>}
                 </Text>
               </View>
             </View>
+            <Text style={styles.goalCaption}>{resting ? 'PROCHAINE SÉRIE' : 'OBJECTIF DE LA SÉRIE'}</Text>
+            <Text style={styles.goalNumber}>
+              {resting ? nextTarget : target}
+              <Text style={styles.goalUnit}> {exercise.unit}</Text>
+            </Text>
+            <Text style={styles.nextHint}>
+              {resting
+                ? `Série ${setIndex + 2} sur ${sets.length}`
+                : nextTarget > 0
+                  ? `Ensuite : ${nextTarget} ${exercise.unit}`
+                  : 'Dernière série !'}
+            </Text>
             <View style={styles.liveBars}>
-              <PyramidBars sets={sets} activeIndex={setIndex + 1} height={64} />
+              <PyramidBars sets={sets} activeIndex={resting ? setIndex + 1 : setIndex} height={64} />
             </View>
             <View style={styles.bottomBar}>
               <Button
                 variant="danger"
                 icon="stop"
-                label="Je m’arrête"
+                label={resting ? 'Je m’arrête' : 'J’ai lâché'}
                 haptic={haptic.medium}
                 onPress={finish}
                 fullWidth
@@ -881,7 +854,8 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   bigNumberDim: { color: 'rgba(255,255,255,0.45)' },
-  // Écran de série : « SÉRIE 7 / 15 », objectif et série suivante lisibles de loin.
+  // Écran de série ET de repos (même squelette) : « SÉRIE 7 / 15 » ou « REPOS », puis l'objectif
+  // (ou la prochaine série) et la suivante, lisibles de loin.
   // Anton : lineHeight à ×1,18 de la taille, jamais égal.
   setHeader: {
     fontFamily: fonts.display,
@@ -901,8 +875,8 @@ const styles = StyleSheet.create({
   },
   goalNumber: {
     fontFamily: fonts.display,
-    fontSize: 64,
-    lineHeight: 76,
+    fontSize: 80,
+    lineHeight: 94,
     color: ACCENT,
     includeFontPadding: false,
     textAlign: 'center',
@@ -915,34 +889,10 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 4,
   },
-  // Écran de repos : la prochaine série en très gros (taille calculée selon la hauteur).
-  nextLabel: {
-    fontFamily: fonts.sansBold,
-    fontSize: 15,
-    letterSpacing: 3,
-    color: 'rgba(255,255,255,0.7)',
-    marginTop: 8,
-  },
-  nextBig: {
-    fontFamily: fonts.display,
-    color: ACCENT,
-    includeFontPadding: false,
-    textAlign: 'center',
-  },
-  nextUnit: {
-    fontFamily: fonts.sansExtraBold,
-    fontSize: 28,
-    color: '#FFFFFF',
-    textAlign: 'center',
-  },
-  restRing: { marginTop: 18 },
-  restNumber: {
-    fontFamily: fonts.display,
-    color: '#FFFFFF',
-    includeFontPadding: false,
-    textAlign: 'center',
-  },
-  restUnit: { fontFamily: fonts.sansBold, fontSize: 20, color: 'rgba(255,255,255,0.65)' },
+  // Repos : même chiffre central, même taille, même place que pendant la série ; seulement
+  // un peu plus discret, avec son unité « s » (le décompte n'est pas un nombre de répétitions).
+  bigNumberRest: { color: 'rgba(255,255,255,0.72)' },
+  restUnit: { fontFamily: fonts.sansBold, fontSize: 36, color: 'rgba(255,255,255,0.55)' },
   sheetKicker: {
     fontFamily: fonts.sansBold,
     fontSize: 11,
