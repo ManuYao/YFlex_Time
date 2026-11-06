@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { useRef, useState } from 'react';
+import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import AppIcon from '../common/AppIcon';
 import BottomSheet from '../common/BottomSheet';
 import Button from '../common/Button';
 import PressTap from '../common/PressTap';
@@ -9,55 +10,90 @@ import { fonts } from '../../lib/fonts';
 import {
   GAME_EXERCISE_MAX,
   MAX_GAME_EXERCISES,
+  addToLibrary,
   cleanExerciseLabel,
   exerciseOptions,
+  isBuiltInExercise,
   normalizeExercises,
+  removeFromLibrary,
   toggleExercise,
 } from '../../lib/gameExercises';
+import { addGameExercise, removeGameExercise } from '../../lib/gameExercisesStore';
 
 const tint = (hex, alpha) => {
   const n = parseInt(hex.slice(1), 16);
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
 };
 
+const same = (a, b) => a.toLowerCase() === b.toLowerCase();
+
+// Hauteur max de la zone des fiches : au-delà, elle défile (la liste grandit avec les
+// exercices ajoutés) et la fenêtre reste sur l'écran.
+const CHIPS_MAX_HEIGHT = 190;
+
 /**
  * « Ton exercice » — la fenêtre qui s'ouvre quand on MAINTIENT un score de jeu.
- * Volontairement légère (retour du 06/11 : « trop d'éléments ») : une poignée de fiches
- * à toucher (2 au plus), une case pour ajouter la sienne, un bouton. Rien ne s'ouvre
- * seule : c'est la personne qui décide de noter son exercice.
+ * Légère : une zone de fiches à toucher (2 au plus, elle défile s'il y en a beaucoup),
+ * une case pour ajouter la sienne, un bouton. Rien ne s'ouvre seule.
+ *
+ * Les exercices ajoutés à la main sont gardés TOUT DE SUITE dans une liste commune à tous
+ * les jeux (lib/gameExercisesStore.js) : on ne les retape jamais. Un petit × les supprime
+ * de la liste pour de bon (les parties déjà notées gardent leur texte).
  *
  * Props:
  * - screenH  : hauteur de l'écran (BottomSheet)
  * - accent   : couleur du jeu (hex)
  * - initial  : exercices déjà notés pour ce score
- * - recent   : exercices utilisés dans les dernières parties
- * - custom   : exercices ajoutés par la personne
+ * - custom   : la liste des exercices ajoutés par la personne (le plus récent en premier)
  * - onSave   : (exercises: string[]) => void, appelé au « Enregistrer »
  * - onClose  : la fenêtre est fermée (avec ou sans enregistrement)
  */
-export default function GameExerciseSheet({ screenH, accent, initial, recent, custom, onSave, onClose }) {
+export default function GameExerciseSheet({ screenH, accent, initial, custom, onSave, onClose }) {
+  const scrollRef = useRef(null);
   const [selected, setSelected] = useState(() => normalizeExercises(initial));
   const [draft, setDraft] = useState('');
-  // Les fiches se figent à l'ouverture, plus celles qu'on ajoute : elles ne bougent pas
-  // sous le doigt quand on en touche une.
-  const [extra, setExtra] = useState([]);
-  const [options] = useState(() => exerciseOptions({ selected: initial, recent, custom }));
-  const shown = [...options, ...extra.filter((x) => !options.some((o) => o.toLowerCase() === x.toLowerCase()))];
+  // Les fiches gardent l'ordre de l'ouverture : elles ne bougent pas sous le doigt quand on
+  // en touche une. Seuls les exercices qu'on ajoute arrivent EN TÊTE (toujours visibles).
+  const [base] = useState(() => exerciseOptions({ selected: initial, custom }));
+  const [added, setAdded] = useState([]);
+  const [removed, setRemoved] = useState([]);
+  const [library, setLibrary] = useState(() => (Array.isArray(custom) ? custom : []));
+
+  const shown = [...added, ...base.filter((x) => !added.some((a) => same(a, x)))].filter(
+    (x) => !removed.some((r) => same(r, x))
+  );
+  const isOn = (label) => selected.some((x) => same(x, label));
+  const isCustom = (label) => library.some((x) => same(x, label));
 
   const touch = (label) => {
     haptic.selection();
     setSelected((s) => toggleExercise(s, label));
   };
 
+  // Ajoute l'exercice écrit : gardé dans la liste commune tout de suite, mis en tête des
+  // fiches et déjà choisi pour ce score.
   const addDraft = () => {
     const label = cleanExerciseLabel(draft);
     if (!label) return;
     haptic.light();
-    if (!shown.some((x) => x.toLowerCase() === label.toLowerCase())) setExtra((e) => [...e, label]);
-    setSelected((s) =>
-      s.some((x) => x.toLowerCase() === label.toLowerCase()) ? s : toggleExercise(s, label)
-    );
+    if (!isBuiltInExercise(label) && !isCustom(label)) {
+      setLibrary((l) => addToLibrary(l, label));
+      addGameExercise(label);
+    }
+    setRemoved((r) => r.filter((x) => !same(x, label)));
+    if (!shown.some((x) => same(x, label))) setAdded((a) => [label, ...a]);
+    setSelected((s) => (s.some((x) => same(x, label)) ? s : toggleExercise(s, label)));
     setDraft('');
+    scrollRef.current?.scrollTo({ y: 0, animated: true });
+  };
+
+  // Supprime un exercice ajouté : retiré de la liste commune (donc de tous les jeux).
+  const removeCustom = (label) => {
+    haptic.warning();
+    setLibrary((l) => removeFromLibrary(l, label));
+    setRemoved((r) => [...r, label]);
+    setSelected((s) => s.filter((x) => !same(x, label)));
+    removeGameExercise(label);
   };
 
   return (
@@ -68,27 +104,53 @@ export default function GameExerciseSheet({ screenH, accent, initial, recent, cu
           <Text style={styles.title}>Qu’as-tu fait ?</Text>
           <Text style={styles.hint}>Touche pour choisir ({MAX_GAME_EXERCISES} au maximum).</Text>
 
-          <View style={styles.chips}>
+          <ScrollView
+            ref={scrollRef}
+            style={styles.chipsScroll}
+            contentContainerStyle={styles.chips}
+            nestedScrollEnabled
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
             {shown.map((label) => {
-              const on = selected.some((x) => x.toLowerCase() === label.toLowerCase());
+              const on = isOn(label);
+              const own = isCustom(label);
               return (
-                <PressTap
+                <View
                   key={label}
-                  onPress={() => touch(label)}
-                  tapScale={0.96}
-                  style={[
-                    styles.chip,
-                    on && { backgroundColor: accent, borderColor: accent },
-                  ]}
-                  accessibilityLabel={`${label}${on ? ', choisi' : ''}`}
+                  style={[styles.chip, on && { backgroundColor: accent, borderColor: accent }]}
                 >
-                  <Text style={[styles.chipText, on && styles.chipTextOn]} numberOfLines={1}>
-                    {label}
-                  </Text>
-                </PressTap>
+                  <PressTap
+                    onPress={() => touch(label)}
+                    tapScale={0.96}
+                    containerStyle={styles.chipTap}
+                    style={[styles.chipMain, { paddingRight: own ? 6 : 16 }]}
+                    accessibilityLabel={`${label}${on ? ', choisi' : ''}`}
+                  >
+                    <Text style={[styles.chipText, on && styles.chipTextOn]} numberOfLines={1}>
+                      {label}
+                    </Text>
+                  </PressTap>
+                  {own && (
+                    <PressTap
+                      onPress={() => removeCustom(label)}
+                      tapScale={0.8}
+                      hitSlop={8}
+                      containerStyle={styles.chipXTap}
+                      style={styles.chipX}
+                      accessibilityLabel={`Supprimer ${label} de ma liste`}
+                    >
+                      <AppIcon
+                        name="close"
+                        size={12}
+                        color={on ? '#1A0C04' : 'rgba(255,255,255,0.65)'}
+                      />
+                    </PressTap>
+                  )}
+                </View>
               );
             })}
-          </View>
+          </ScrollView>
 
           <View style={[styles.addRow, { borderColor: tint(accent, 0.35) }]}>
             <TextInput
@@ -100,6 +162,7 @@ export default function GameExerciseSheet({ screenH, accent, initial, recent, cu
               maxLength={GAME_EXERCISE_MAX}
               returnKeyType="done"
               onSubmitEditing={addDraft}
+              blurOnSubmit={false}
               style={styles.input}
             />
             <PressTap
@@ -108,7 +171,7 @@ export default function GameExerciseSheet({ screenH, accent, initial, recent, cu
               style={[styles.addBtn, { backgroundColor: tint(accent, 0.22) }]}
               accessibilityLabel="Ajouter cet exercice"
             >
-              <Text style={[styles.addText, { color: '#FFFFFF' }]}>Ajouter</Text>
+              <Text style={styles.addText}>Ajouter</Text>
             </PressTap>
           </View>
 
@@ -153,19 +216,23 @@ const styles = StyleSheet.create({
     marginTop: 6,
     marginBottom: 14,
   },
+  chipsScroll: { maxHeight: CHIPS_MAX_HEIGHT },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'center' },
   chip: {
     height: 40,
-    paddingHorizontal: 16,
     borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: 'row',
+    alignItems: 'stretch',
     backgroundColor: 'rgba(255,255,255,0.05)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.14)',
   },
+  chipTap: { justifyContent: 'center' },
+  chipMain: { paddingLeft: 16, justifyContent: 'center' },
   chipText: { fontFamily: fonts.sansBold, fontSize: 13, color: '#FFFFFF' },
   chipTextOn: { color: '#1A0C04' },
+  chipXTap: { justifyContent: 'center', paddingRight: 8 },
+  chipX: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
   addRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -192,6 +259,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  addText: { fontFamily: fonts.sansBold, fontSize: 13 },
+  addText: { fontFamily: fonts.sansBold, fontSize: 13, color: '#FFFFFF' },
   cta: { marginTop: 18 },
 });

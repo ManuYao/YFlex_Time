@@ -31,13 +31,8 @@ import {
   setPyramidScoreExercises,
 } from '../lib/gamePyramidScores';
 import { recordGameSession, setGameSessionExercises } from '../lib/gameHistory';
-import { exercisesLabel, recentExercises, shouldHalo } from '../lib/gameExercises';
-import {
-  hasSeenGameTagTip,
-  loadGameExercises,
-  markGameTagTipSeen,
-  rememberGameExercises,
-} from '../lib/gameExercisesStore';
+import { exercisesLabel, shouldHalo } from '../lib/gameExercises';
+import { hasSeenGameTagTip, loadGameExercises, markGameTagTipSeen } from '../lib/gameExercisesStore';
 import {
   DEFAULT_FORMAT,
   DEFAULT_PEAK,
@@ -232,21 +227,23 @@ export default function GamePyramid() {
   };
 
   // Ouvre « Ton exercice » : seulement sur un geste volontaire de la personne.
-  const openTag = (id) => {
+  // La liste des exercices ajoutés est relue à l'ouverture : toujours à jour, même après un
+  // ajout ou une suppression faits dans un autre jeu.
+  const openTag = async (id) => {
     if (!id) return;
     haptic.success();
+    setCustomExercises(await loadGameExercises());
     setTagId(id);
   };
 
   // Enregistre l'exercice noté : dans le score ET dans la séance JEU de l'Historique.
+  // (Les exercices ajoutés à la main sont déjà gardés par la fenêtre, tout de suite.)
   const applyExercises = async (id, exercises) => {
     const score = scoresRef.current.find((s) => s.id === id);
     const list = await setPyramidScoreExercises(id, exercises);
     scoresRef.current = list;
     setScores(list);
     if (score?.historyId) setGameSessionExercises(score.historyId, exercises);
-    await rememberGameExercises(exercises);
-    setCustomExercises(await loadGameExercises());
   };
 
   // La toute première partie finie : une bulle explique qu'on peut maintenir son score
@@ -758,7 +755,6 @@ export default function GamePyramid() {
           screenH={height}
           accent={ACCENT}
           initial={tagScore.exercises ?? []}
-          recent={recentExercises(scores)}
           custom={customExercises}
           onSave={(exercises) => applyExercises(tagScore.id, exercises)}
           onClose={() => setTagId(null)}
