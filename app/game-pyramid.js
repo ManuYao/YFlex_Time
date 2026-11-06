@@ -377,6 +377,10 @@ export default function GamePyramid() {
   const total = totalReps(sets);
   const minutes = Math.max(1, Math.round(plannedSeconds(sets, tempoMs(exercise.id, DEFAULT_TEMPO)) / 60));
   const ring = Math.min(RING, Math.round(height * 0.34));
+  // Repos : prochaine série en très gros, décompte dans un anneau plus petit.
+  const nextSize = Math.max(96, Math.min(170, Math.round(height * 0.19)));
+  const miniRing = Math.round(ring * 0.58);
+  const restNumSize = Math.min(64, Math.round(miniRing * 0.4));
   const target = sets[setIndex] ?? 0;
   const nextTarget = sets[setIndex + 1] ?? 0;
 
@@ -570,7 +574,12 @@ export default function GamePyramid() {
 
         {phase === 'set' && (
           <View style={styles.center}>
-            <Text style={styles.tag}>SÉRIE {setIndex + 1} SUR {sets.length}</Text>
+            {/* Lisible de loin (téléphone posé au sol) : la série en cours, son objectif
+                et la suivante sont en gros, pas en petite ligne sous l'anneau. */}
+            <Text style={styles.setHeader}>
+              SÉRIE {setIndex + 1}
+              <Text style={styles.setHeaderDim}> / {sets.length}</Text>
+            </Text>
             <View style={[styles.ringWrap, { width: ring, height: ring }]}>
               <TickRing
                 progress={target > 0 ? count / target : 0}
@@ -582,11 +591,16 @@ export default function GamePyramid() {
                 <Text style={styles.bigNumber}>{count}</Text>
               </View>
             </View>
-            <Text style={styles.hint}>
-              {target} {exercise.unit} dans cette série
+            <Text style={styles.goalCaption}>OBJECTIF DE LA SÉRIE</Text>
+            <Text style={styles.goalNumber}>
+              {target}
+              <Text style={styles.goalUnit}> {exercise.unit}</Text>
+            </Text>
+            <Text style={styles.nextHint}>
+              {nextTarget > 0 ? `Ensuite : ${nextTarget} ${exercise.unit}` : 'Dernière série !'}
             </Text>
             <View style={styles.liveBars}>
-              <PyramidBars sets={sets} activeIndex={setIndex} />
+              <PyramidBars sets={sets} activeIndex={setIndex} height={64} />
             </View>
             <View style={styles.bottomBar}>
               <Button
@@ -604,22 +618,38 @@ export default function GamePyramid() {
         {phase === 'rest' && (
           <View style={styles.center}>
             <Text style={styles.tag}>REPOS · SÉRIE {setIndex + 1} FAITE</Text>
-            <View style={[styles.ringWrap, { width: ring, height: ring }]}>
+            {/* Ce qu'on veut savoir de loin pendant le repos : la PROCHAINE série, en très
+                gros. Le décompte est plus petit et porte son unité « s » : avant, il était
+                en gros au centre et, comme le repos vaut les répétitions de la plus grosse
+                série voisine, il affichait le même chiffre que la série suivante (« 8 » pour
+                8 secondes ET 8 pompes) : on croyait que c'était le nombre à faire. */}
+            <Text style={styles.nextLabel}>PROCHAINE SÉRIE</Text>
+            <Text style={[styles.nextBig, { fontSize: nextSize, lineHeight: Math.round(nextSize * 1.18) }]}>
+              {nextTarget}
+            </Text>
+            <Text style={styles.nextUnit}>{exercise.unit}</Text>
+            <View style={[styles.ringWrap, styles.restRing, { width: miniRing, height: miniRing }]}>
               <TickRing
                 progress={restTotal > 0 ? 1 - restLeft / restTotal : 0}
-                size={ring}
+                size={miniRing}
                 colorActive={ACCENT_DIM}
                 colorInactive={ACCENT_FAINT}
               />
               <View style={styles.ringCenter} pointerEvents="none">
-                <Text style={[styles.bigNumber, restLeft === 1 && styles.countdownGo]}>{restLeft}</Text>
+                <Text
+                  style={[
+                    styles.restNumber,
+                    { fontSize: restNumSize, lineHeight: Math.round(restNumSize * 1.19) },
+                    restLeft === 1 && styles.countdownGo,
+                  ]}
+                >
+                  {restLeft}
+                  <Text style={styles.restUnit}> s</Text>
+                </Text>
               </View>
             </View>
-            <Text style={styles.hint}>
-              Prochaine série : {nextTarget} {exercise.unit}
-            </Text>
             <View style={styles.liveBars}>
-              <PyramidBars sets={sets} activeIndex={setIndex + 1} />
+              <PyramidBars sets={sets} activeIndex={setIndex + 1} height={64} />
             </View>
             <View style={styles.bottomBar}>
               <Button
@@ -851,6 +881,68 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   bigNumberDim: { color: 'rgba(255,255,255,0.45)' },
+  // Écran de série : « SÉRIE 7 / 15 », objectif et série suivante lisibles de loin.
+  // Anton : lineHeight à ×1,18 de la taille, jamais égal.
+  setHeader: {
+    fontFamily: fonts.display,
+    fontSize: 44,
+    lineHeight: 52,
+    color: '#FFFFFF',
+    includeFontPadding: false,
+    textAlign: 'center',
+  },
+  setHeaderDim: { color: 'rgba(255,255,255,0.45)' },
+  goalCaption: {
+    fontFamily: fonts.sansBold,
+    fontSize: 12,
+    letterSpacing: 3,
+    color: 'rgba(255,255,255,0.55)',
+    marginTop: 12,
+  },
+  goalNumber: {
+    fontFamily: fonts.display,
+    fontSize: 64,
+    lineHeight: 76,
+    color: ACCENT,
+    includeFontPadding: false,
+    textAlign: 'center',
+  },
+  goalUnit: { fontFamily: fonts.sansExtraBold, fontSize: 24, color: '#FFFFFF' },
+  nextHint: {
+    fontFamily: fonts.sansBold,
+    fontSize: 20,
+    color: 'rgba(255,255,255,0.78)',
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  // Écran de repos : la prochaine série en très gros (taille calculée selon la hauteur).
+  nextLabel: {
+    fontFamily: fonts.sansBold,
+    fontSize: 15,
+    letterSpacing: 3,
+    color: 'rgba(255,255,255,0.7)',
+    marginTop: 8,
+  },
+  nextBig: {
+    fontFamily: fonts.display,
+    color: ACCENT,
+    includeFontPadding: false,
+    textAlign: 'center',
+  },
+  nextUnit: {
+    fontFamily: fonts.sansExtraBold,
+    fontSize: 28,
+    color: '#FFFFFF',
+    textAlign: 'center',
+  },
+  restRing: { marginTop: 18 },
+  restNumber: {
+    fontFamily: fonts.display,
+    color: '#FFFFFF',
+    includeFontPadding: false,
+    textAlign: 'center',
+  },
+  restUnit: { fontFamily: fonts.sansBold, fontSize: 20, color: 'rgba(255,255,255,0.65)' },
   sheetKicker: {
     fontFamily: fonts.sansBold,
     fontSize: 11,
