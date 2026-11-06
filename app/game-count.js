@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { BackHandler, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -22,15 +22,10 @@ import { playGameGo, preloadGameSounds } from '../lib/gameSounds';
 import { createNumberCaller } from '../lib/gameVoice';
 import { loadScores, saveScore, deleteScore } from '../lib/gameScores';
 import {
-  DEFAULT_EXERCISE,
   DEFAULT_TEMPO,
-  EXERCISES,
   MAX_COUNT,
-  MUSCLE_GROUPS,
   TEMPOS,
   bestScore,
-  exercisesOf,
-  getExercise,
   newPlanner,
   planAfter,
   tempoMs,
@@ -54,7 +49,7 @@ const formatDay = (at) => {
 const scoreValue = (s) => s.count;
 
 /**
- * « Le chef d'orchestre » (pompes) — une voix compte 1, 2, 3… et, de temps en
+ * « Le chef d'orchestre » — une voix compte 1, 2, 3… et, de temps en
  * temps, se tait. Silence = on s'arrête, le compte reprend = on reprend. Celui
  * qui lâche appuie sur « J'ai lâché » : son score est le dernier chiffre dit.
  * Solo, sur la confiance : aucun capteur, aucun envoi, scores gardés sur le
@@ -67,7 +62,6 @@ export default function GameCount() {
 
   const [phase, setPhase] = useState('ready'); // ready | countdown | playing | done
   const [tempoId, setTempoId] = useState(DEFAULT_TEMPO);
-  const [exerciseId, setExerciseId] = useState(DEFAULT_EXERCISE);
   const [count, setCount] = useState(0);
   const [silent, setSilent] = useState(false);
   const [countdown, setCountdown] = useState(3);
@@ -81,16 +75,8 @@ export default function GameCount() {
   const countdownTimers = useRef([]);
   const scoresRef = useRef([]);
   const tempoRef = useRef(DEFAULT_TEMPO);
-  const exerciseRef = useRef(DEFAULT_EXERCISE);
   const selectedRef = useRef(0);
   const [finalCount, setFinalCount] = useState(0);
-
-  const exercise = getExercise(exerciseId);
-
-  const chooseExercise = (id) => {
-    exerciseRef.current = id;
-    setExerciseId(id);
-  };
 
   const goPhase = (p) => {
     phaseRef.current = p;
@@ -131,13 +117,12 @@ export default function GameCount() {
   // Enregistre le score définitif (après la confirmation) et montre le résultat.
   const commitScore = async (value) => {
     if (phaseRef.current === 'done') return;
-    const gameId = exerciseRef.current;
-    const previousBest = bestScore(scoresRef.current, gameId);
+    const previousBest = bestScore(scoresRef.current);
     goPhase('done');
     setResult({ count: value, record: value > 0 && value > previousBest });
     haptic.success();
     if (value > 0) {
-      const list = await saveScore({ game: gameId, count: value, tempo: tempoRef.current });
+      const list = await saveScore({ count: value, tempo: tempoRef.current });
       scoresRef.current = list;
       setScores(list);
     }
@@ -162,10 +147,10 @@ export default function GameCount() {
   };
 
   const startPlaying = () => {
-    const stepMs = tempoMs(exerciseRef.current, tempoRef.current);
+    const stepMs = tempoMs(tempoRef.current);
     const caller = callerRef.current ?? createNumberCaller(settings.voiceGender);
     callerRef.current = caller;
-    const planner = newPlanner(Math.random, exerciseRef.current);
+    const planner = newPlanner(Math.random);
     countRef.current = 0;
     setCount(0);
     setSilent(false);
@@ -248,8 +233,8 @@ export default function GameCount() {
     (_, i) => finalCount - (Math.min(CONFIRM_RANGE, finalCount + 1) - 1) + i
   );
 
-  const best = bestScore(scores, exercise.id);
-  const mine = useMemo(() => scores.filter((s) => EXERCISES[s.game]), [scores]);
+  const best = bestScore(scores);
+  const mine = scores;
 
   const renderTop = (title) => (
     <View style={styles.topBar}>
@@ -278,62 +263,11 @@ export default function GameCount() {
               contentContainerStyle={styles.readyContent}
               showsVerticalScrollIndicator={false}
             >
-              <Text style={styles.tag}>JEU · {exercise.label.toUpperCase()}</Text>
+              <Text style={styles.tag}>JEU · RÉPÉTITIONS</Text>
               <Text style={styles.rules}>
                 Une voix compte à voix haute. Dès qu’elle se tait, tu t’arrêtes. Quand elle reprend, tu
                 reprends. Le premier qui lâche appuie sur le bouton.
               </Text>
-
-              <Text style={styles.sectionLabel}>GROUPE MUSCULAIRE</Text>
-              <View style={styles.chips}>
-                {Object.values(MUSCLE_GROUPS).map((g) => {
-                  const on = g.id === exercise.group;
-                  return (
-                    <PressTap
-                      key={g.id}
-                      onPress={() => {
-                        if (on) return;
-                        haptic.selection();
-                        chooseExercise(g.exercises[0]);
-                      }}
-                      tapScale={0.96}
-                      containerStyle={styles.chipWrap}
-                      style={[styles.chip, on && styles.chipOn]}
-                      accessibilityLabel={`Groupe ${g.label}`}
-                    >
-                      <Text style={[styles.chipText, on && styles.chipTextOn]}>{g.label}</Text>
-                    </PressTap>
-                  );
-                })}
-              </View>
-
-              {exercisesOf(exercise.group).length > 1 && (
-                <>
-                  <Text style={styles.sectionLabel}>EXERCICE</Text>
-                  <View style={styles.chips}>
-                    {exercisesOf(exercise.group).map((ex) => {
-                      const on = ex.id === exercise.id;
-                      return (
-                        <PressTap
-                          key={ex.id}
-                          onPress={() => {
-                            haptic.selection();
-                            chooseExercise(ex.id);
-                          }}
-                          tapScale={0.96}
-                          containerStyle={styles.chipWrap}
-                          style={[styles.chip, on && styles.chipSoftOn]}
-                          accessibilityLabel={`Exercice ${ex.label}`}
-                        >
-                          <Text style={[styles.chipText, on && styles.chipTextSoftOn]} numberOfLines={1}>
-                            {ex.label}
-                          </Text>
-                        </PressTap>
-                      );
-                    })}
-                  </View>
-                </>
-              )}
 
               <Text style={styles.sectionLabel}>RYTHME</Text>
               <View style={styles.chips}>
@@ -361,7 +295,7 @@ export default function GameCount() {
               <View style={styles.bestRow}>
                 <AppIcon name="trophies" size={18} color="#FFFFFF" />
                 <Text style={styles.bestText}>
-                  {best > 0 ? `Ton record : ${best} ${exercise.unit}` : 'Pas encore de record — à toi de jouer'}
+                  {best > 0 ? `Ton record : ${best} répétitions` : 'Pas encore de record — à toi de jouer'}
                 </Text>
               </View>
 
@@ -382,8 +316,7 @@ export default function GameCount() {
                   <View style={styles.scoreRow}>
                     <Text style={styles.scoreCount}>{s.count}</Text>
                     <Text style={styles.scoreMeta}>
-                      {EXERCISES[s.game].label}
-                      {inDay ? '' : ` · ${formatDay(s.at)}`} · {TEMPOS[s.tempo]?.label ?? ''}
+                      {[inDay ? null : formatDay(s.at), TEMPOS[s.tempo]?.label].filter(Boolean).join(' · ')}
                     </Text>
                     <PressTap
                       onPress={() => handleDelete(s.id)}
@@ -450,10 +383,10 @@ export default function GameCount() {
             <View style={styles.center}>
               <Text style={styles.tag}>TON SCORE</Text>
               <Text style={styles.bigNumber}>{result?.count ?? 0}</Text>
-              <Text style={styles.hint}>{exercise.unit}</Text>
+              <Text style={styles.hint}>répétitions</Text>
               {result?.record && <Text style={styles.record}>NOUVEAU RECORD</Text>}
               {!result?.record && best > 0 && (
-                <Text style={styles.hint}>Ton record : {best} {exercise.unit}</Text>
+                <Text style={styles.hint}>Ton record : {best} répétitions</Text>
               )}
               <View style={styles.bottomBar}>
                 <Button
@@ -564,11 +497,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.14)',
   },
-  chipOn: { backgroundColor: ACCENT, borderColor: ACCENT },
   chipText: { fontFamily: fonts.sansBold, fontSize: 13, color: '#FFFFFF' },
-  chipTextOn: { color: '#04121A' },
-  // Sélection douce (exercice, rythme) : fond blanc léger, pas de bleu plein,
-  // pour qu'un seul rang (le groupe) porte la couleur vive.
+  // Sélection douce (rythme) : fond blanc léger, pas de bleu plein.
   chipSoftOn: { backgroundColor: 'rgba(255,255,255,0.16)', borderColor: 'rgba(255,255,255,0.7)' },
   chipTextSoftOn: { color: '#FFFFFF' },
   bestRow: {
