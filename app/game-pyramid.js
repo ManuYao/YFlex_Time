@@ -378,6 +378,7 @@ export default function GamePyramid() {
   const minutes = Math.max(1, Math.round(plannedSeconds(sets, tempoMs(exercise.id, DEFAULT_TEMPO)) / 60));
   const ring = Math.min(RING, Math.round(height * 0.34));
   const resting = phase === 'rest';
+  const restWordSize = Math.round(Math.min(64, ring * 0.24));
   const target = sets[setIndex] ?? 0;
   const nextTarget = sets[setIndex + 1] ?? 0;
 
@@ -572,15 +573,12 @@ export default function GamePyramid() {
         {(phase === 'set' || phase === 'rest') && (
           <View style={styles.center}>
             {/* UN seul écran pour la série ET le repos : mêmes éléments, mêmes tailles, mêmes
-                places ; seul le contenu change (retour du 06/11 : deux mises en page
-                différentes d'une phase à l'autre « faisaient mal à la tête »). Gros chiffres,
-                lisibles de loin, téléphone posé au sol. Pendant le repos le décompte porte
-                son « s » et la série à venir est écrite sous l'anneau : sans cela, « 8 »
-                (secondes) se confondait avec « 8 » (répétitions de la série suivante). */}
-            <Text style={styles.setHeader}>
-              {resting ? 'REPOS' : `SÉRIE ${setIndex + 1}`}
-              {!resting && <Text style={styles.setHeaderDim}> / {sets.length}</Text>}
-            </Text>
+                places, et UNE seule chose à lire (retour du 06/11 : trop de textes, « je ne sais
+                plus où donner la tête »). Le chiffre orange sous l'anneau = combien de
+                répétitions faire (cette série, ou la prochaine pendant le repos) ; la pyramide
+                du bas dit déjà où on en est, donc ni « série 4 sur 15 » ni « ensuite ». Pendant
+                le repos, l'anneau dit « REPOS » et se remplit : plus de chiffre blanc de
+                secondes, qui se confondait avec le nombre de répétitions (« 8 s » / « 8 pompes »). */}
             <View style={[styles.ringWrap, { width: ring, height: ring }]}>
               <TickRing
                 progress={
@@ -597,29 +595,22 @@ export default function GamePyramid() {
                 colorInactive={ACCENT_FAINT}
               />
               <View style={styles.ringCenter} pointerEvents="none">
-                <Text
-                  style={[
-                    styles.bigNumber,
-                    resting && styles.bigNumberRest,
-                    resting && restLeft === 1 && styles.countdownGo,
-                  ]}
-                >
-                  {resting ? restLeft : count}
-                  {resting && <Text style={styles.restUnit}> s</Text>}
-                </Text>
+                {resting ? (
+                  <Text
+                    style={[styles.restWord, { fontSize: restWordSize, lineHeight: Math.round(restWordSize * 1.19) }]}
+                    numberOfLines={1}
+                  >
+                    REPOS
+                  </Text>
+                ) : (
+                  <Text style={styles.bigNumber}>{count}</Text>
+                )}
               </View>
             </View>
-            <Text style={styles.goalCaption}>{resting ? 'PROCHAINE SÉRIE' : 'OBJECTIF DE LA SÉRIE'}</Text>
+            <Text style={styles.goalCaption}>{resting ? 'PROCHAINE SÉRIE' : 'OBJECTIF'}</Text>
             <Text style={styles.goalNumber}>
               {resting ? nextTarget : target}
               <Text style={styles.goalUnit}> {exercise.unit}</Text>
-            </Text>
-            <Text style={styles.nextHint}>
-              {resting
-                ? `Série ${setIndex + 2} sur ${sets.length}`
-                : nextTarget > 0
-                  ? `Ensuite : ${nextTarget} ${exercise.unit}`
-                  : 'Dernière série !'}
             </Text>
             <View style={styles.liveBars}>
               <PyramidBars sets={sets} activeIndex={resting ? setIndex + 1 : setIndex} height={64} />
@@ -854,18 +845,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   bigNumberDim: { color: 'rgba(255,255,255,0.45)' },
-  // Écran de série ET de repos (même squelette) : « SÉRIE 7 / 15 » ou « REPOS », puis l'objectif
-  // (ou la prochaine série) et la suivante, lisibles de loin.
+  // Écran de série ET de repos (même squelette) : sous l'anneau, le nombre de répétitions à
+  // faire (cette série, ou la prochaine pendant le repos), lisible de loin.
   // Anton : lineHeight à ×1,18 de la taille, jamais égal.
-  setHeader: {
-    fontFamily: fonts.display,
-    fontSize: 44,
-    lineHeight: 52,
-    color: '#FFFFFF',
-    includeFontPadding: false,
-    textAlign: 'center',
-  },
-  setHeaderDim: { color: 'rgba(255,255,255,0.45)' },
   goalCaption: {
     fontFamily: fonts.sansBold,
     fontSize: 12,
@@ -882,17 +864,13 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   goalUnit: { fontFamily: fonts.sansExtraBold, fontSize: 24, color: '#FFFFFF' },
-  nextHint: {
-    fontFamily: fonts.sansBold,
-    fontSize: 20,
-    color: 'rgba(255,255,255,0.78)',
+  // Repos : le mot REPOS au centre de l'anneau (taille calculée sur l'anneau, en ligne ×1,19).
+  restWord: {
+    fontFamily: fonts.display,
+    color: 'rgba(255,255,255,0.8)',
+    includeFontPadding: false,
     textAlign: 'center',
-    marginTop: 4,
   },
-  // Repos : même chiffre central, même taille, même place que pendant la série ; seulement
-  // un peu plus discret, avec son unité « s » (le décompte n'est pas un nombre de répétitions).
-  bigNumberRest: { color: 'rgba(255,255,255,0.72)' },
-  restUnit: { fontFamily: fonts.sansBold, fontSize: 36, color: 'rgba(255,255,255,0.55)' },
   sheetKicker: {
     fontFamily: fonts.sansBold,
     fontSize: 11,
@@ -931,9 +909,8 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     includeFontPadding: false,
   },
-  // Le « 1 » final prend la couleur du jeu : c'est le moment de commencer (décompte de
-  // départ ET dernier « 1 » du repos de la pyramide, sinon il se confond avec le « 1 » de
-  // la première répétition de la série, blanc lui aussi).
+  // Le « 1 » final du décompte de départ prend la couleur du jeu : c'est le moment de commencer.
+  // (Depuis le 06/11 le repos n'affiche plus de décompte en chiffres : l'anneau dit « REPOS ».)
   countdownGo: { color: ACCENT },
   hint: {
     fontFamily: fonts.sansSemibold,
