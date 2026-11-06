@@ -23,19 +23,11 @@ import { createFixedNumberCaller } from '../lib/gameVoice';
 import { speakGame, stopVoiceCoach } from '../lib/voiceCoach';
 import { loadPyramidScores, savePyramidScore, deletePyramidScore } from '../lib/gamePyramidScores';
 import {
-  DEFAULT_EXERCISE,
-  DEFAULT_TEMPO,
-  EXERCISES,
-  MUSCLE_GROUPS,
-  exercisesOf,
-  getExercise,
-  tempoMs,
-} from '../lib/gameCount';
-import {
   DEFAULT_FORMAT,
   DEFAULT_PEAK,
   FORMATS,
   PEAKS,
+  PYRAMID_REP_MS,
   bestPyramidScore,
   buildSets,
   getFormat,
@@ -101,7 +93,6 @@ export default function GamePyramid() {
   const [phase, setPhase] = useState('ready'); // ready | countdown | set | rest | confirm | done
   const [formatId, setFormatId] = useState(DEFAULT_FORMAT);
   const [peak, setPeak] = useState(DEFAULT_PEAK);
-  const [exerciseId, setExerciseId] = useState(DEFAULT_EXERCISE);
   const [sets, setSets] = useState(() => buildSets(DEFAULT_FORMAT, DEFAULT_PEAK));
   const [setIndex, setSetIndex] = useState(0);
   const [count, setCount] = useState(0);
@@ -124,7 +115,6 @@ export default function GamePyramid() {
   const scoresRef = useRef([]);
   const selectedRef = useRef(0);
 
-  const exercise = getExercise(exerciseId);
   const format = getFormat(formatId);
 
   const goPhase = (p) => {
@@ -174,18 +164,16 @@ export default function GamePyramid() {
   const commitScore = async (value, complete = false) => {
     if (phaseRef.current === 'done') return;
     const cfg = cfgRef.current;
-    const previousBest = bestPyramidScore(scoresRef.current, cfg.exerciseId, cfg.formatId, cfg.peak);
+    const previousBest = bestPyramidScore(scoresRef.current, cfg.formatId, cfg.peak);
     goPhase('done');
     setResult({ total: value, record: value > 0 && value > previousBest, complete });
     haptic.success();
     if (value > 0) {
       const list = await savePyramidScore({
-        exercise: cfg.exerciseId,
         format: cfg.formatId,
         peak: cfg.peak,
         total: value,
         complete,
-        tempo: cfg.tempoId,
       });
       scoresRef.current = list;
       setScores(list);
@@ -233,7 +221,7 @@ export default function GamePyramid() {
   const startSet = (i) => {
     const cfg = cfgRef.current;
     const target = setsRef.current[i];
-    const baseMs = tempoMs(cfg.exerciseId, cfg.tempoId);
+    const baseMs = PYRAMID_REP_MS; // un seul rythme pour tous les exercices
     // Répétitions déjà faites avant cette série, et total prévu : la voix ralentit
     // peu à peu avec la fatigue (voir FATIGUE_SLOWDOWN dans lib/gamePyramid.js).
     const doneBefore = repsDone(setsRef.current, i);
@@ -300,8 +288,8 @@ export default function GamePyramid() {
     const planned = buildSets(formatId, peak);
     setsRef.current = planned;
     setSets(planned);
-    // Le rythme est toujours « Normal » : pas de choix dans ce jeu.
-    cfgRef.current = { exerciseId, tempoId: DEFAULT_TEMPO, formatId, peak, gender: settings.voiceGender };
+    // Ni choix d'exercice ni choix de rythme dans ce jeu (PYRAMID_REP_MS pour tout).
+    cfgRef.current = { formatId, peak, gender: settings.voiceGender };
     activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(() => {});
     // Son décodé d'avance, sinon le bip final saute.
     preloadGameSounds();
@@ -369,13 +357,10 @@ export default function GamePyramid() {
     (_, i) => finalCount - (Math.min(CONFIRM_RANGE, finalCount + 1) - 1) + i
   );
 
-  const best = bestPyramidScore(scores, exercise.id, formatId, peak);
-  const mine = useMemo(
-    () => scores.filter((s) => EXERCISES[s.exercise] && FORMATS[s.format]),
-    [scores]
-  );
+  const best = bestPyramidScore(scores, formatId, peak);
+  const mine = useMemo(() => scores.filter((s) => FORMATS[s.format]), [scores]);
   const total = totalReps(sets);
-  const minutes = Math.max(1, Math.round(plannedSeconds(sets, tempoMs(exercise.id, DEFAULT_TEMPO)) / 60));
+  const minutes = Math.max(1, Math.round(plannedSeconds(sets, PYRAMID_REP_MS) / 60));
   const ring = Math.min(RING, Math.round(height * 0.34));
   const resting = phase === 'rest';
   const restWordSize = Math.round(Math.min(64, ring * 0.24));
@@ -409,7 +394,7 @@ export default function GamePyramid() {
               contentContainerStyle={styles.readyContent}
               showsVerticalScrollIndicator={false}
             >
-              <Text style={styles.tag}>JEU · {exercise.label.toUpperCase()}</Text>
+              <Text style={styles.tag}>JEU · RÉPÉTITIONS</Text>
               <Text style={styles.rules}>
                 Des séries qui montent, qui descendent, ou les deux. Une voix compte chaque répétition,
                 puis tu te reposes avant la suivante. Va le plus loin possible : quand tu lâches, appuie
@@ -460,66 +445,15 @@ export default function GamePyramid() {
               <View style={styles.preview}>
                 <PyramidBars sets={sets} activeIndex={-1} />
                 <Text style={styles.previewText}>
-                  {sets.length} séries · {total} {exercise.unit} · environ {minutes} min
+                  {sets.length} séries · {total} répétitions · environ {minutes} min
                 </Text>
               </View>
-
-              <Text style={styles.sectionLabel}>GROUPE MUSCULAIRE</Text>
-              <View style={styles.chips}>
-                {Object.values(MUSCLE_GROUPS).map((g) => {
-                  const on = g.id === exercise.group;
-                  return (
-                    <PressTap
-                      key={g.id}
-                      onPress={() => {
-                        if (on) return;
-                        haptic.selection();
-                        setExerciseId(g.exercises[0]);
-                      }}
-                      tapScale={0.96}
-                      containerStyle={styles.chipWrap}
-                      style={[styles.chip, on && styles.chipOn]}
-                      accessibilityLabel={`Groupe ${g.label}`}
-                    >
-                      <Text style={[styles.chipText, on && styles.chipTextOn]}>{g.label}</Text>
-                    </PressTap>
-                  );
-                })}
-              </View>
-
-              {exercisesOf(exercise.group).length > 1 && (
-                <>
-                  <Text style={styles.sectionLabel}>EXERCICE</Text>
-                  <View style={styles.chips}>
-                    {exercisesOf(exercise.group).map((ex) => {
-                      const on = ex.id === exercise.id;
-                      return (
-                        <PressTap
-                          key={ex.id}
-                          onPress={() => {
-                            haptic.selection();
-                            setExerciseId(ex.id);
-                          }}
-                          tapScale={0.96}
-                          containerStyle={styles.chipWrap}
-                          style={[styles.chip, on && styles.chipSoftOn]}
-                          accessibilityLabel={`Exercice ${ex.label}`}
-                        >
-                          <Text style={[styles.chipText, on && styles.chipTextSoftOn]} numberOfLines={1}>
-                            {ex.label}
-                          </Text>
-                        </PressTap>
-                      );
-                    })}
-                  </View>
-                </>
-              )}
 
               <View style={styles.bestRow}>
                 <AppIcon name="trophies" size={18} color="#FFFFFF" />
                 <Text style={styles.bestText}>
                   {best > 0
-                    ? `Ton record : ${best} ${exercise.unit}`
+                    ? `Ton record : ${best} répétitions`
                     : 'Pas encore de record ici — à toi de jouer'}
                 </Text>
               </View>
@@ -541,7 +475,7 @@ export default function GamePyramid() {
                   <View style={styles.scoreRow}>
                     <Text style={styles.scoreCount}>{s.total}</Text>
                     <Text style={styles.scoreMeta}>
-                      {EXERCISES[s.exercise].label} · {FORMATS[s.format].label} {s.peak}
+                      {FORMATS[s.format].label} {s.peak}
                       {inDay ? '' : ` · ${formatDay(s.at)}`}
                       {s.complete ? ' · terminée' : ''}
                     </Text>
@@ -608,10 +542,9 @@ export default function GamePyramid() {
               </View>
             </View>
             <Text style={styles.goalCaption}>{resting ? 'PROCHAINE SÉRIE' : 'OBJECTIF'}</Text>
-            {/* Chiffre puis mot, l'un sous l'autre, tous deux sur l'axe central (comme le chiffre
-                de l'anneau) : côte à côte, le mot restait en bas à droite du chiffre, pas centré. */}
+            {/* Le chiffre seul, centré sur l'axe (comme celui de l'anneau) : plus de nom d'exercice
+                ni d'unité, la pyramide n'est liée à aucun exercice (retour du 06/11). */}
             <Text style={styles.goalNumber}>{resting ? nextTarget : target}</Text>
-            <Text style={styles.goalUnit}>{exercise.unit}</Text>
             <View style={styles.liveBars}>
               {/* La barre blanche = la série dont parle le chiffre orange (en cours, ou la prochaine
                   pendant le repos) : on voit d'un coup d'œil si ça monte ou si ça redescend. */}
@@ -644,12 +577,12 @@ export default function GamePyramid() {
               <Text style={styles.tag}>{result?.complete ? 'PYRAMIDE TERMINÉE' : 'TON SCORE'}</Text>
               <Text style={styles.bigNumber}>{result?.total ?? 0}</Text>
               <Text style={styles.hint}>
-                {exercise.unit} sur {total}
+                répétitions sur {total}
               </Text>
               {result?.record && <Text style={styles.record}>NOUVEAU RECORD</Text>}
               {!result?.record && best > 0 && (
                 <Text style={styles.hint}>
-                  Ton record : {best} {exercise.unit}
+                  Ton record : {best} répétitions
                 </Text>
               )}
               <View style={styles.bottomBar}>
@@ -865,18 +798,11 @@ const styles = StyleSheet.create({
     includeFontPadding: false,
     textAlign: 'center',
   },
-  // marginTop négatif : la ligne d'Anton (×1,18) laisse du vide sous le chiffre.
-  goalUnit: {
-    fontFamily: fonts.sansExtraBold,
-    fontSize: 24,
-    color: '#FFFFFF',
-    textAlign: 'center',
-    marginTop: -8,
-  },
   // Repos : le mot REPOS au centre de l'anneau (taille calculée sur l'anneau, en ligne ×1,19).
+  // Opacité : 0,76 (réglage à la main de l'utilisateur) puis 0,92 le 06/11 (« éclaircir un peu plus »).
   restWord: {
     fontFamily: fonts.display,
-    color: 'rgba(255,255,255,0.76)',
+    color: 'rgba(255,255,255,0.92)',
     includeFontPadding: false,
     textAlign: 'center',
   },
