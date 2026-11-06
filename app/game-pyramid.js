@@ -876,7 +876,7 @@ const styles = StyleSheet.create({
   // Repos : le mot REPOS au centre de l'anneau (taille calculée sur l'anneau, en ligne ×1,19).
   restWord: {
     fontFamily: fonts.display,
-    color: 'rgba(255,255,255,0.8)',
+    color: 'rgba(255,255,255,0.76)',
     includeFontPadding: false,
     textAlign: 'center',
   },
