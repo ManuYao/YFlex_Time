@@ -32,7 +32,11 @@ import {
 } from '../lib/gamePyramidScores';
 import { recordGameSession, setGameSessionExercises } from '../lib/gameHistory';
 import { exercisesLabel, normalizeExercises, shouldHalo } from '../lib/gameExercises';
-import { hasSeenGameTagTip, loadGameExercises, markGameTagTipSeen } from '../lib/gameExercisesStore';
+import {
+  decideGameTagTip,
+  loadGameExercises,
+  recordGameTagTipOutcome,
+} from '../lib/gameExercisesStore';
 import {
   DEFAULT_FORMAT,
   DEFAULT_PEAK,
@@ -125,7 +129,7 @@ export default function GamePyramid() {
   const [customExercises, setCustomExercises] = useState([]);
   const [showTip, setShowTip] = useState(false); // bulle de la toute première partie finie
   const scoreBlockRef = useRef(null);
-  const tipCheckedRef = useRef(false);
+  const tipCheckedRef = useRef(null); // id du score pour lequel la bulle a déjà été décidée
 
   const tipShownRef = useRef(false); // la bulle a réellement pu s'afficher (zone mesurée)
 
@@ -259,17 +263,18 @@ export default function GamePyramid() {
     if (score?.historyId) setGameSessionExercises(score.historyId, exercises);
   };
 
-  // La toute première partie finie : une bulle explique qu'on peut maintenir son score
-  // (une seule fois pour tous les jeux). Rien d'autre ne s'ouvre.
+  // Une partie vient de se finir : la bulle qui explique le maintien s'affiche ou non selon la
+  // règle de lib/gameTagTip.js (1re partie, puis 3 parties après un « Passer », jamais après
+  // « Compris » ; pour l'instant en MODE TEST : à chaque partie). La démo la montre toujours.
+  // Rien d'autre ne s'ouvre.
   const scoreId = result?.scoreId;
   useEffect(() => {
-    if (phase !== 'done' || !scoreId || tipCheckedRef.current) return undefined;
-    tipCheckedRef.current = true;
+    if (phase !== 'done' || !scoreId || tipCheckedRef.current === scoreId) return undefined;
+    tipCheckedRef.current = scoreId;
     let cancelled = false;
     let timer = null;
-    hasSeenGameTagTip().then((seen) => {
-      // La démo montre la bulle même si elle a déjà été vue.
-      if (cancelled || (seen && !isDemo)) return;
+    (isDemo ? Promise.resolve(true) : decideGameTagTip()).then((show) => {
+      if (cancelled || !show) return;
       timer = setTimeout(() => {
         if (!cancelled) setShowTip(true);
       }, 800);
@@ -303,12 +308,18 @@ export default function GamePyramid() {
     return null;
   }, []);
 
-  const closeTip = useCallback(() => {
-    // Vue pour de bon seulement si elle s'est affichée ; jamais comptée en démo.
-    if (tipShownRef.current && !isDemo) markGameTagTipSeen();
-    tipShownRef.current = false;
-    setShowTip(false);
-  }, [isDemo]);
+  // « Compris » = comprise (elle ne revient plus) ; « Passer » ou retour = elle reviendra 3
+  // parties plus tard. Rien n'est compté si elle ne s'est pas affichée, ni en démo.
+  const closeTip = useCallback(
+    ({ reason } = {}) => {
+      if (tipShownRef.current && !isDemo) {
+        recordGameTagTipOutcome(reason === 'skip' ? 'skip' : 'done');
+      }
+      tipShownRef.current = false;
+      setShowTip(false);
+    },
+    [isDemo]
+  );
 
   // Toute la pyramide faite : pas de confirmation, rien à corriger.
   const completePyramid = () => {
@@ -467,10 +478,29 @@ export default function GamePyramid() {
         cancelCountdown();
         return true;
       }
+      // Sur le résultat : retour au menu DE CE JEU (réglage du format), pas au menu des jeux.
+      if (current === 'done') {
+        backToMenu();
+        return true;
+      }
       return false;
     });
     return () => sub.remove();
   }, []);
+
+  // Du résultat au menu du jeu (la flèche en haut à gauche, et le retour d'Android).
+  const backToMenu = () => {
+    setShowTip(false);
+    setResult(null);
+    goPhase('ready');
+  };
+
+  // « Rejouer » rejoue VRAIMENT : même format, même sommet, le décompte repart tout de suite.
+  const replay = () => {
+    setShowTip(false);
+    setResult(null);
+    startGame();
+  };
 
   const handleDelete = async (id) => {
     haptic.warning();
@@ -512,13 +542,15 @@ export default function GamePyramid() {
   const target = sets[setIndex] ?? 0;
   const nextTarget = sets[setIndex + 1] ?? 0;
 
-  const renderTop = (title) => (
+  // `onBack` : la flèche en haut à gauche. Par défaut elle quitte le jeu (retour au menu des
+  // jeux) ; sur l'écran de résultat elle revient au menu DU JEU.
+  const renderTop = (title, onBack = () => goBackSafe(router)) => (
     <View style={styles.topBar}>
       <IconButton
         icon="back"
         halo="left"
         haptic={haptic.light}
-        onPress={() => goBackSafe(router)}
+        onPress={onBack}
         accessibilityLabel="Retour"
       />
       <Text style={styles.topTitle}>{title}</Text>
@@ -727,7 +759,7 @@ export default function GamePyramid() {
 
         {phase === 'done' && (
           <>
-            {renderTop('La pyramide')}
+            {renderTop('La pyramide', backToMenu)}
             <View style={styles.center}>
               {/* Le score : un halo l'entoure tant que l'exercice n'est pas noté, et le MAINTENIR
                   1 s ouvre « Ton exercice ». Rien ne s'ouvre tout seul. */}
@@ -763,10 +795,7 @@ export default function GamePyramid() {
                   icon="reset"
                   label="Rejouer"
                   haptic={haptic.medium}
-                  onPress={() => {
-                    setResult(null);
-                    goPhase('ready');
-                  }}
+                  onPress={replay}
                   fullWidth
                 />
               </View>
@@ -782,13 +811,13 @@ export default function GamePyramid() {
           accent={ACCENT}
           initial={tagScore.exercises ?? []}
           custom={customExercises}
-          persist={!isDemo}
           onSave={(exercises) => applyExercises(tagScore.id, exercises)}
           onClose={() => setTagId(null)}
         />
       )}
 
-      {/* La toute première partie finie : une bulle explique le maintien (une seule fois). */}
+      {/* Une bulle explique le maintien (règle : lib/gameTagTip.js). « Passer » la repousse de 3
+          parties, « Compris » la supprime pour de bon. */}
       {showTip && phase === 'done' && !!doneScore && (
         <SpotlightTips
           steps={[
@@ -796,12 +825,13 @@ export default function GamePyramid() {
               id: 'score',
               icon: 'edit',
               title: 'Note ton exercice',
-              text: 'Maintiens ton score une seconde : une barre se remplit, puis tu choisis l’exercice que tu as fait (tractions, pompes…) ou tu ajoutes le tien. Il sera noté dans ton historique.',
+              text: 'Maintiens ton score une seconde pour choisir l’exercice que tu viens de faire (tractions, pompes…), ou ajouter le tien. Ce n’est pas obligatoire, c’est juste proposé.',
               radius: 36,
             },
           ]}
           measureTarget={measureScoreBlock}
           onDone={closeTip}
+          skipOnLast
         />
       )}
 

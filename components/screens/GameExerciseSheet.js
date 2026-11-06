@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import AppIcon from '../common/AppIcon';
@@ -18,7 +18,11 @@ import {
   removeFromLibrary,
   toggleExercise,
 } from '../../lib/gameExercises';
-import { addGameExercise, removeGameExercise } from '../../lib/gameExercisesStore';
+import {
+  addGameExercise,
+  loadGameExercises,
+  removeGameExercise,
+} from '../../lib/gameExercisesStore';
 
 const tint = (hex, alpha) => {
   const n = parseInt(hex.slice(1), 16);
@@ -45,28 +49,33 @@ const CHIPS_MAX_HEIGHT = 190;
  * - accent   : couleur du jeu (hex)
  * - initial  : exercices déjà notés pour ce score
  * - custom   : la liste des exercices ajoutés par la personne (le plus récent en premier)
- * - persist  : faux = démo, ajouts et suppressions ne touchent pas à la liste enregistrée
  * - onSave   : (exercises: string[]) => void, appelé au « Enregistrer »
  * - onClose  : la fenêtre est fermée (avec ou sans enregistrement)
  */
-export default function GameExerciseSheet({
-  screenH,
-  accent,
-  initial,
-  custom,
-  persist = true,
-  onSave,
-  onClose,
-}) {
+export default function GameExerciseSheet({ screenH, accent, initial, custom, onSave, onClose }) {
   const scrollRef = useRef(null);
   const [selected, setSelected] = useState(() => normalizeExercises(initial));
   const [draft, setDraft] = useState('');
   // Les fiches gardent l'ordre de l'ouverture : elles ne bougent pas sous le doigt quand on
   // en touche une. Seuls les exercices qu'on ajoute arrivent EN TÊTE (toujours visibles).
-  const [base] = useState(() => exerciseOptions({ selected: initial, custom }));
+  const [base, setBase] = useState(() => exerciseOptions({ selected: initial, custom }));
   const [added, setAdded] = useState([]);
   const [removed, setRemoved] = useState([]);
   const [library, setLibrary] = useState(() => (Array.isArray(custom) ? custom : []));
+
+  // La liste enregistrée est relue à l'ouverture : la fenêtre ne dépend jamais d'une copie
+  // périmée (un exercice ajouté pour un autre score, ou depuis la démo, y est toujours).
+  useEffect(() => {
+    let cancelled = false;
+    loadGameExercises().then((list) => {
+      if (cancelled) return;
+      setLibrary(list);
+      setBase(exerciseOptions({ selected: initial, custom: list }));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const shown = [...added, ...base.filter((x) => !added.some((a) => same(a, x)))].filter(
     (x) => !removed.some((r) => same(r, x))
@@ -87,7 +96,7 @@ export default function GameExerciseSheet({
     haptic.light();
     if (!isBuiltInExercise(label) && !isCustom(label)) {
       setLibrary((l) => addToLibrary(l, label));
-      if (persist) addGameExercise(label);
+      addGameExercise(label);
     }
     setRemoved((r) => r.filter((x) => !same(x, label)));
     if (!shown.some((x) => same(x, label))) setAdded((a) => [label, ...a]);
@@ -102,7 +111,7 @@ export default function GameExerciseSheet({
     setLibrary((l) => removeFromLibrary(l, label));
     setRemoved((r) => [...r, label]);
     setSelected((s) => s.filter((x) => !same(x, label)));
-    if (persist) removeGameExercise(label);
+    removeGameExercise(label);
   };
 
   return (

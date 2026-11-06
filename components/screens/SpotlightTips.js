@@ -25,6 +25,8 @@ import { haptic } from '../../hooks/useHaptic';
 //                   Android), 'more' (bouton `moreLabel` de la dernière bulle)
 // - moreLabel     : si donné, la dernière bulle propose « Terminer » + ce libellé
 //                   (la suite du tour) au lieu d'un simple « Compris »
+// - skipOnLast    : vrai = la dernière bulle (si elle n'a pas de `moreLabel`) garde un « Passer » à
+//                   côté de « Compris » : la personne peut dire « pas maintenant » (reason 'skip')
 // - onStepEnter   : (id) => void | Promise — appelé en arrivant sur une étape,
 //                   AVANT la mesure de sa zone ; s'il renvoie une promesse, la
 //                   mesure l'attend (ex. l'accueil remet le carrousel en place)
@@ -40,7 +42,14 @@ const holePath = (w, h, x, y, rw, rh, r) =>
   `A${r} ${r} 0 0 1 ${x + rw - r} ${y + rh}H${x + r}A${r} ${r} 0 0 1 ${x} ${y + rh - r}` +
   `V${y + r}A${r} ${r} 0 0 1 ${x + r} ${y}Z`;
 
-export default function SpotlightTips({ steps, measureTarget, onDone, moreLabel = null, onStepEnter }) {
+export default function SpotlightTips({
+  steps,
+  measureTarget,
+  onDone,
+  moreLabel = null,
+  onStepEnter,
+  skipOnLast = false,
+}) {
   const rootRef = useRef(null);
   const doneRef = useRef(false);
   const [i, setI] = useState(0);
@@ -201,6 +210,8 @@ export default function SpotlightTips({ steps, measureTarget, onDone, moreLabel 
               <Button variant="ghost" size="sm" label="Passer" onPress={skip} />
             ) : moreLabel ? (
               <Button variant="ghost" size="sm" label="Terminer" onPress={next} />
+            ) : skipOnLast ? (
+              <Button variant="ghost" size="sm" label="Passer" onPress={skip} />
             ) : (
               <View />
             )}

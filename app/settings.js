@@ -295,6 +295,7 @@ export default function Settings() {
         // à la main et bulle d'explication de la première partie.
         'flexTimer_gameExercises',
         'flexTimer_gameTagTip',
+        'flexTimer_gameTagTip2',
       ]);
     } catch {}
     // Le cache mémoire des catégories perso survivrait à la purge du

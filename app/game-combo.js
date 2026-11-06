@@ -323,10 +323,21 @@ export default function GameCombo() {
         cancelCountdown();
         return true;
       }
+      // Sur le résultat : retour au menu DE CE JEU, pas au menu des jeux.
+      if (current === 'done') {
+        backToMenu();
+        return true;
+      }
       return false;
     });
     return () => sub.remove();
   }, []);
+
+  // Du résultat au menu du jeu (la flèche en haut à gauche, et le retour d'Android).
+  const backToMenu = () => {
+    setResult(null);
+    goPhase('ready');
+  };
 
   const handleDelete = async (id) => {
     haptic.warning();
@@ -346,13 +357,15 @@ export default function GameCombo() {
   const callWord = call && live ? live[call.side].word : '';
   const callExo = call && live ? live[call.side].exo : '';
 
-  const renderTop = (title) => (
+  // `onBack` : la flèche en haut à gauche (par défaut : quitter le jeu, retour au menu des jeux ;
+  // sur l'écran de résultat : retour au menu DU JEU).
+  const renderTop = (title, onBack = () => goBackSafe(router)) => (
     <View style={styles.topBar}>
       <IconButton
         icon="back"
         halo="left"
         haptic={haptic.light}
-        onPress={() => goBackSafe(router)}
+        onPress={onBack}
         accessibilityLabel="Retour"
       />
       <Text style={styles.topTitle}>{title}</Text>
@@ -572,7 +585,7 @@ export default function GameCombo() {
 
         {phase === 'done' && (
           <>
-            {renderTop('Combo Bi-Exo')}
+            {renderTop('Combo Bi-Exo', backToMenu)}
             <View style={styles.center}>
               <Text style={styles.tag}>{result?.complete ? 'PARTIE TERMINÉE' : 'TON SCORE'}</Text>
               <Text style={styles.bigNumber}>{result?.total ?? 0}</Text>
@@ -588,8 +601,14 @@ export default function GameCombo() {
                   label="Rejouer"
                   haptic={haptic.medium}
                   onPress={() => {
+                    // Rejoue VRAIMENT (mêmes mots, même rythme) ; si les mots ne sont pas
+                    // prêts, on retombe sur le menu du jeu plutôt que de ne rien faire.
                     setResult(null);
-                    goPhase('ready');
+                    if (setupProblem(setup) || !audioReady) {
+                      goPhase('ready');
+                      return;
+                    }
+                    startGame();
                   }}
                   fullWidth
                 />

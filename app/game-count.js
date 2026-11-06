@@ -229,10 +229,27 @@ export default function GameCount() {
         cancelCountdown();
         return true;
       }
+      // Sur le résultat : retour au menu DE CE JEU, pas au menu des jeux.
+      if (phaseRef.current === 'done') {
+        backToMenu();
+        return true;
+      }
       return false;
     });
     return () => sub.remove();
   }, []);
+
+  // Du résultat au menu du jeu (la flèche en haut à gauche, et le retour d'Android).
+  const backToMenu = () => {
+    setResult(null);
+    goPhase('ready');
+  };
+
+  // « Rejouer » rejoue VRAIMENT : même vitesse, le décompte repart tout de suite.
+  const replay = () => {
+    setResult(null);
+    startGame();
+  };
 
   const handleDelete = async (id) => {
     haptic.warning();
@@ -250,13 +267,15 @@ export default function GameCount() {
   const best = bestScore(scores);
   const mine = scores;
 
-  const renderTop = (title) => (
+  // `onBack` : la flèche en haut à gauche (par défaut : quitter le jeu, retour au menu des jeux ;
+  // sur l'écran de résultat : retour au menu DU JEU).
+  const renderTop = (title, onBack = () => goBackSafe(router)) => (
     <View style={styles.topBar}>
       <IconButton
         icon="back"
         halo="left"
         haptic={haptic.light}
-        onPress={() => goBackSafe(router)}
+        onPress={onBack}
         accessibilityLabel="Retour"
       />
       <Text style={styles.topTitle}>{title}</Text>
@@ -393,7 +412,7 @@ export default function GameCount() {
 
         {phase === 'done' && (
           <>
-            {renderTop('Le chef d’orchestre')}
+            {renderTop('Le chef d’orchestre', backToMenu)}
             <View style={styles.center}>
               <Text style={styles.tag}>TON SCORE</Text>
               <Text style={styles.bigNumber}>{result?.count ?? 0}</Text>
@@ -408,10 +427,7 @@ export default function GameCount() {
                   icon="reset"
                   label="Rejouer"
                   haptic={haptic.medium}
-                  onPress={() => {
-                    setResult(null);
-                    goPhase('ready');
-                  }}
+                  onPress={replay}
                   fullWidth
                 />
               </View>
