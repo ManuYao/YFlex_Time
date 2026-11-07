@@ -436,8 +436,8 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
     const timer = setTimeout(() => setTourPhase('on'), 1300);
     return () => clearTimeout(timer);
   }, [tourPhase, hydrated]);
-  // TEMP (07/11/2026) : aperçus à valider par l'utilisateur, ouverts depuis Paramètres › À propos.
-  // À supprimer avec les deux lignes des Paramètres une fois les deux propositions validées.
+  // Aperçus à la demande, ouverts depuis Paramètres › À propos › Tutoriel (`preview=games|hold`) :
+  // la personne relance elle-même une proposition ou une astuce, sans rien enregistrer.
   useEffect(() => {
     if (!hydrated || !previewParam) return undefined;
     const timer = setTimeout(() => {
