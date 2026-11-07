@@ -11,6 +11,7 @@ import PressTap from '../components/common/PressTap';
 import { useAuth } from '../contexts/AuthContext';
 import { useHaptic } from '../hooks/useHaptic';
 import { useKeyboardHeight, scrollToFocusedInput } from '../hooks/useKeyboardHeight';
+import { goBackSafe } from '../lib/navigation';
 import { fonts } from '../lib/fonts';
 import { validatePseudo } from '../lib/profile';
 import { DANGER } from '../lib/buttonTokens';
@@ -94,14 +95,14 @@ export default function Login() {
         );
         haptic.success();
         if (session) {
-          router.back();
+          goBackSafe(router);
         } else {
           setInfo('Compte créé. Vérifie ta boîte mail pour confirmer ton adresse.');
         }
       } else {
         await signInWithEmail(email, password);
         haptic.success();
-        router.back();
+        goBackSafe(router);
       }
     } catch (e) {
       haptic.warning();
@@ -122,7 +123,7 @@ export default function Login() {
       const outcome = await signInWithGoogle();
       if (outcome === 'signed-in') {
         haptic.success();
-        router.back();
+        goBackSafe(router);
       } else {
         // Navigateur refermé avant la fin : rien de cassé, on reste ici.
         setInfo('Connexion Google annulée.');
@@ -142,7 +143,7 @@ export default function Login() {
           <IconButton
             icon="back"
             haptic={haptic.light}
-            onPress={() => router.back()}
+            onPress={() => goBackSafe(router)}
             accessibilityLabel="Retour"
           />
           <Text style={styles.topTitle}>Connexion</Text>

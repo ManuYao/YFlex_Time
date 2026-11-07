@@ -8,6 +8,14 @@ const AVATAR = 96;
 // aux barres toutes pareilles ressemble à une règle, pas à un graphique.
 const BARS = [58, 84, 46, 112, 76, 128, 66, 96];
 
+// Hauteur de la carte « Poids » selon le nombre de pesées (voir ProfileWeight) :
+// courte quand elle est vide, haute avec la courbe et les dernières pesées.
+const weightCardHeight = (count = 0) => {
+  if (count <= 0) return 120; // phrase d'invitation
+  if (count === 1) return 238; // dernier poids + phrase, sans courbe
+  return 32 + 36 + 66 + 150 + 16 + 36 * Math.min(4, count) + 2; // courbe + pesées
+};
+
 /**
  * Squelette du Hub Profil.
  *
@@ -20,8 +28,10 @@ const BARS = [58, 84, 46, 112, 76, 128, 66, 96];
  *
  * `showAccount` : la carte « Se connecter » n'existe que quand personne n'est
  * connecté ; sans elle la page commence plus haut.
+ * `weightCount` : nombre de pesées (section « Poids », components/screens/
+ * ProfileWeight.js) — la carte est courte quand elle est vide, haute avec la courbe.
  */
-export default function ProfileSkeleton({ showAccount = true }) {
+export default function ProfileSkeleton({ showAccount = true, weightCount = 0 }) {
   return (
     <SkeletonGroup style={styles.root}>
       {/* ── Identité : avatar, pseudo, pastilles, ancienneté ── */}
@@ -84,6 +94,14 @@ export default function ProfileSkeleton({ showAccount = true }) {
           </View>
           <SkeletonBlock width={96} height={30} radius={15} style={styles.more} />
         </View>
+      </View>
+
+      {/* ── Poids : carte vide, ou courbe + dernières pesées ── */}
+      <View style={styles.section}>
+        <View style={styles.titleSlot}>
+          <SkeletonBlock width={44} height={10} radius={5} />
+        </View>
+        <SkeletonBlock height={weightCardHeight(weightCount)} radius={18} />
       </View>
 
       {/* ── Analyse avancée : l'aperçu ── */}

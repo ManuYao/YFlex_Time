@@ -11,6 +11,7 @@ import MixCompositionBar from '../components/common/MixCompositionBar';
 import { loadHistory, formatMixBreakdown } from '../lib/history';
 import { sessionWorkSeconds } from '../lib/profileStats';
 import { formatDuration } from '../lib/formatters';
+import { goBackSafe } from '../lib/navigation';
 import { fonts } from '../lib/fonts';
 import { BOTTOM_GAP, PAIR_GAP, ROUND_SIZE, SIDE_GAP } from '../lib/buttonTokens';
 import { useUiScale, scaled } from '../lib/responsive';
@@ -86,7 +87,7 @@ export default function SessionDetail() {
           <IconButton
             icon="back"
             haptic={haptic.light}
-            onPress={() => router.back()}
+            onPress={() => goBackSafe(router)}
             accessibilityLabel="Retour"
           />
           <Text style={styles.topTitle}>Détail séance</Text>
@@ -156,7 +157,7 @@ export default function SessionDetail() {
             variant="glass"
             label="Historique"
             haptic={haptic.light}
-            onPress={() => router.back()}
+            onPress={() => goBackSafe(router)}
           />
           <Button
             variant="accent"

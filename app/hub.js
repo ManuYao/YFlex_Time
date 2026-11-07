@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -10,13 +10,19 @@ import IconButton from '../components/common/IconButton';
 import PressTap from '../components/common/PressTap';
 import AppIcon from '../components/common/AppIcon';
 import TickRing from '../components/common/TickRing';
+import AmbianceBackdrop from '../components/common/AmbianceBackdrop';
 import { SkeletonGroup, SkeletonBlock } from '../components/common/Skeleton';
 import { MIX_COLOR } from '../components/common/MixPill';
+import SpotlightTips from '../components/screens/SpotlightTips';
+import { HUB_TIPS, loadHubTipsSeen, markHubTipsSeen, shouldShowHubTips } from '../lib/hubTips';
 import { useTimers } from '../contexts/TimersContext';
+import useAmbiance from '../hooks/useAmbiance';
 import { haptic } from '../hooks/useHaptic';
+import { rgba } from '../lib/ambiance';
+import { goBackSafe } from '../lib/navigation';
 import { fonts } from '../lib/fonts';
 import { D, slideInY } from '../lib/animations';
-import { loadHistory, computeTotals, computeStreak } from '../lib/history';
+import { loadHistory, computeTotals, computeScopedTotals, computeStreak } from '../lib/history';
 import { loadPlanning, todayKey } from '../lib/planning';
 import { getBlockType, getBlockDuration, getMixTotalDuration, hasEstimatedDuration } from '../lib/mix-blocks';
 import { formatMixClock } from '../lib/formatters';
@@ -39,6 +45,11 @@ const FALLBACK_MIX_BG = ['#9575FF', '#4B2FC9', '#1A0D52'];
 export default function Hub() {
   const router = useRouter();
   const { timers, currentMix, library } = useTimers();
+  // Ambiance de saison : null quand le réglage est sur « Aucune » — tout le
+  // menu est alors strictement celui d'avant.
+  const { ambiance } = useAmbiance();
+  const mixRim = ambiance ? rgba(ambiance.rim, 0.55) : null;
+  const tileRim = ambiance ? rgba(ambiance.rim, 0.3) : null;
   // `null` tant que rien n'est lu : les tuiles montrent un petit squelette au lieu
   // d'afficher « Aucune séance » / « Rien de prévu » une fraction de seconde.
   const [sessions, setSessions] = useState(null);
@@ -59,18 +70,90 @@ export default function Hub() {
     }, [])
   );
 
+  // Petites bulles d'explication (lib/hubTips.js) : on mesure chaque entrée pour
+  // l'éclairer. `scrollYRef` suit le défilement pour pouvoir ramener à l'écran
+  // une entrée cachée (petit téléphone) avant de la mesurer.
+  const scrollRef = useRef(null);
+  const scrollYRef = useRef(0);
+  const targets = useRef({
+    mix: React.createRef(),
+    history: React.createRef(),
+    planning: React.createRef(),
+    games: React.createRef(),
+  }).current;
+  const [tipsOn, setTipsOn] = useState(false);
+  const dataReady = sessions !== null && planning !== null;
+
+  // Elles démarrent une fois les tuiles remplies (leur hauteur ne bouge plus) et
+  // les animations d'entrée finies, jamais pendant un retour depuis une sous-page
+  // (le menu reste monté dessous : cet effet ne rejoue pas).
+  useEffect(() => {
+    if (!dataReady) return undefined;
+    let cancelled = false;
+    let timer = null;
+    loadHubTipsSeen().then((seen) => {
+      if (cancelled || !shouldShowHubTips({ seen })) return;
+      timer = setTimeout(() => {
+        if (!cancelled) setTipsOn(true);
+      }, 900);
+    });
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [dataReady]);
+
+  const closeTips = useCallback(() => {
+    setTipsOn(false);
+    markHubTipsSeen();
+  }, []);
+
+  const measureTarget = useCallback(
+    (id) =>
+      new Promise((resolve) => {
+        const target = targets[id]?.current;
+        const list = scrollRef.current;
+        if (!target?.measureInWindow || !list?.measureInWindow) {
+          resolve(null);
+          return;
+        }
+        const read = (onRect) =>
+          list.measureInWindow((_lx, ly, _lw, lh) => {
+            target.measureInWindow((x, y, width, height) => onRect({ x, y, width, height }, ly, lh));
+          });
+        read((r, ly, lh) => {
+          const top = ly + 8;
+          const bottom = ly + lh - 8;
+          const delta = r.y < top ? r.y - top : r.y + r.height > bottom ? r.y + r.height - bottom : 0;
+          if (!delta) {
+            resolve(r.width > 0 && r.height > 0 ? r : null);
+            return;
+          }
+          // Entrée cachée : on fait défiler, puis on mesure à sa nouvelle place.
+          list.scrollTo?.({ y: Math.max(0, scrollYRef.current + delta), animated: false });
+          setTimeout(() => {
+            read((r2) => resolve(r2.width > 0 && r2.height > 0 ? r2 : null));
+          }, 90);
+        });
+      }),
+    [targets]
+  );
+
   const mixTimer = timers.find((t) => t.id === 'mix');
   const mixBg = mixTimer?.bgColors ?? FALLBACK_MIX_BG;
 
   const historySummary = useMemo(() => {
     if (sessions === null) return null;
     if (sessions.length === 0) return 'Aucune séance pour l\'instant';
-    const { count, timeLabel } = computeTotals(sessions);
+    // Du jour quand une séance a été faite aujourd'hui, sinon le cumul de toujours.
+    const today = computeScopedTotals(sessions, 'day');
+    const { count, timeLabel } = today.count > 0 ? today : computeTotals(sessions);
     const streak = computeStreak(sessions);
-    const base = `${count} séance${count > 1 ? 's' : ''} · ${timeLabel}`;
+    const base = `${count} séance${count > 1 ? 's' : ''}${today.count > 0 ? " aujourd'hui" : ''} · ${timeLabel}`;
     return streak >= 2 ? `${base} · ${streak} jours de suite` : base;
   }, [sessions]);
 
+  // Le planning est libre pour tous (seul le lancement depuis lui est Premium).
   const planningSummary = useMemo(() => {
     if (planning === null) return null;
     const blocks = planning?.[todayKey()]?.blocks ?? [];
@@ -89,6 +172,8 @@ export default function Hub() {
 
   return (
     <GradientBackground colors={['#1A1A1A', '#0A0A0A', '#000000']} ambient>
+      {/* Décor de saison : derrière tout (lueur, motifs qui flottent, passage rare). */}
+      <AmbianceBackdrop tone="light" />
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.statusBar}>
           <Text style={styles.statusText}>MENU</Text>
@@ -97,13 +182,15 @@ export default function Hub() {
         <View style={styles.topBar}>
           <IconButton
             icon="back"
+            halo="left"
             haptic={haptic.light}
-            onPress={() => router.back()}
+            onPress={() => goBackSafe(router)}
             accessibilityLabel="Retour"
           />
           <Text style={styles.topTitle}>Menu</Text>
           <IconButton
             icon="gear"
+            halo="right"
             haptic={haptic.light}
             onPress={() => router.push('/settings')}
             accessibilityLabel="Réglages"
@@ -111,17 +198,24 @@ export default function Hub() {
         </View>
 
         <ScrollView
+          ref={scrollRef}
           style={styles.list}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          scrollEnabled={!tipsOn}
+          scrollEventThrottle={32}
+          onScroll={(e) => {
+            scrollYRef.current = e.nativeEvent.contentOffset.y;
+          }}
         >
           {/* ── Mix et Partage : la grande carte ── */}
           <Animated.View entering={slideInY(24, D.big, 0)}>
+            <View ref={targets.mix} collapsable={false}>
             <PressTap
               onPress={() => go('/mix-hub')}
               tapScale={0.98}
               accessibilityLabel="Ouvrir Mix et Partage"
-              style={styles.mixCard}
+              style={[styles.mixCard, mixRim ? { borderColor: mixRim } : null]}
             >
               <LinearGradient
                 colors={mixBg}
@@ -190,44 +284,72 @@ export default function Hub() {
                 </View>
               </View>
             </PressTap>
+            </View>
           </Animated.View>
 
           {/* ── Historique et Planning : deux tuiles ── */}
           <View style={styles.tiles}>
             <Animated.View entering={slideInY(24, D.big, 90)} style={styles.tileWrap}>
-              <HubTile
-                icon="history"
-                title="Mon historique"
-                summary={historySummary}
-                onPress={() => go('/history')}
-              />
+              <View ref={targets.history} collapsable={false} style={styles.tileMeasure}>
+                <HubTile
+                  icon="history"
+                  title="Mon historique"
+                  summary={historySummary}
+                  rim={tileRim}
+                  onPress={() => go('/history')}
+                />
+              </View>
             </Animated.View>
             <Animated.View entering={slideInY(24, D.big, 170)} style={styles.tileWrap}>
-              <HubTile
-                icon="calendar"
-                title="Mon planning"
-                summary={planningSummary}
-                onPress={() => go({ pathname: '/history', params: { page: 'planning' } })}
-              />
+              <View ref={targets.planning} collapsable={false} style={styles.tileMeasure}>
+                <HubTile
+                  icon="calendar"
+                  title="Mon planning"
+                  summary={planningSummary}
+                  rim={tileRim}
+                  onPress={() => go({ pathname: '/history', params: { page: 'planning' } })}
+                />
+              </View>
+            </Animated.View>
+            <Animated.View entering={slideInY(24, D.big, 250)} style={styles.tileWrapFull}>
+              <View ref={targets.games} collapsable={false} style={styles.tileMeasure}>
+                <HubTile
+                  icon="puzzle"
+                  title="Jeux"
+                  summary="Fais du sport en t’amusant"
+                  rim={tileRim}
+                  compact
+                  onPress={() => go('/games')}
+                />
+              </View>
             </Animated.View>
           </View>
         </ScrollView>
       </SafeAreaView>
+
+      {/* Bulles d'explication : au-dessus de tout le menu, montées seulement quand il faut. */}
+      {tipsOn ? <SpotlightTips steps={HUB_TIPS} measureTarget={measureTarget} onDone={closeTips} /> : null}
     </GradientBackground>
   );
 }
 
-function HubTile({ icon, title, summary, onPress }) {
+// `rim` : liseré teinté de l'ambiance de saison (null = le liseré habituel).
+function HubTile({ icon, title, summary, onPress, rim = null, locked = false, compact = false }) {
   return (
     <PressTap
       onPress={onPress}
       tapScale={0.97}
-      accessibilityLabel={title}
+      accessibilityLabel={locked ? `${title}, réservé à Premium` : title}
       containerStyle={styles.tileContainer}
-      style={styles.tile}
+      style={[styles.tile, compact ? styles.tileCompact : null, rim ? { borderColor: rim } : null]}
     >
       <View style={styles.tileIcon}>
         <AppIcon name={icon} size={26} color="#FFFFFF" />
+        {locked && (
+          <View style={styles.tileCrown}>
+            <AppIcon name="crown" size={11} color="#F0C954" />
+          </View>
+        )}
       </View>
       <Text style={styles.tileTitle} numberOfLines={2}>
         {title}
@@ -373,6 +495,12 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
     color: 'rgba(255,255,255,0.70)',
   },
+  // Conteneur de la même taille que le rond : la couronne d'ambiance le déborde
+  // (jamais d'overflow hidden ici).
+  mixGoWrap: {
+    width: 40,
+    height: 40,
+  },
   mixGo: {
     width: 40,
     height: 40,
@@ -393,6 +521,18 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     flexBasis: '45%',
     minWidth: 150,
+  },
+  // Tuile pleine largeur (Jeux), sous la rangée Historique / Planning.
+  tileWrapFull: {
+    flexBasis: '100%',
+  },
+  tileCompact: {
+    minHeight: 0,
+  },
+  // Repère de mesure des bulles d'explication : une vue simple autour de la
+  // tuile, qui garde la hauteur de la rangée (flexGrow, jamais flex: 1).
+  tileMeasure: {
+    flexGrow: 1,
   },
   // Les deux tuiles d'une rangée ont la même hauteur, même si l'une des deux
   // résume sur plus de lignes que l'autre.
@@ -418,6 +558,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
+  },
+  // Petite couronne sur l'icône d'une tuile réservée à Premium.
+  tileCrown: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#14141A',
+    borderWidth: 1,
+    borderColor: 'rgba(240,201,84,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   tileTitle: {
     fontFamily: fonts.sansExtraBold,

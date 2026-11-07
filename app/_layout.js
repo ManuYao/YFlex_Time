@@ -4,13 +4,6 @@ import { Stack } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import { useFonts } from 'expo-font';
-import { Anton_400Regular } from '@expo-google-fonts/anton';
-import {
-  InterTight_500Medium,
-  InterTight_600SemiBold,
-  InterTight_700Bold,
-  InterTight_800ExtraBold,
-} from '@expo-google-fonts/inter-tight';
 import {
   JetBrainsMono_400Regular,
   JetBrainsMono_700Bold,
@@ -30,12 +23,14 @@ import SmallWindowNotice from '../components/common/SmallWindowNotice';
 import { WindowSizeProvider } from '../lib/responsive';
 import { useAPKCheck } from '../hooks/useAPKCheck';
 import { useOtaUpdate } from '../hooks/useOtaUpdate';
-import { shouldShowSplash, markSplashShown, markSplashCleared, onSplashRequest } from '../lib/splash';
+import { shouldShowSplash, markSplashShown, markSplashCleared, noteSplashEnded, onSplashRequest } from '../lib/splash';
 import { loadCustomCategories } from '../lib/exercises';
 import { registerTimerNotification } from '../lib/timerNotification';
+import { ensureSessionRecovered } from '../lib/sessionDraft';
 import { TimersProvider } from '../contexts/TimersContext';
 import { SettingsProvider } from '../contexts/SettingsContext';
 import { AuthProvider } from '../contexts/AuthContext';
+import LibraryLimitGate from '../components/common/LibraryLimitGate';
 
 // Hydrate le cache des catégories perso avant que le premier écran du
 // planning ne rende ses chips : getCategory() est synchrone et lit ce cache.
@@ -64,11 +59,13 @@ setAudioModeAsync({
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
-    Anton_400Regular,
-    InterTight_500Medium,
-    InterTight_600SemiBold,
-    InterTight_700Bold,
-    InterTight_800ExtraBold,
+    // Saira Extra Condensed (chiffres, titres) + Bricolage Grotesque (texte) :
+    // fichiers statiques dans assets/fonts.
+    SairaExtraCondensed_800ExtraBold: require('../assets/fonts/SairaExtraCondensed-ExtraBold.ttf'),
+    BricolageGrotesque_500Medium: require('../assets/fonts/BricolageGrotesque-500Medium.ttf'),
+    BricolageGrotesque_600SemiBold: require('../assets/fonts/BricolageGrotesque-600SemiBold.ttf'),
+    BricolageGrotesque_700Bold: require('../assets/fonts/BricolageGrotesque-700Bold.ttf'),
+    BricolageGrotesque_800ExtraBold: require('../assets/fonts/BricolageGrotesque-800ExtraBold.ttf'),
     JetBrainsMono_400Regular,
     JetBrainsMono_700Bold,
     JetBrainsMono_800ExtraBold,
@@ -111,6 +108,13 @@ export default function RootLayout() {
       cancelled = true;
       unsubscribe();
     };
+  }, []);
+
+  // Une séance interrompue (batterie vide, plantage) est récupérée dès le
+  // démarrage, avant les rattrapages de trophées de l'accueil (qui attendent
+  // la même promesse) — voir lib/sessionDraft.js.
+  useEffect(() => {
+    ensureSessionRecovered();
   }, []);
 
   // Refetch du Gist quand un nouvel OTA arrive (une nouvelle version a été
@@ -168,11 +172,16 @@ export default function RootLayout() {
                     options={{ animation: 'fade', animationDuration: 400 }}
                   />
                   <Stack.Screen name="profile" options={{ animation: 'fade' }} />
+                  <Stack.Screen name="analysis" options={{ animation: 'fade' }} />
                   <Stack.Screen name="login" options={{ animation: 'fade' }} />
                   <Stack.Screen name="settings" options={{ animation: 'fade' }} />
                   <Stack.Screen name="terms" options={{ animation: 'fade' }} />
                   <Stack.Screen name="privacy" options={{ animation: 'fade' }} />
                   <Stack.Screen name="hub" options={{ animation: 'fade' }} />
+                  <Stack.Screen name="games" options={{ animation: 'fade' }} />
+                  <Stack.Screen name="game-count" options={{ animation: 'fade' }} />
+                  <Stack.Screen name="game-pyramid" options={{ animation: 'fade' }} />
+                  <Stack.Screen name="game-combo" options={{ animation: 'fade' }} />
                   <Stack.Screen name="history" options={{ animation: 'fade' }} />
                   <Stack.Screen name="mix-hub" options={{ animation: 'fade' }} />
                   <Stack.Screen name="mix-builder" options={{ animation: 'fade' }} />
@@ -189,6 +198,7 @@ export default function RootLayout() {
                 {/* « Agrandis la fenêtre » : recouvre un écran devenu inutilisable
                     dans une fenêtre minuscule (lib/responsive.js). */}
                 <SmallWindowNotice />
+                <LibraryLimitGate />
 
                 {splashCleared && !apk.isBlockedByForcedUpdate && apk.isMaintenance && !bannerClosed && (
                   <MaintenanceBanner
@@ -213,6 +223,7 @@ export default function RootLayout() {
                     onDone={() => {
                       setSplash('hide');
                       setSplashCleared(true);
+                      noteSplashEnded();
                       markSplashCleared();
                     }}
                   />

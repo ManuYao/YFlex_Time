@@ -15,6 +15,7 @@ import {
   removeArchive,
   getDay,
 } from '../lib/planning';
+import { goBackSafe } from '../lib/navigation';
 import { fonts } from '../lib/fonts';
 import { ROUND_SIZE } from '../lib/buttonTokens';
 import { useHaptic } from '../hooks/useHaptic';
@@ -59,7 +60,7 @@ export default function DayArchives() {
           <IconButton
             icon="back"
             haptic={haptic.light}
-            onPress={() => router.back()}
+            onPress={() => goBackSafe(router)}
             accessibilityLabel="Retour"
           />
 

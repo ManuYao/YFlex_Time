@@ -31,6 +31,7 @@ export default function TutorialFrame({
   quitLabel = 'Quitter',
   children,
   footer,
+  backdrop = null,
 }) {
   const isDark = textMode === 'dark';
   const ink = isDark ? '#0A0A0A' : '#FFFFFF';
@@ -39,6 +40,7 @@ export default function TutorialFrame({
 
   return (
     <GradientBackground colors={colors} textMode={textMode}>
+      {backdrop}
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.topBar}>
           <Text style={[styles.eyebrow, { color: muted }]} numberOfLines={1}>

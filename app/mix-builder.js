@@ -4,6 +4,7 @@ import {
   Text,
   Pressable,
   TextInput,
+  Keyboard,
   ScrollView,
   StyleSheet,
   useWindowDimensions,
@@ -26,11 +27,14 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import GradientBackground from '../components/common/GradientBackground';
+import MixBuilderSkeleton from '../components/screens/MixBuilderSkeleton';
+import { useScreenReady } from '../hooks/useScreenReady';
 import BottomSheet from '../components/common/BottomSheet';
 import WheelPicker from '../components/common/WheelPicker';
 import PressTap from '../components/common/PressTap';
 import Button from '../components/common/Button';
 import IconButton from '../components/common/IconButton';
+import ActionLinkRow from '../components/common/ActionLinkRow';
 import BlockRoleIcon from '../components/common/BlockRoleIcon';
 import AppIcon from '../components/common/AppIcon';
 import MixShareSheet, { publishErrorText } from '../components/common/MixShareSheet';
@@ -39,8 +43,14 @@ import MixLibrarySheet from '../components/common/MixLibrarySheet';
 import UnsavedChangesSheet from '../components/common/UnsavedChangesSheet';
 import MiniToast from '../components/common/MiniToast';
 import SaveFlashRing from '../components/common/SaveFlashRing';
+import MixMetaSheet from '../components/common/MixMetaSheet';
+import DurationKeypad from '../components/common/DurationKeypad';
+import NumberKeypad from '../components/common/NumberKeypad';
 import {
   BLOCK_TYPES,
+  blockDisplayName,
+  countAutoRestGaps,
+  insertAutoRests,
   getBlockType,
   getBlockDuration,
   getMixTotalDuration,
@@ -51,7 +61,7 @@ import {
   getRangesForType,
 } from '../lib/mix-blocks';
 import { makeDefaultMix, isDefaultMix, mixSignature } from '../lib/mixes';
-import { findLibraryMatch, withFreshUid } from '../lib/mixIdentity';
+import { findLibraryMatch, generateMixUid, withFreshUid } from '../lib/mixIdentity';
 import { loadProfile } from '../lib/profile';
 import { getPreviewMix } from '../lib/previewMix';
 import { updatePublishedMix } from '../lib/publicMixes';
@@ -59,6 +69,7 @@ import { DISCIPLINES } from '../lib/disciplines';
 import { formatHoursMinutes } from '../lib/formatters';
 import { DAYS, loadPlanning, formatBlockAsText } from '../lib/planning';
 import { BLOCK_ROLES, getBlockRole, resolveBlockRole } from '../lib/blockRoles';
+import { goBackSafe } from '../lib/navigation';
 import { fonts } from '../lib/fonts';
 import { easeImpact, springBouncy, springEnergetic } from '../lib/animations';
 import {
@@ -73,12 +84,14 @@ import { useLayoutLevel } from '../lib/responsive';
 import { useTimers } from '../contexts/TimersContext';
 import { useHaptic } from '../hooks/useHaptic';
 import { useMixLauncher } from '../hooks/useMixLauncher';
+import { usePremium } from '../hooks/usePremium';
 import { useAuth } from '../contexts/AuthContext';
 
 const ACCENT = '#9575FF';
-// Maintenir « Enregistrer » 2 s = copie dans Mes mix (jamais plus long : au-delà on
-// croit que le bouton ne répond pas).
-const SAVE_HOLD_MS = 2000;
+// Maintenir « Enregistrer » 3 s = feuille « Couleur et note », qui enregistre
+// ensuite (dans Mes mix ou comme ton MIX). La barre qui se remplit montre où on
+// en est : le bouton ne paraît pas figé.
+const SAVE_HOLD_MS = 3000;
 
 export default function MixBuilder() {
   const router = useRouter();
@@ -106,7 +119,12 @@ export default function MixBuilder() {
   // brouillon : partager un autre mix depuis « Mes mix » ne doit jamais mettre
   // à jour la publication du mix qu'on est en train de modifier.
   const [shareIsDraft, setShareIsDraft] = useState(false);
+  // 'publish' = la feuille s'ouvre sur « Publier dans le fil public » (rangée du
+  // bas de la liste) ; null = ouverture habituelle (icône Partager).
+  const [shareFocus, setShareFocus] = useState(null);
   const [feedOpen, setFeedOpen] = useState(false);
+  // Feuille « Couleur et note » (maintien de « Enregistrer », ou pastille du haut).
+  const [metaOpen, setMetaOpen] = useState(false);
   // Retour visuel de « Enregistrer » : null | 'saved' | 'added'.
   const [saveStatus, setSaveStatus] = useState(null);
   const [saveTick, setSaveTick] = useState(0);
@@ -118,6 +136,9 @@ export default function MixBuilder() {
   const toastTimer = useRef(null);
   const saveStatusTimer = useRef(null);
   const resetUndoRef = useRef(null);
+  // Dernier brouillon rendu : lu par « Annuler » (undoReset), dont la copie du
+  // brouillon est figée au moment du « Tout vider ».
+  const draftLatestRef = useRef(null);
   const launchMix = useMixLauncher();
   const { user } = useAuth();
   const params = useLocalSearchParams();
@@ -180,13 +201,20 @@ export default function MixBuilder() {
     }
   }, [currentMix]);
 
+  // Le constructeur (liste déplaçable, feuilles) est lourd à monter : un
+  // squelette respire sur le fil d'interface pendant ce temps, au lieu de
+  // laisser l'écran vide et figé (hooks/useScreenReady.js).
+  const { ready, skeletonGone, skeletonStyle } = useScreenReady({ dataReady: !!draft });
+
   if (!draft) {
     return (
       <GradientBackground colors={[ACCENT, '#0A0A0A', '#000000']} ambient textMode="light">
-        <SafeAreaView style={styles.safe} />
+        <MixBuilderSkeleton />
       </GradientBackground>
     );
   }
+
+  draftLatestRef.current = draft;
 
   const totalSec = getMixTotalDuration(draft.blocks);
   const totalIsEstimate = hasEstimatedDuration(draft.blocks);
@@ -255,6 +283,17 @@ export default function MixBuilder() {
     setDraft((d) => ({ ...d, blocks: [...d.blocks, block] }));
   };
 
+  // « Repos auto » (menu des blocs) : un repos d'une minute entre tous les blocs
+  // voisins qui n'en ont pas, modifiables ensuite un par un.
+  const handleAutoRest = () => {
+    const added = countAutoRestGaps(draft.blocks);
+    if (added === 0) return;
+    haptic.medium();
+    dismissUndo();
+    setDraft((d) => ({ ...d, blocks: insertAutoRests(d.blocks) }));
+    showToast({ text: added > 1 ? `${added} repos ajoutés entre les blocs` : '1 repos ajouté entre les blocs', icon: 'check' });
+  };
+
   const removeBlock = (id) => {
     haptic.warning();
     setDraft((d) => ({ ...d, blocks: d.blocks.filter((b) => b.id !== id) }));
@@ -272,24 +311,41 @@ export default function MixBuilder() {
     setDraft((d) => ({ ...d, blocks: data }));
   };
 
-  // Tout vider en un appui (plus de suppression bloc par bloc). Seuls les blocs
-  // du brouillon partent : le nom, « Mes mix » et les publications ne bougent
-  // pas. Un « Annuler » de quelques secondes rattrape une erreur de doigt.
+  // Tout vider en un appui (plus de suppression bloc par bloc). Les blocs ET le
+  // nom du brouillon partent (retour utilisateur 06/10/2026 : un builder vidé
+  // qui garde son ancien nom, c'est à moitié vidé) ; « Mes mix » et les
+  // publications ne bougent pas. Un « Annuler » de quelques secondes rattrape
+  // une erreur de doigt.
+  //
+  // Un builder vidé est un NOUVEAU mix : identifiant et clé unique neufs, plus de
+  // lien avec la publication, de couleur ni de note. Avant, il gardait l'identité
+  // du mix qu'on venait de modifier (chargé depuis « Mes mix ») : renommer et
+  // reconstruire dessus, puis enregistrer, ÉCRASAIT l'ancien mix au lieu d'en
+  // créer un autre (bug signalé le 15/10/2026).
   const undoReset = () => {
-    const blocks = resetUndoRef.current;
-    if (!blocks) return;
+    const saved = resetUndoRef.current;
+    if (!saved) return;
     resetUndoRef.current = null;
     haptic.light();
     clearTimeout(toastTimer.current);
     setToast(null);
-    setDraft((d) => (d.blocks.length === 0 ? { ...d, blocks } : d));
+    // On ne restaure que si le brouillon est resté vide : un nom ou un bloc
+    // saisi entre-temps ne doit jamais être écrasé. Lu dans la ref : cette
+    // fonction a été créée au moment du « Tout vider », sa copie du brouillon
+    // est celle d'avant.
+    const cur = draftLatestRef.current;
+    if (cur && cur.blocks.length === 0 && !(cur.name || '').trim()) {
+      setDraft(saved.draft);
+      setPublishedLink(saved.link);
+    }
   };
 
   const handleReset = () => {
     if (draft.blocks.length === 0) return;
     haptic.warning();
-    resetUndoRef.current = draft.blocks;
-    setDraft((d) => ({ ...d, blocks: [] }));
+    resetUndoRef.current = { draft, link: publishedLink };
+    setDraft({ id: `mix_${Date.now()}`, uid: generateMixUid(), name: '', blocks: [] });
+    setPublishedLink(null);
     showToast({ text: 'Builder vidé', icon: 'reset', actionLabel: 'Annuler', onAction: undoReset }, 6000);
   };
 
@@ -315,8 +371,8 @@ export default function MixBuilder() {
   // Le brouillon devient le MIX courant ; s'il est déjà dans « Mes mix », son
   // entrée est mise à jour au passage (sinon la version enregistrée là-bas
   // restait l'ancienne).
-  const persistDraft = async () => {
-    const mix = withLatestPublishedId(cloneMix(draft));
+  const persistDraft = async (source = draft) => {
+    const mix = withLatestPublishedId(cloneMix(source));
     await saveCurrentMix(mix);
     if (inLibrary) {
       await saveAsLibraryEntry({ ...mix, name: mix.name?.trim() ? mix.name : 'Sans nom' });
@@ -326,14 +382,18 @@ export default function MixBuilder() {
   // Un appui : on enregistre et on RESTE sur la page (avant, l'écran se fermait
   // tout seul, ce qui surprenait). Le retour est visuel : contour vert, bouton
   // « Enregistré », petit message.
-  const handleSave = async () => {
+  // `meta` ({ color, note }) vient de la feuille « Couleur et note » : appliqué au
+  // brouillon, puis enregistré avec lui.
+  const handleSave = async (meta) => {
     if (draft.blocks.length === 0) return;
     // Mix qui ne m'appartient pas : un simple appui l'enregistre dans Mes mix
-    // (il devient alors le mien) — plus besoin de maintenir 2 s.
+    // (il devient alors le mien) — plus besoin de maintenir.
     if (preview) return handleSavePreview();
     if (inLibrary && nameTaken()) return refuseTakenName();
     haptic.success();
-    await persistDraft();
+    const source = meta ? { ...draft, ...meta } : draft;
+    if (meta) setDraft(source);
+    await persistDraft(source);
     flashSaved('saved', inLibrary ? 'Enregistré · Mes mix mis à jour' : 'Enregistré comme ton MIX');
   };
 
@@ -367,6 +427,7 @@ export default function MixBuilder() {
       haptic.warning();
       const applyUpdate = async () => {
         const res = await receiveMix(base, { update: true });
+        if (res.status === 'limit') return;
         await stashBaseline();
         await saveCurrentMix(res.entry);
         setDraft(cloneMix(res.entry));
@@ -388,13 +449,14 @@ export default function MixBuilder() {
     haptic.success();
     await stashBaseline();
     const res = await receiveMix(base);
+    if (res.status === 'limit') return;
     await saveCurrentMix(res.entry);
     setDraft(cloneMix(res.entry));
     setPreview(false);
     flashSaved('added', 'Ajouté à Mes mix : tu peux le modifier');
   };
 
-  const handleSaveAsNew = async () => {
+  const handleSaveAsNew = async (meta) => {
     if (draft.blocks.length === 0) return;
     if (preview) return handleSavePreview();
     const baseName = (draft.name || '').trim() || 'Sans nom';
@@ -404,7 +466,9 @@ export default function MixBuilder() {
       return refuseTakenName();
     }
     haptic.success();
-    const base = withLatestPublishedId(cloneMix(draft));
+    // Couleur et note choisies dans la feuille : elles vont sur l'entrée créée
+    // (la copie, ou le mix qui entre dans Mes mix).
+    const base = withLatestPublishedId(cloneMix(meta ? { ...draft, ...meta } : draft));
     const entry = { ...base, id: `mix_${Date.now()}`, name: baseName.slice(0, 28) };
     if (inLibrary) {
       // La copie est à moi, et n'est pas publiée. C'est un AUTRE mix : clé unique
@@ -433,7 +497,7 @@ export default function MixBuilder() {
       setUnsaved({ leaving: true });
       return;
     }
-    router.back();
+    goBackSafe(router);
   };
 
   // L'ancien MIX courant, s'il n'est nulle part ailleurs (ni dans Mes mix, ni le
@@ -464,7 +528,7 @@ export default function MixBuilder() {
     if (!pending) return;
     if (pending.leaving) {
       await persistDraft();
-      router.back();
+      goBackSafe(router);
       return;
     }
     // Changer de mix : le brouillon modifié est enregistré dans Mes mix (mis à
@@ -482,7 +546,7 @@ export default function MixBuilder() {
     const pending = unsaved;
     if (!pending) return;
     if (pending.leaving) {
-      router.back();
+      goBackSafe(router);
       return;
     }
     await stashBaseline();
@@ -562,13 +626,14 @@ export default function MixBuilder() {
       return;
     }
     haptic.success();
-    // La publication peut avoir changé d'id (remplacement) : on suit la nouvelle.
+    // L'id ne change que si la publication avait disparu et a été remise en
+    // ligne (jamais un remplacement : étoiles et commentaires sont gardés).
     setPublishedLink({ id: res.item.id, category: res.item.category });
     handlePublishedChange(draft.id, res.item.id, res.item.category);
     await markPublished(draft.id, res.item.id);
-    const text = res.reset
-      ? 'Mis à jour. Les étoiles ont repris à zéro.'
-      : 'À jour dans le fil public.';
+    const text = res.republished
+      ? "Remis en ligne : l'ancienne publication n'existait plus."
+      : 'À jour dans le fil public. Étoiles et commentaires gardés.';
     setPubState({ phase: 'ok', text });
     showToast({ text, icon: 'check' });
   };
@@ -599,15 +664,16 @@ export default function MixBuilder() {
   // MixShareSheet — aperçu avant d'envoyer, onglet « Recevoir » pour coller un
   // lien reçu (retour utilisateur v14.3.0 : beaucoup d'apps de messagerie ne
   // rendent pas cliquable un scheme personnalisé).
-  const openShare = (mix, { isDraft = false } = {}) => {
+  const openShare = (mix, { isDraft = false, focus = null, silent = false } = {}) => {
     // Un mix qui ne m'appartient pas ne se partage pas (voir `preview`).
     if (preview) {
       haptic.warning();
       return;
     }
-    haptic.light();
+    if (!silent) haptic.light();
     setShareMix(withLatestPublishedId(mix));
     setShareIsDraft(isDraft);
+    setShareFocus(focus);
     setShareOpen(true);
   };
 
@@ -647,6 +713,31 @@ export default function MixBuilder() {
   const editingBlock = editingBlockId
     ? draft.blocks.find((b) => b.id === editingBlockId)
     : null;
+
+  // Règle des trois fois : publier et parcourir le fil ont ici une entrée qui le
+  // DIT (l'icône Partager du haut n'a pas de texte). Au bas de la liste pour ne
+  // rien pousser vers le bas : sur un builder vide, elles sont juste sous l'en-tête.
+  // « Publier » : seulement pour un mix à moi, avec des blocs, et pas quand on
+  // modifie une publication (le bandeau « MIX PUBLIÉ » et « Mettre à jour le fil »
+  // font déjà ce travail).
+  const ListFooter = (
+    <View style={styles.feedLinks}>
+      {!preview && !publishedLink && draft.blocks.length > 0 && (
+        <ActionLinkRow
+          icon="globe"
+          title="Publier ce mix"
+          sub="Mets-le dans le fil public pour que tout le monde puisse le tester."
+          onPress={() => openShare(draft, { isDraft: true, focus: 'publish', silent: true })}
+        />
+      )}
+      <ActionLinkRow
+        icon="share"
+        title="Parcourir le fil public"
+        sub="Teste ou enregistre un mix fait par un autre sportif."
+        onPress={() => setFeedOpen(true)}
+      />
+    </View>
+  );
 
   const ListHeader = (
     <View>
@@ -696,7 +787,31 @@ export default function MixBuilder() {
 
       <View style={styles.hero}>
         <View style={styles.heroLeft}>
-          <Text style={styles.heroKicker}>Ton MIX</Text>
+          {/* « Ton MIX » + la pastille de couleur du mix (touche = feuille
+              « Couleur et note »). Vide et discrète tant qu'aucune couleur n'est
+              choisie ; absente d'un aperçu (le mix n'est pas encore à moi). */}
+          <View style={styles.heroKickerRow}>
+            <Text style={styles.heroKicker}>Ton MIX</Text>
+            {!preview && (
+              <Pressable
+                onPress={() => {
+                  haptic.light();
+                  setMetaOpen(true);
+                }}
+                hitSlop={10}
+                accessibilityLabel="Choisir la couleur et la note du mix"
+                style={[
+                  styles.heroSwatch,
+                  draft.color ? { backgroundColor: draft.color, borderColor: draft.color } : styles.heroSwatchEmpty,
+                ]}
+              />
+            )}
+          </View>
+          {!!draft.note && (
+            <Text style={styles.heroNote} numberOfLines={2}>
+              {draft.note}
+            </Text>
+          )}
           <TextInput
             value={draft.name}
             onChangeText={updateName}
@@ -776,6 +891,8 @@ export default function MixBuilder() {
 
   return (
     <GradientBackground colors={[ACCENT, '#0A0A0A', '#000000']} ambient textMode="light">
+      {ready && (
+      <>
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.statusBar}>
           <Text style={styles.statusText}>BUILDER MIX</Text>
@@ -813,6 +930,7 @@ export default function MixBuilder() {
             onDragEnd={handleDragEnd}
             keyExtractor={(item) => item.id}
             ListHeaderComponent={ListHeader}
+            ListFooterComponent={ListFooter}
             contentContainerStyle={styles.listContent}
             style={styles.listInner}
             containerStyle={styles.listInner}
@@ -856,7 +974,10 @@ export default function MixBuilder() {
               disabled={draft.blocks.length === 0}
               oneTap={preview}
               onTap={handleSave}
-              onLongComplete={handleSaveAsNew}
+              onLongComplete={() => {
+                haptic.medium();
+                setMetaOpen(true);
+              }}
               status={saveStatus}
               flashTick={saveTick}
             />
@@ -918,6 +1039,30 @@ export default function MixBuilder() {
           screenH={screenH}
           onClose={() => setAddOpen(false)}
           onPick={addBlock}
+          autoRestCount={countAutoRestGaps(draft.blocks)}
+          draftBlockCount={draft.blocks.length}
+          onAutoRest={handleAutoRest}
+        />
+      )}
+
+      {metaOpen && (
+        <MixMetaSheet
+          screenH={screenH}
+          color={draft.color}
+          note={draft.note}
+          // Déjà dans Mes mix : l'action principale met l'entrée à jour, l'autre
+          // en fait une copie. Sinon : l'action principale l'ajoute à Mes mix.
+          primary={
+            inLibrary
+              ? { label: 'Enregistrer', onPress: handleSave }
+              : { label: 'Ajouter à Mes mix', onPress: handleSaveAsNew }
+          }
+          secondary={
+            inLibrary
+              ? { label: 'Enregistrer une copie', onPress: handleSaveAsNew }
+              : { label: 'Enregistrer comme ton MIX', onPress: handleSave }
+          }
+          onClose={() => setMetaOpen(false)}
         />
       )}
 
@@ -940,6 +1085,7 @@ export default function MixBuilder() {
           onShare={(m) => {
             setShareMix(withLatestPublishedId(m));
             setShareIsDraft(false);
+            setShareFocus(null);
             setShareOpen(true);
           }}
         />
@@ -949,6 +1095,7 @@ export default function MixBuilder() {
         <MixShareSheet
           screenH={screenH}
           mix={shareMix}
+          initialFocus={shareFocus}
           publishedLink={shareIsDraft ? publishedLink : null}
           onPublishedChange={handlePublishedChange}
           onClose={() => setShareOpen(false)}
@@ -975,6 +1122,13 @@ export default function MixBuilder() {
           onDiscard={handleUnsavedDiscard}
           onClose={() => setUnsaved(null)}
         />
+      )}
+      </>
+      )}
+      {!skeletonGone && (
+        <Animated.View style={[StyleSheet.absoluteFill, skeletonStyle]} pointerEvents="none">
+          <MixBuilderSkeleton />
+        </Animated.View>
       )}
     </GradientBackground>
   );
@@ -1059,7 +1213,7 @@ function BlockRow({ block, index, drag, isActive, onEdit, onDelete, readOnly = f
               >
                 <Text style={[styles.rowBadgeText, { color: type.color }]}>{type.name}</Text>
               </View>
-              <Text style={styles.rowLabel} numberOfLines={1}>{block.label}</Text>
+              <Text style={styles.rowLabel} numberOfLines={1}>{blockDisplayName(block)}</Text>
             </View>
             <View style={styles.rowMeta}>
               <RoleBadge role={resolveBlockRole(block)} />
@@ -1276,7 +1430,7 @@ function SaveButton({ disabled, onTap, onLongComplete, oneTap = false, status = 
           </Text>
           {!confirmed && !oneTap && (
             <Text style={[styles.btnPrimaryHint, refused && { color: '#FF5454' }]} numberOfLines={1}>
-              {refused ? 'Change le nom du mix' : 'Maintiens 2s = nouveau'}
+              {refused ? 'Change le nom du mix' : 'Maintiens 3s = couleur'}
             </Text>
           )}
         </View>
@@ -1286,7 +1440,9 @@ function SaveButton({ disabled, onTap, onLongComplete, oneTap = false, status = 
   );
 }
 
-function AddBlockSheet({ screenH, onClose, onPick }) {
+const REST_COLOR = getBlockType('rest').color;
+
+function AddBlockSheet({ screenH, onClose, onPick, autoRestCount = 0, draftBlockCount = 0, onAutoRest }) {
   const haptic = useHaptic();
   // La feuille reste touchable pendant son animation de fermeture : sans ce
   // verrou, un double tap ajouterait deux blocs.
@@ -1337,7 +1493,37 @@ function AddBlockSheet({ screenH, onClose, onPick }) {
                 <Text style={[sheetStyles.gridHint, { color: t.color }]}>{t.hint}</Text>
               </Pressable>
             ))}
-            <View style={[sheetStyles.gridCell, { opacity: 0 }]} pointerEvents="none" />
+            {/* La case libre de la grille : « Repos auto » ajoute un repos entre
+                tous les blocs voisins qui n'en ont pas encore. Grisée quand il
+                n'y a rien à insérer (moins de deux blocs, ou déjà tous séparés). */}
+            <Pressable
+              disabled={autoRestCount === 0}
+              onPress={() => {
+                if (pickedRef.current) return;
+                pickedRef.current = true;
+                onAutoRest();
+                close();
+              }}
+              accessibilityLabel="Repos auto : ajouter un repos entre tous les blocs"
+              style={({ pressed }) => [
+                sheetStyles.gridCell,
+                autoRestCount === 0 && { opacity: 0.4 },
+                pressed && { opacity: 0.85, transform: [{ scale: 0.96 }] },
+              ]}
+            >
+              <View style={[sheetStyles.gridBlob, { backgroundColor: REST_COLOR }]} pointerEvents="none" />
+              <View style={[sheetStyles.gridIcon, { backgroundColor: `${REST_COLOR}22` }]}>
+                <AppIcon name="reset" size={20} color={REST_COLOR} />
+              </View>
+              <Text style={sheetStyles.gridName}>Repos auto</Text>
+              <Text style={[sheetStyles.gridHint, { color: REST_COLOR }]}>
+                {autoRestCount > 0
+                  ? `+${autoRestCount} entre les blocs`
+                  : draftBlockCount < 2
+                    ? 'Il faut 2 blocs'
+                    : 'Déjà séparés'}
+              </Text>
+            </Pressable>
           </View>
         </View>
       )}
@@ -1350,6 +1536,14 @@ function EditBlockSheet({ screenH, block, onClose, onUpdate }) {
   const [labelDraft, setLabelDraft] = useState(block?.label || '');
   const [noteDraft, setNoteDraft] = useState(block?.note || '');
   const [importOpen, setImportOpen] = useState(false);
+  // Un réglage à la fois peut être tapé au clavier numérique plutôt qu'à la
+  // roue : 'duration' | 'rest' | 'rounds' (null = toutes les roues).
+  const [typingField, setTypingField] = useState(null);
+  const toggleTyping = (field) => {
+    if (typingField === field) Keyboard.dismiss();
+    setTypingField((cur) => (cur === field ? null : field));
+  };
+  const { isPremium } = usePremium();
   const roleScrollRef = useRef(null);
   const roleRevealedFor = useRef(null);
 
@@ -1365,6 +1559,7 @@ function EditBlockSheet({ screenH, block, onClose, onUpdate }) {
     setLabelDraft(block?.label || '');
     setNoteDraft(block?.note || '');
     setImportOpen(false);
+    setTypingField(null);
     roleRevealedFor.current = null;
   }, [block?.id]);
 
@@ -1460,13 +1655,50 @@ function EditBlockSheet({ screenH, block, onClose, onUpdate }) {
                     : block.type === 'emom' ? 'INTERVALLE'
                     : 'TRAVAIL'}
                 </Text>
-                <WheelPicker
-                  values={ranges.duration}
-                  selectedValue={block.duration}
-                  type="seconds"
-                  accentColor={type.color}
-                  onChange={(v) => onUpdate({ duration: v })}
-                  visibleItems={wheelItems}
+                {typingField === 'duration' ? (
+                  // Durée tapée au clavier numérique. Seule une valeur valide
+                  // remplace le réglage du bloc.
+                  block.type === 'amrap' ? (
+                    <DurationKeypad
+                      seconds={block.duration}
+                      withSeconds
+                      minTotalSeconds={10}
+                      maxMinutes={60}
+                      color={type.color}
+                      onChange={(total, valid) => {
+                        if (valid) onUpdate({ duration: total });
+                      }}
+                    />
+                  ) : (
+                    <NumberKeypad
+                      value={block.duration}
+                      min={block.type === 'emom' ? 10 : 5}
+                      max={block.type === 'rest' ? 600 : 300}
+                      unit="s"
+                      color={type.color}
+                      compact
+                      onChange={(n, valid) => {
+                        if (valid) onUpdate({ duration: n });
+                      }}
+                    />
+                  )
+                ) : (
+                  <WheelPicker
+                    values={ranges.duration}
+                    selectedValue={block.duration}
+                    type="seconds"
+                    accentColor={type.color}
+                    onChange={(v) => onUpdate({ duration: v })}
+                    visibleItems={wheelItems}
+                  />
+                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon={typingField === 'duration' ? 'back' : 'plus'}
+                  label={typingField === 'duration' ? 'Roue' : 'Clavier'}
+                  onPress={() => toggleTyping('duration')}
+                  style={sheetStyles.keypadToggle}
                 />
               </View>
             )}
@@ -1474,13 +1706,35 @@ function EditBlockSheet({ screenH, block, onClose, onUpdate }) {
             {showRest && (
               <View style={sheetStyles.pickerCol}>
                 <Text style={sheetStyles.pickerLabel}>REPOS</Text>
-                <WheelPicker
-                  values={ranges.rest}
-                  selectedValue={block.rest || 0}
-                  type="seconds"
-                  accentColor={type.color}
-                  onChange={(v) => onUpdate({ rest: v })}
-                  visibleItems={wheelItems}
+                {typingField === 'rest' ? (
+                  <NumberKeypad
+                    value={block.rest || 0}
+                    min={5}
+                    max={block.type === 'basic' ? 600 : 300}
+                    unit="s"
+                    color={type.color}
+                    compact
+                    onChange={(n, valid) => {
+                      if (valid) onUpdate({ rest: n });
+                    }}
+                  />
+                ) : (
+                  <WheelPicker
+                    values={ranges.rest}
+                    selectedValue={block.rest || 0}
+                    type="seconds"
+                    accentColor={type.color}
+                    onChange={(v) => onUpdate({ rest: v })}
+                    visibleItems={wheelItems}
+                  />
+                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon={typingField === 'rest' ? 'back' : 'plus'}
+                  label={typingField === 'rest' ? 'Roue' : 'Clavier'}
+                  onPress={() => toggleTyping('rest')}
+                  style={sheetStyles.keypadToggle}
                 />
               </View>
             )}
@@ -1488,13 +1742,34 @@ function EditBlockSheet({ screenH, block, onClose, onUpdate }) {
             {showRounds && (
               <View style={sheetStyles.pickerCol}>
                 <Text style={sheetStyles.pickerLabel}>TOURS</Text>
-                <WheelPicker
-                  values={ranges.rounds}
-                  selectedValue={block.rounds || 1}
-                  type="rounds"
-                  accentColor={type.color}
-                  onChange={(v) => onUpdate({ rounds: v })}
-                  visibleItems={wheelItems}
+                {typingField === 'rounds' ? (
+                  <NumberKeypad
+                    value={block.rounds || 1}
+                    min={1}
+                    max={30}
+                    color={type.color}
+                    compact
+                    onChange={(n, valid) => {
+                      if (valid) onUpdate({ rounds: n });
+                    }}
+                  />
+                ) : (
+                  <WheelPicker
+                    values={ranges.rounds}
+                    selectedValue={block.rounds || 1}
+                    type="rounds"
+                    accentColor={type.color}
+                    onChange={(v) => onUpdate({ rounds: v })}
+                    visibleItems={wheelItems}
+                  />
+                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon={typingField === 'rounds' ? 'back' : 'plus'}
+                  label={typingField === 'rounds' ? 'Roue' : 'Clavier'}
+                  onPress={() => toggleTyping('rounds')}
+                  style={sheetStyles.keypadToggle}
                 />
               </View>
             )}
@@ -1506,17 +1781,20 @@ function EditBlockSheet({ screenH, block, onClose, onUpdate }) {
           <View style={sheetStyles.noteSection}>
             <View style={sheetStyles.noteHeaderRow}>
               <Text style={sheetStyles.pickerLabel}>NOTE</Text>
-              <Pressable
-                hitSlop={8}
-                onPress={() => {
-                  haptic.light();
-                  setImportOpen((v) => !v);
-                }}
-              >
-                <Text style={[sheetStyles.noteImportLink, { color: type.color }]}>
-                  {importOpen ? 'Annuler' : 'Importer depuis le Planning'}
-                </Text>
-              </Pressable>
+              {/* Le planning est une fonction Premium : sans lui, pas d'import. */}
+              {isPremium && (
+                <Pressable
+                  hitSlop={8}
+                  onPress={() => {
+                    haptic.light();
+                    setImportOpen((v) => !v);
+                  }}
+                >
+                  <Text style={[sheetStyles.noteImportLink, { color: type.color }]}>
+                    {importOpen ? 'Annuler' : 'Importer depuis le Planning'}
+                  </Text>
+                </Pressable>
+              )}
             </View>
 
             {importOpen ? (
@@ -1715,6 +1993,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 24,
   },
+  // Entrées « Publier » / « Parcourir le fil » au bas de la liste des blocs.
+  feedLinks: {
+    gap: 8,
+    marginTop: 12,
+  },
 
   // Bandeau « MIX PUBLIÉ » : liseré violet du mode MIX, aucune couleur nouvelle.
   pubBanner: {
@@ -1801,11 +2084,36 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   heroLeft: { flex: 1, minWidth: 0 },
+  heroKickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+  },
   heroKicker: {
     fontFamily: fonts.sansBold,
     fontSize: 10,
     letterSpacing: 3,
     color: ACCENT,
+  },
+  // Pastille du code couleur : un cercle plein de la teinte choisie, ou un
+  // cercle vide en pointillé tant qu'aucune n'est posée.
+  heroSwatch: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 1.5,
+  },
+  heroSwatchEmpty: {
+    borderColor: 'rgba(255,255,255,0.35)',
+    borderStyle: 'dashed',
+    backgroundColor: 'transparent',
+  },
+  heroNote: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
+    lineHeight: 16,
+    color: 'rgba(255,255,255,0.55)',
     marginBottom: 6,
   },
   heroName: {
@@ -2231,6 +2539,10 @@ const sheetStyles = StyleSheet.create({
     flexDirection: 'row',
     gap: 4,
     marginBottom: 16,
+  },
+  keypadToggle: {
+    alignSelf: 'center',
+    marginTop: 6,
   },
   pickerCol: {
     flex: 1,

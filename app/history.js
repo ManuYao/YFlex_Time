@@ -1,32 +1,22 @@
 import { useCallback, useEffect, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useFocusEffect } from 'expo-router';
 import Animated, {
-  cancelAnimation,
-  scrollTo,
   useAnimatedRef,
-  useDerivedValue,
+  useAnimatedScrollHandler,
   useSharedValue,
-  withDelay,
-  withSequence,
-  withSpring,
-  withTiming,
 } from 'react-native-reanimated';
 
 import GradientBackground from '../components/common/GradientBackground';
+import AmbianceBackdrop from '../components/common/AmbianceBackdrop';
 import HistoryPage from '../components/screens/HistoryPage';
 import PlanningPage from '../components/screens/PlanningPage';
 import { haptic } from '../hooks/useHaptic';
-import { easeImpact, springSheet } from '../lib/animations';
+import { AMBIANCE_WIND_MAX, ambianceWind } from '../lib/ambianceMotion';
 
 const PAGES = ['history', 'planning'];
 const keyExtractor = (item) => item;
-
-// Largeur de la bande de Planning dévoilée par l'aperçu automatique (mission
-// "hint de bascule") : assez pour voir le bouton retour et le début du
-// carrousel des jours, jamais assez pour changer de page.
-const PEEK_PX = 56;
 
 export default function History() {
   const listRef = useAnimatedRef();
@@ -45,29 +35,44 @@ export default function History() {
   const [page, setPage] = useState(initialPage);
   const [sheetOpen, setSheetOpen] = useState(false);
 
-  // Décalage programmatique du pager, piloté uniquement par l'aperçu. Il
-  // n'est PAS resynchronisé sur le scroll de l'utilisateur (sinon boucle
-  // scrollTo → onScroll → scrollTo) : il ne sert que depuis la page 0.
-  const peekX = useSharedValue(0);
-  // `useDerivedValue` s'exécute une première fois dès l'enregistrement, donc
-  // avant que la FlatList (montée seulement une fois `rootW` mesuré, plus
-  // bas) n'existe — scrollTo tombait sur une ref pas encore initialisée et
-  // logguait un warning à chaque ouverture. `mounted` reflète exactement la
-  // même condition que celle qui rend la FlatList.
-  const mounted = useSharedValue(false);
-  // Sans cette garde, l'exécution initiale du derived value (peekX = 0)
-  // ramènerait la liste en page 0 juste après un `initialScrollIndex` de 1 —
-  // la téléportation vers le planning se ferait annuler dans la foulée.
-  const onFirstPage = useSharedValue(initialPage === 0);
+  // Vent de l'ambiance de saison (lib/ambianceMotion.js), comme sur le carrousel de
+  // l'accueil : le glissé entre Historique et Planning pousse les motifs du fond et
+  // fait tourner les couronnes des boutons du haut. Écart par rapport à la page la
+  // plus proche, en dp ; retombe tout seul à 0 quand le pager se pose. Allumé 800 ms
+  // après le montage seulement (saut de `initialScrollIndex` à ignorer), à 0 en
+  // quittant l'écran.
+  const pageW = useSharedValue(1);
+  const windOn = useSharedValue(0);
   useEffect(() => {
-    mounted.value = rootW > 0;
+    pageW.value = rootW || 1;
   }, [rootW]);
   useEffect(() => {
-    onFirstPage.value = page === 0;
-  }, [page]);
-  useDerivedValue(() => {
-    if (!mounted.value || !onFirstPage.value) return;
-    scrollTo(listRef, peekX.value, 0, false);
+    ambianceWind.value = 0;
+    const timer = setTimeout(() => {
+      windOn.value = 1;
+    }, 800);
+    return () => {
+      clearTimeout(timer);
+      windOn.value = 0;
+      ambianceWind.value = 0;
+    };
+  }, []);
+  useFocusEffect(
+    useCallback(
+      () => () => {
+        ambianceWind.value = 0;
+      },
+      []
+    )
+  );
+  const scrollHandler = useAnimatedScrollHandler({
+    onScroll: (e) => {
+      if (windOn.value !== 1) return;
+      const x = e.contentOffset.x;
+      const w = pageW.value;
+      const dx = -(x - Math.round(x / w) * w);
+      ambianceWind.value = Math.max(-AMBIANCE_WIND_MAX, Math.min(AMBIANCE_WIND_MAX, dx));
+    },
   });
 
   // Mesure locale plutôt que Dimensions : la largeur d'une page doit suivre
@@ -94,23 +99,6 @@ export default function History() {
     }
   };
 
-  const peek = useCallback(() => {
-    // Rythme aligné sur la carte "pressée" côté HistoryPage (glissement lent,
-    // maintien net, retour posé) plutôt qu'un flash — demande explicite après
-    // test de l'utilisateur.
-    peekX.value = withSequence(
-      withTiming(PEEK_PX, { duration: 420, easing: easeImpact }),
-      withDelay(680, withSpring(0, springSheet))
-    );
-  }, []);
-
-  // Remise à zéro instantanée : l'utilisateur vient de poser le doigt, un
-  // retour animé se battrait avec son propre geste de scroll.
-  const cancelPeek = useCallback(() => {
-    cancelAnimation(peekX);
-    peekX.value = 0;
-  }, []);
-
   const renderItem = useCallback(
     ({ item }) =>
       item === 'history' ? (
@@ -119,8 +107,6 @@ export default function History() {
           height={rootH}
           pageIndex={page}
           onSelectPage={goToPage}
-          onPeek={peek}
-          onPeekCancel={cancelPeek}
         />
       ) : (
         <PlanningPage
@@ -138,6 +124,9 @@ export default function History() {
 
   return (
     <GradientBackground colors={['#1A1A1A', '#0A0A0A', '#000000']} ambient>
+      {/* Décor de saison : derrière tout (lueur, motifs qui flottent, passage rare).
+          Les deux pages sont transparentes, il se voit à travers. */}
+      <AmbianceBackdrop tone="light" />
       {/* Pas de marge basse ici : les feuilles du planning sont rendues dans la
           page et doivent couvrir jusqu'au bas physique de l'écran. Chaque page
           ajoute l'inset bas elle-même sur sa barre d'action. */}
@@ -161,6 +150,8 @@ export default function History() {
               showsHorizontalScrollIndicator={false}
               decelerationRate="fast"
               onMomentumScrollEnd={handleMomentumEnd}
+              onScroll={scrollHandler}
+              scrollEventThrottle={16}
               getItemLayout={(_, index) => ({
                 length: rootW,
                 offset: rootW * index,

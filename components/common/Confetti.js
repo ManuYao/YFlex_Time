@@ -16,7 +16,9 @@ const TOTAL_LIFETIME = 2500;
 
 const easeImpact = Easing.bezier(0.22, 1, 0.36, 1);
 
-export default function Confetti({ enabled = true }) {
+// `colors` : palette des particules (par défaut les 4 couleurs des modes ; l'écran de fin de
+// séance y passe celles de la saison quand une ambiance est active).
+export default function Confetti({ enabled = true, colors = COLORS }) {
   const [mounted, setMounted] = useState(enabled);
 
   useEffect(() => {
@@ -32,7 +34,7 @@ export default function Confetti({ enabled = true }) {
         const distance = 300 + Math.random() * 200;
         return {
           id: i,
-          color: COLORS[i % COLORS.length],
+          color: colors[i % colors.length],
           dx: Math.cos(angle) * distance,
           dy: Math.sin(angle) * distance + 200,
           delay: Math.random() * 300,

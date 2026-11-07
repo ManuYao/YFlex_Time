@@ -7,7 +7,8 @@ import IconButton from './IconButton';
 import AppIcon from './AppIcon';
 import { getMixTotalDuration, hasEstimatedDuration } from '../../lib/mix-blocks';
 import { isFeedMix } from '../../lib/mixes';
-import { assignPublications } from '../../lib/publicMixShape';
+import { assignPublications, FREE_PUBLISHED_MIXES } from '../../lib/publicMixShape';
+import { cleanMixColor } from '../../lib/mixMeta';
 import { formatMixClock } from '../../lib/formatters';
 import { unpublishMix } from '../../lib/publicMixes';
 import { useTimers } from '../../contexts/TimersContext';
@@ -15,6 +16,8 @@ import { fonts } from '../../lib/fonts';
 import { ROUND_SIZE } from '../../lib/buttonTokens';
 import { useHaptic } from '../../hooks/useHaptic';
 import { useMyPublications } from '../../hooks/useMyPublications';
+import { usePremium } from '../../hooks/usePremium';
+import { FREE_CREATIONS, FREE_DOWNLOADS } from '../../lib/libraryLimits';
 
 const ONLINE = '#1FC777';
 
@@ -23,9 +26,10 @@ const ONLINE = '#1FC777';
  * (app/mix-builder.js) pour être aussi ouverte depuis le hub Mix et Partage
  * (app/mix-hub.js) — une seule liste, un seul rendu.
  *
- * Deux familles, séparées à l'écran : MES CRÉATIONS, et les mix ENREGISTRÉS
- * DEPUIS LE FIL PUBLIC (créés par d'autres). Un mix du fil reste modifiable une
- * fois dans la bibliothèque : on le charge comme les autres.
+ * Deux familles, séparées à l'écran : MES CRÉATIONS (publiées ou non), et les
+ * mix SAUVEGARDÉS (créés par d'autres : fil public ou lien d'un ami). Un mix
+ * sauvegardé reste modifiable une fois dans la bibliothèque : on le charge comme
+ * les autres, mais il ne rejoint jamais Mes créations.
  *
  * Chaque création porte un repère de publication : « EN LIGNE » (publié dans le
  * fil public) ou « PRIVÉ ». Sans compte ou sans réseau on ne peut pas savoir :
@@ -43,8 +47,13 @@ export default function MixLibrarySheet({
   onLoad,
   onDelete,
   onShare,
-  hint = 'Tap = charger · 2s sur Enregistrer = nouveau mix',
-  emptyText = 'Aucun mix sauvegardé. Maintiens "Enregistrer" 2s dans le constructeur pour en archiver un.',
+  // Mode « lancement » (Planning) : toucher un mix le LANCE ; ni partage ni
+  // suppression ici, on ne fait que choisir quoi lancer.
+  launchMode = false,
+  hint = launchMode ? 'Tap = lancer ce mix' : 'Tap = charger · 3s sur Enregistrer = couleur et note',
+  emptyText = launchMode
+    ? 'Aucun mix enregistré pour l’instant. Crée-en un dans le constructeur.'
+    : 'Aucun mix sauvegardé. Maintiens "Enregistrer" 3s dans le constructeur pour en ajouter un.',
 }) {
   const haptic = useHaptic();
   const pubs = useMyPublications();
@@ -71,11 +80,31 @@ export default function MixLibrarySheet({
     [library, pubs.status, pubs.items, ownIds]
   );
   const groups = useMemo(() => {
+    // Deux volets, jamais mélangés : MES CRÉATIONS (tout ce que j'ai fabriqué ici,
+    // publié ou non : le repère EN LIGNE / PRIVÉ est sur chaque ligne) et les mix
+    // SAUVEGARDÉS (pris chez les autres, par le fil ou par un lien d'ami).
+    // `published` / `privateCount` ne servent qu'à la ligne des limites gratuites.
+    // Trois volets lisibles d'un coup d'œil : PRIVÉS (que moi), PUBLIÉS (en
+    // ligne dans le fil), SAUVEGARDÉS (créés par d'autres). Sans réseau ou sans
+    // compte on ne sait pas ce qui est publié : tout reste dans les privés.
+    const known = pubs.status === 'ok';
     const mine = [];
+    const published = [];
     const fromFeed = [];
-    for (const m of library) (isFeedMix(m, ownIds) ? fromFeed : mine).push(m);
-    return { mine, fromFeed };
-  }, [library, ownIds]);
+    for (const m of library) {
+      if (isFeedMix(m, ownIds)) fromFeed.push(m);
+      else if (known && assigned.get(m.id)) published.push(m);
+      else mine.push(m);
+    }
+    return { mine, published, fromFeed, known };
+  }, [library, ownIds, assigned, pubs.status]);
+  const { isPremium } = usePremium();
+  // Privés et publiés ouverts au départ, le reste fermé : moins de lignes à afficher.
+  const [open, setOpen] = useState({ mine: true, published: true, fromFeed: false });
+  const toggle = (key) => {
+    haptic.light();
+    setOpen((o) => ({ ...o, [key]: !o[key] }));
+  };
 
   // Supprimer un mix de MA liste retire aussi sa publication du fil public :
   // l'un suit l'autre. Un mix pris chez quelqu'un d'autre n'a rien à retirer.
@@ -100,12 +129,16 @@ export default function MixLibrarySheet({
 
   const renderRow = (m, { feed }) => {
     const total = getMixTotalDuration(m.blocks || []);
-    // Le repère de publication ne concerne que MES créations.
+    // La publication à retirer avec le mix (seulement pour MES créations).
     const published = !feed && pubs.status === 'ok' ? assigned.get(m.id) ?? null : null;
-    const showPrivate = !feed && pubs.status === 'ok' && !published;
     const author = feed ? m.fromFeed?.author : null;
     return (
       <View key={m.id} style={styles.libRow}>
+        {/* Code couleur du mix (Constructeur › maintien de « Enregistrer ») :
+            une petite barre sur le bord gauche de la carte. */}
+        {!!cleanMixColor(m.color) && (
+          <View pointerEvents="none" style={[styles.colorBar, { backgroundColor: cleanMixColor(m.color) }]} />
+        )}
         <Pressable
           onPress={async () => {
             const r = await onLoad(m.id);
@@ -122,46 +155,71 @@ export default function MixLibrarySheet({
           <View style={{ flex: 1 }}>
             <View style={styles.nameLine}>
               <Text style={styles.libName} numberOfLines={1}>{m.name}</Text>
-              {!!published && (
-                <View style={styles.onlinePill}>
-                  <AppIcon name="globe" size={10} color={ONLINE} />
-                  <Text style={styles.onlineText}>EN LIGNE</Text>
-                </View>
-              )}
-              {showPrivate && (
-                <View style={styles.privatePill}>
-                  <AppIcon name="lock" size={10} color="rgba(255,255,255,0.45)" />
-                  <Text style={styles.privateText}>PRIVÉ</Text>
-                </View>
-              )}
             </View>
             <Text style={styles.libMeta} numberOfLines={1}>
               {(m.blocks?.length || 0)} blocs · {hasEstimatedDuration(m.blocks) ? '~' : ''}
               {formatMixClock(total)}
               {author ? ` · par ${author}` : ''}
             </Text>
+            {!!m.note && (
+              <Text style={styles.libNote} numberOfLines={1}>
+                {m.note}
+              </Text>
+            )}
           </View>
         </Pressable>
-        <Pressable
-          onPress={() => {
-            haptic.light();
-            shareAfterCloseRef.current = m;
-            close.current?.();
-          }}
-          style={({ pressed }) => [styles.libShare, pressed && { opacity: 0.7 }]}
-          hitSlop={10}
-        >
-          <AppIcon name="share" size={14} color="rgba(255,255,255,0.55)" />
+        {launchMode ? (
+          <View style={styles.libPlay} pointerEvents="none">
+            <AppIcon name="play" size={14} color="#FFFFFF" />
+          </View>
+        ) : (
+          <>
+            <Pressable
+              onPress={() => {
+                haptic.light();
+                shareAfterCloseRef.current = m;
+                close.current?.();
+              }}
+              style={({ pressed }) => [styles.libShare, pressed && { opacity: 0.7 }]}
+              hitSlop={10}
+            >
+              <AppIcon name="share" size={14} color="rgba(255,255,255,0.55)" />
+            </Pressable>
+            <Pressable
+              onPress={() => handleDelete(m, published)}
+              style={({ pressed }) => [styles.libDelete, pressed && { opacity: 0.7 }]}
+              hitSlop={10}
+            >
+              <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
+                <Path d="M3 3l8 8M11 3l-8 8" stroke="#FF5454" strokeWidth={2} strokeLinecap="round" />
+              </Svg>
+            </Pressable>
+          </>
+        )}
+      </View>
+    );
+  };
+
+  // Un volet : titre + compteur (n / limite en gratuit), phrase d'explication,
+  // puis les lignes. Un volet vide n'est pas affiché.
+  const renderGroup = ({ key, items, title, limit, sub, color, icon, feed }) => {
+    if (items.length === 0) return null;
+    const tint = color ? { color } : null;
+    return (
+      <View style={styles.group}>
+        <Pressable onPress={() => toggle(key)} style={styles.groupHead} hitSlop={6}>
+          {!!icon && <AppIcon name={icon} size={11} color={color} />}
+          <Text style={[styles.groupTitle, styles.groupTitleFlex, tint]}>
+            {title} · {isPremium ? items.length : `${items.length} / ${limit}`}
+          </Text>
+          <Chevron open={open[key]} />
         </Pressable>
-        <Pressable
-          onPress={() => handleDelete(m, published)}
-          style={({ pressed }) => [styles.libDelete, pressed && { opacity: 0.7 }]}
-          hitSlop={10}
-        >
-          <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
-            <Path d="M3 3l8 8M11 3l-8 8" stroke="#FF5454" strokeWidth={2} strokeLinecap="round" />
-          </Svg>
-        </Pressable>
+        {open[key] && (
+          <>
+            {!!sub && <Text style={styles.groupSub}>{sub}</Text>}
+            <View style={styles.libList}>{items.map((m) => renderRow(m, { feed }))}</View>
+          </>
+        )}
       </View>
     );
   };
@@ -174,7 +232,7 @@ export default function MixLibrarySheet({
           <View>
             <View style={styles.headerRow}>
               <View>
-                <Text style={styles.kicker}>MES MIX</Text>
+                <Text style={styles.kicker}>{launchMode ? 'LANCER UN MIX' : 'MES MIX'}</Text>
                 <Text style={styles.title}>
                   {library.length} enregistré{library.length > 1 ? 's' : ''}
                 </Text>
@@ -190,27 +248,35 @@ export default function MixLibrarySheet({
 
             {library.length === 0 && <Text style={styles.libEmpty}>{emptyText}</Text>}
 
-            {groups.mine.length > 0 && (
-              <View style={styles.group}>
-                <Text style={styles.groupTitle}>MES CRÉATIONS · {groups.mine.length}</Text>
-                <View style={styles.libList}>{groups.mine.map((m) => renderRow(m, { feed: false }))}</View>
-              </View>
-            )}
+            {renderGroup({
+              key: 'mine',
+              items: groups.mine,
+              title: groups.known ? 'MES CRÉATIONS PRIVÉES' : 'MES CRÉATIONS',
+              limit: FREE_CREATIONS,
+              sub: groups.known ? 'Que toi : personne ne les voit.' : null,
+              feed: false,
+            })}
 
-            {groups.fromFeed.length > 0 && (
-              <View style={styles.group}>
-                <View style={styles.groupHead}>
-                  <AppIcon name="globe" size={11} color="rgba(149,117,255,0.9)" />
-                  <Text style={[styles.groupTitle, { color: 'rgba(149,117,255,0.9)' }]}>
-                    ENREGISTRÉS DEPUIS LE FIL · {groups.fromFeed.length}
-                  </Text>
-                </View>
-                <View style={styles.libList}>{groups.fromFeed.map((m) => renderRow(m, { feed: true }))}</View>
-                <Text style={styles.groupNote}>
-                  Créés par d'autres : tu peux les modifier, ta version reste la tienne.
-                </Text>
-              </View>
-            )}
+            {renderGroup({
+              key: 'published',
+              items: groups.published,
+              title: 'MES MIX PUBLIÉS',
+              limit: FREE_PUBLISHED_MIXES,
+              sub: 'En ligne dans le fil public : tout le monde peut les voir.',
+              color: ONLINE,
+              icon: 'globe',
+              feed: false,
+            })}
+
+            {renderGroup({
+              key: 'fromFeed',
+              items: groups.fromFeed,
+              title: 'SAUVEGARDÉS',
+              limit: FREE_DOWNLOADS,
+              sub: 'Créés par d’autres (fil public ou ami) : tu peux les modifier.',
+              color: 'rgba(149,117,255,0.9)',
+              feed: true,
+            })}
 
             {!!notice && (
               <Text style={[styles.notice, { color: notice.ok ? '#1FC777' : '#FF5454' }]}>{notice.text}</Text>
@@ -224,7 +290,15 @@ export default function MixLibrarySheet({
   );
 }
 
+// Petite flèche de volet : vers le bas = ouvert.
+const Chevron = ({ open }) => (
+  <Svg width={12} height={12} viewBox="0 0 12 12" fill="none" style={{ transform: [{ rotate: open ? '0deg' : '-90deg' }] }}>
+    <Path d="M2.5 4.5L6 8l3.5-3.5" stroke="rgba(255,255,255,0.55)" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+  </Svg>
+);
+
 const styles = StyleSheet.create({
+  groupTitleFlex: { flex: 1 },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -312,45 +386,34 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     letterSpacing: -0.2,
   },
-  onlinePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 999,
-    backgroundColor: 'rgba(31,199,119,0.14)',
-    borderWidth: 1,
-    borderColor: 'rgba(31,199,119,0.45)',
-  },
-  onlineText: {
-    fontFamily: fonts.monoBold,
-    fontSize: 8.5,
-    letterSpacing: 1,
-    color: ONLINE,
-  },
-  privatePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-  },
-  privateText: {
-    fontFamily: fonts.monoBold,
-    fontSize: 8.5,
-    letterSpacing: 1,
-    color: 'rgba(255,255,255,0.45)',
+  groupSub: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 11,
+    lineHeight: 15,
+    color: 'rgba(255,255,255,0.40)',
+    marginTop: -4,
+    marginBottom: 10,
+    paddingHorizontal: 2,
   },
   libMeta: {
     fontFamily: fonts.monoRegular,
     fontSize: 10,
     color: 'rgba(255,255,255,0.55)',
     marginTop: 2,
+  },
+  colorBar: {
+    position: 'absolute',
+    left: 6,
+    top: 10,
+    bottom: 10,
+    width: 3,
+    borderRadius: 2,
+  },
+  libNote: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.45)',
+    marginTop: 3,
   },
   libShare: {
     width: 36,
@@ -360,6 +423,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 6,
+  },
+  libPlay: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: 'rgba(149,117,255,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   libDelete: {
     width: 36,

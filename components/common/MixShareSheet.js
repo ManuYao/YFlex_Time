@@ -9,6 +9,7 @@ import IconButton from './IconButton';
 import PressTap from './PressTap';
 import AppIcon from './AppIcon';
 import ShareTipCard from './ShareTipCard';
+import MixColorBar from './MixColorBar';
 import { BlockStrip } from './MixPublicSheet';
 import { haptic } from '../../hooks/useHaptic';
 import { useAuth } from '../../contexts/AuthContext';
@@ -18,6 +19,7 @@ import { fonts } from '../../lib/fonts';
 import { ROUND_SIZE } from '../../lib/buttonTokens';
 import { DISCIPLINES } from '../../lib/disciplines';
 import {
+  blockDisplayName,
   formatBlockSubtitle,
   getBlockType,
   getMixTotalDuration,
@@ -71,6 +73,9 @@ export const publishErrorText = (res) => {
     return 'Ce mix est déjà publié dans le fil. Ouvre-le pour le mettre à jour.';
   }
   if (res.reason === 'unavailable') return "Le fil public n'est pas encore ouvert.";
+  if (res.reason === 'forbidden') {
+    return "Mise à jour impossible pour l'instant. Ton mix, ses étoiles et ses commentaires sont conservés.";
+  }
   return 'Impossible de publier, vérifie ta connexion.';
 };
 
@@ -87,7 +92,7 @@ function BlockRows({ blocks }) {
               <AppIcon name={type?.icon || 'mix'} size={13} color={type?.color || '#FFFFFF'} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.rowLabel} numberOfLines={1}>{block.label}</Text>
+              <Text style={styles.rowLabel} numberOfLines={1}>{blockDisplayName(block)}</Text>
               <Text style={styles.rowSub}>{formatBlockSubtitle(block)}</Text>
               {!!block.note && (
                 <Text style={styles.rowNote} numberOfLines={1}>{block.note}</Text>
@@ -222,9 +227,9 @@ function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
     setPhase('busy');
     setFeedback(null);
     // Déjà publié (retrouvé par lien ou par contenu) : modification SUR PLACE,
-    // qui garde les étoiles si la base le permet (supabase-mix-update.sql),
-    // sinon remplacement. Sinon, nouvelle publication (jamais en écrasant un
-    // autre mix).
+    // qui garde toujours les étoiles et les commentaires (si la base refuse,
+    // on le dit, on ne remplace jamais). Sinon, nouvelle publication (jamais en
+    // écrasant un autre mix).
     const res = published
       ? await updatePublishedMix(published.id, mix, { userId, authorName: pseudo, category })
       : await publishMix(mix, { userId, authorName: pseudo, category });
@@ -244,9 +249,9 @@ function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
       ok: true,
       text: !wasPublished
         ? 'Publié ! Visible dans le fil public.'
-        : res.reset
-          ? 'Mis à jour. Les étoiles repartent à zéro.'
-          : 'Mis à jour.',
+        : res.republished
+          ? "Remis en ligne : l'ancienne publication n'existait plus."
+          : 'Mis à jour. Tes étoiles et commentaires sont gardés.',
     });
   };
 
@@ -342,7 +347,10 @@ function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
         <Text style={styles.fieldLabel}>CE MIX SERA PUBLIÉ</Text>
         <View style={styles.targetRow}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.targetName} numberOfLines={1}>{mix?.name || 'Sans nom'}</Text>
+            <View style={styles.targetNameRow}>
+              <MixColorBar color={mix?.color} height={16} style={styles.targetBar} />
+              <Text style={[styles.targetName, { flexShrink: 1 }]} numberOfLines={1}>{mix?.name || 'Sans nom'}</Text>
+            </View>
             <Text style={styles.targetMeta}>
               {mix?.blocks?.length || 0} bloc{(mix?.blocks?.length || 0) > 1 ? 's' : ''} ·{' '}
               {formatFeedDuration(getMixTotalDuration(mix?.blocks || []), hasEstimatedDuration(mix?.blocks || []))}
@@ -507,7 +515,7 @@ function PublishCard({ mix, goLogin, publishedLink, onPublishedChange }) {
 
 // Composant à part : l'effet qui fait défiler a besoin de scrollToEnd, que
 // BottomSheet ne fournit qu'à ses enfants.
-function ShareContent({ mix: mixProp, close, scrollToEnd, onImported, goLogin, openFeed, initialTab, publishedLink: linkProp, onPublishedChange }) {
+function ShareContent({ mix: mixProp, close, scrollToEnd, onImported, goLogin, openFeed, initialTab, initialFocus, publishedLink: linkProp, onPublishedChange }) {
   const { receiveMix, saveCurrentMix, library } = useTimers();
   // UN SEUL mix pour toute la feuille : le titre, l'aperçu, « Copier le lien » et
   // « Publier » suivent le même. Changer ici change tout, d'un coup.
@@ -606,6 +614,10 @@ function ShareContent({ mix: mixProp, close, scrollToEnd, onImported, goLogin, o
     // `update: true` : si le mix est déjà là mais en version différente, la
     // personne a touché « Mettre à jour » — jamais une deuxième copie.
     const res = await receiveMix(preview, { update: true });
+    if (res.status === 'limit') {
+      importingRef.current = false;
+      return;
+    }
     await saveCurrentMix(res.entry);
     onImported?.(res.entry);
     close();
@@ -615,7 +627,7 @@ function ShareContent({ mix: mixProp, close, scrollToEnd, onImported, goLogin, o
     <View>
       <View style={styles.headerRow}>
         <View style={styles.headerText}>
-          <Text style={styles.kicker}>PARTAGER</Text>
+          <Text style={styles.kicker}>{initialFocus === 'publish' ? 'PUBLIER' : 'PARTAGER'}</Text>
           <Text style={styles.title} numberOfLines={1}>{mix?.name || 'Ce mix'}</Text>
         </View>
         <IconButton
@@ -717,6 +729,12 @@ function ShareContent({ mix: mixProp, close, scrollToEnd, onImported, goLogin, o
 
           {hasBlocks && !notOwned && (
             <>
+              {/* Arrivé par « Publier » (règle des trois fois) : la carte de
+                  publication passe en premier, sans avoir à faire défiler. */}
+              {initialFocus === 'publish' && (
+                <PublishCard key={mix?.id} mix={mix} goLogin={goLogin} publishedLink={publishedLink} onPublishedChange={onPublishedChange} />
+              )}
+
               <OptionCard
                 icon="link"
                 title="Envoyer à un ami"
@@ -738,7 +756,9 @@ function ShareContent({ mix: mixProp, close, scrollToEnd, onImported, goLogin, o
                 )}
               </OptionCard>
 
-              <PublishCard key={mix?.id} mix={mix} goLogin={goLogin} publishedLink={publishedLink} onPublishedChange={onPublishedChange} />
+              {initialFocus !== 'publish' && (
+                <PublishCard key={mix?.id} mix={mix} goLogin={goLogin} publishedLink={publishedLink} onPublishedChange={onPublishedChange} />
+              )}
             </>
           )}
 
@@ -839,6 +859,8 @@ function ShareContent({ mix: mixProp, close, scrollToEnd, onImported, goLogin, o
  *    un lien flextimer:// cliquable.
  * `initialTab` : 'send' (défaut) ou 'receive' — le hub Mix et Partage ouvre
  * directement l'onglet « Recevoir » depuis son bloc dédié.
+ * `initialFocus` : 'publish' met la carte « Publier dans le fil public » avant
+ * celle du lien d'ami (entrées « Publier » du Constructeur, du hub et du Profil).
  * `onOpenFeed` ouvre le fil public une fois cette feuille refermée (jamais deux
  * feuilles empilées).
  */
@@ -849,6 +871,7 @@ export default function MixShareSheet({
   onImported,
   onOpenFeed,
   initialTab = 'send',
+  initialFocus = null,
   publishedLink = null,
   onPublishedChange,
 }) {
@@ -870,6 +893,7 @@ export default function MixShareSheet({
       {({ close, scrollToEnd }) => (
         <ShareContent
           initialTab={initialTab}
+          initialFocus={initialFocus}
           publishedLink={publishedLink}
           onPublishedChange={onPublishedChange}
           mix={mix}
@@ -1062,6 +1086,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
+  targetNameRow: { flexDirection: 'row', alignItems: 'center' },
+  targetBar: { marginRight: 8 },
   targetName: {
     fontFamily: fonts.sansExtraBold,
     fontSize: 15,

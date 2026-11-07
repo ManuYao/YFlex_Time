@@ -8,6 +8,7 @@ import GradientBackground from '../components/common/GradientBackground';
 import IconButton from '../components/common/IconButton';
 import { loadArchives, formatArchiveDate, getDay } from '../lib/planning';
 import { categoryChip } from '../lib/exercises';
+import { goBackSafe } from '../lib/navigation';
 import { fonts } from '../lib/fonts';
 import { ROUND_SIZE } from '../lib/buttonTokens';
 import { haptic } from '../hooks/useHaptic';
@@ -44,7 +45,7 @@ export default function ArchiveDetail() {
           <IconButton
             icon="back"
             haptic={haptic.light}
-            onPress={() => router.back()}
+            onPress={() => goBackSafe(router)}
             accessibilityLabel="Retour"
           />
 

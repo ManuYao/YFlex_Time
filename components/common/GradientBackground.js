@@ -1,6 +1,12 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, Dimensions } from 'react-native';
-import Animated, { useAnimatedStyle } from 'react-native-reanimated';
+import Animated, {
+  Easing,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import Svg, { Defs, RadialGradient, Stop, Rect } from 'react-native-svg';
 
 import GrainOverlay from './GrainOverlay';
@@ -10,6 +16,16 @@ import GrainOverlay from './GrainOverlay';
 // SDK 57) la racine est plus haute que Dimensions.get('window'), et un Svg
 // dimensionné sur cette dernière laissait une bande noire en bas.
 const INITIAL = Dimensions.get('window');
+
+// Couleurs du dernier fond peint : un nouvel écran démarre avec elles, puis
+// glisse vers les siennes (TRANSITION_MS). Sans ça, le fondu natif de la Stack
+// mélangeait deux écrans de couleurs différentes et la couleur « sautait ».
+// Module-level : survit au démontage de l'écran précédent.
+let lastBackdrop = null;
+const TRANSITION_MS = 520;
+
+const sameColors = (a, b) =>
+  a === b || (!!a && !!b && a.length === b.length && a.every((c, i) => c === b[i]));
 
 export default function GradientBackground({
   colors,
@@ -25,6 +41,9 @@ export default function GradientBackground({
   // Props optionnelles : sans elles, ce composant se comporte comme avant.
   overlayColors = null,
   overlayOpacity = null,
+  // Hérite des couleurs de l'écran précédent et glisse vers les siennes.
+  // Désactivé pour l'accueil, qui fait déjà son propre fondu entre timers.
+  inherit = true,
   children,
 }) {
   const isDark = textMode === 'dark';
@@ -34,7 +53,35 @@ export default function GradientBackground({
   // transitions de la Stack cette mesure arrive tard. On peint donc le
   // conteneur avec la teinte mediane du degrade : pendant ce laps de temps on
   // voit cette couleur au lieu d'un aplat noir.
-  const fallbackBg = ambient ? '#0A0A0A' : colors[1];
+  const [base, setBase] = useState(() => {
+    const prev = lastBackdrop;
+    if (inherit && prev && (prev.ambient !== ambient || !sameColors(prev.colors, colors))) return prev;
+    return { colors, ambient };
+  });
+  const needsFade = inherit && (base.ambient !== ambient || !sameColors(base.colors, colors));
+  const fade = useSharedValue(needsFade ? 0 : 1);
+  const colorsKey = `${ambient ? 'a' : 'c'}:${colors.join('|')}`;
+
+  useEffect(() => {
+    lastBackdrop = { colors, ambient };
+    // Sans héritage (accueil) : pas de fondu interne, la couleur est posée
+    // telle quelle — sinon l'ancienne couleur « revient » une demi-seconde.
+    if (!inherit) return;
+    if (base.ambient === ambient && sameColors(base.colors, colors)) return;
+    fade.value = 0;
+    fade.value = withTiming(1, { duration: TRANSITION_MS, easing: Easing.out(Easing.cubic) }, (done) => {
+      if (done) runOnJS(setBase)({ colors, ambient });
+    });
+  }, [colorsKey]);
+
+  const topStyle = useAnimatedStyle(() => ({ opacity: fade.value }));
+  const fallbackBg = needsFade
+    ? base.ambient
+      ? '#0A0A0A'
+      : base.colors[1]
+    : ambient
+      ? '#0A0A0A'
+      : colors[1];
 
   const [size, setSize] = useState({ width: INITIAL.width, height: INITIAL.height });
 
@@ -47,7 +94,12 @@ export default function GradientBackground({
 
   return (
     <View style={[styles.root, { backgroundColor: fallbackBg }]} onLayout={handleLayout}>
-      <GradientLayer id="bg" colors={colors} ambient={ambient} size={size} />
+      {needsFade && (
+        <GradientLayer id="bgBase" colors={base.colors} ambient={base.ambient} size={size} />
+      )}
+      <Animated.View style={[StyleSheet.absoluteFill, topStyle]} pointerEvents="none">
+        <GradientLayer id="bg" colors={colors} ambient={ambient} size={size} />
+      </Animated.View>
 
       {overlayColors && overlayOpacity ? (
         <OverlayLayer

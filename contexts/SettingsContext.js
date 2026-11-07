@@ -28,6 +28,10 @@ const DEFAULTS = {
   voiceDetail: 'discreet',
   // Mode pluie (lib/rainMode.js) : 'normal' (un appui) par défaut.
   rainMode: 'normal',
+  // Ambiance de saison (lib/ambiance.js) : 'auto' (saisons + quelques moments de
+  // l'année, par défaut), 'seasons' (les quatre saisons seulement) ou 'none'
+  // (l'app comme avant). Réglée dans Paramètres › « Ambiance de saison ».
+  ambianceMode: 'auto',
   autoStart: false,
   keepScreenOn: true,
   notifications: true,

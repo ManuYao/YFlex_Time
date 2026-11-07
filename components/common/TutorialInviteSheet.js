@@ -91,8 +91,9 @@ export default function TutorialInviteSheet({ screenH, onClose }) {
 
           <Text style={styles.title}>Un petit tour guidé ?</Text>
           <Text style={styles.body}>
-            En 2 minutes, on te montre le menu et tu lances un premier chrono de test. Tu peux
-            t'arrêter quand tu veux, et le retrouver plus tard dans les Paramètres.
+            En une minute, on te montre comment régler et lancer un chrono, puis où trouver le
+            reste de l'app. Tu peux t'arrêter quand tu veux, et le retrouver plus tard dans les
+            Paramètres.
           </Text>
 
           <View style={styles.actions}>

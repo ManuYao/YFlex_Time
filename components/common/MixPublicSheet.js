@@ -9,8 +9,10 @@ import MiniToast from './MiniToast';
 import PressTap from './PressTap';
 import AppIcon from './AppIcon';
 import MixCommentsView from './MixCommentsView';
+import MixColorBar from './MixColorBar';
 import TouchShield from './TouchShield';
 import { useSubmitGuard } from '../../hooks/useSubmitGuard';
+import { useBlockedUsers } from '../../hooks/useBlockedUsers';
 import StarRating, { STAR_ON } from './StarRating';
 import { haptic } from '../../hooks/useHaptic';
 import { useAuth } from '../../contexts/AuthContext';
@@ -84,6 +86,7 @@ function FeedCard({
   savedState,
   reported,
   reporting,
+  blocking,
   removing,
   testing,
   commentCount,
@@ -98,6 +101,9 @@ function FeedCard({
   onOpenReport,
   onCancelReport,
   onReport,
+  onOpenBlock,
+  onCancelBlock,
+  onConfirmBlock,
 }) {
   const isOwn = !!user && item.ownerId === user.id;
   const discipline = getDiscipline(item.category);
@@ -111,8 +117,14 @@ function FeedCard({
           <Text style={[styles.avatarText, { color: tint }]}>{initialsOf(item.author || '?')}</Text>
         </View>
         <View style={styles.cardTitleWrap}>
-          <Text style={styles.cardName} numberOfLines={1}>{item.name}</Text>
+          <View style={styles.cardNameRow}>
+            <MixColorBar color={item.color} height={15} style={styles.cardBar} />
+            <Text style={[styles.cardName, styles.cardNameText]} numberOfLines={1}>{item.name}</Text>
+          </View>
           <Text style={styles.cardAuthor} numberOfLines={1}>par {item.author || 'Athlète'}</Text>
+          {!!item.note && (
+            <Text style={styles.cardNote} numberOfLines={2}>{item.note}</Text>
+          )}
         </View>
         <View style={styles.tag}>
           <AppIcon name={discipline.icon} size={11} color="rgba(255,255,255,0.70)" />
@@ -239,7 +251,19 @@ function FeedCard({
             <StarRating value={myStars} size={20} gap={6} onRate={onRate} />
           </View>
 
-          {reporting ? (
+          {blocking ? (
+            <View style={styles.reportBox}>
+              <Text style={styles.reportTitle}>Bloquer {item.author || 'cet auteur'} ?</Text>
+              <Text style={styles.removeNote}>
+                Tu ne verras plus ses mix ni ses commentaires. Il ne le saura pas, et tu peux le débloquer dans les
+                Paramètres.
+              </Text>
+              <View style={styles.cardActions}>
+                <Button variant="glass" size="sm" label="Annuler" onPress={onCancelBlock} style={styles.actionBtn} />
+                <Button variant="danger" size="sm" label="Bloquer" onPress={onConfirmBlock} style={styles.actionBtn} />
+              </View>
+            </View>
+          ) : reporting ? (
             <View style={styles.reportBox}>
               <Text style={styles.reportTitle}>Pourquoi signaler ce mix ?</Text>
               <View style={styles.reportChips}>
@@ -259,23 +283,38 @@ function FeedCard({
                 <Text style={styles.reportLink}>Annuler</Text>
               </PressTap>
             </View>
-          ) : reported ? (
-            <View style={styles.reportRow}>
-              <AppIcon name="check" size={12} color="rgba(255,255,255,0.45)" />
-              <Text style={styles.reportDone}>Signalé, merci</Text>
-            </View>
           ) : (
-            <PressTap
-              tapScale={0.96}
-              hitSlop={8}
-              onHapticIn={haptic.light}
-              onPress={onOpenReport}
-              containerStyle={styles.reportRow}
-              accessibilityLabel="Signaler ce mix"
-            >
-              <AppIcon name="flag" size={12} color="rgba(255,255,255,0.45)" />
-              <Text style={styles.reportLink}>Signaler</Text>
-            </PressTap>
+            <View style={styles.modRow}>
+              <PressTap
+                tapScale={0.96}
+                hitSlop={8}
+                onHapticIn={haptic.light}
+                onPress={onOpenBlock}
+                containerStyle={styles.reportRow}
+                accessibilityLabel="Bloquer cet auteur"
+              >
+                <AppIcon name="close" size={12} color="rgba(255,255,255,0.45)" />
+                <Text style={styles.reportLink}>Bloquer</Text>
+              </PressTap>
+              {reported ? (
+                <View style={styles.reportRow}>
+                  <AppIcon name="check" size={12} color="rgba(255,255,255,0.45)" />
+                  <Text style={styles.reportDone}>Signalé, merci</Text>
+                </View>
+              ) : (
+                <PressTap
+                  tapScale={0.96}
+                  hitSlop={8}
+                  onHapticIn={haptic.light}
+                  onPress={onOpenReport}
+                  containerStyle={styles.reportRow}
+                  accessibilityLabel="Signaler ce mix"
+                >
+                  <AppIcon name="flag" size={12} color="rgba(255,255,255,0.45)" />
+                  <Text style={styles.reportLink}>Signaler</Text>
+                </PressTap>
+              )}
+            </View>
           )}
         </>
       )}
@@ -299,7 +338,9 @@ function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine, launc
   const [reloadKey, setReloadKey] = useState(0);
   const [reportedIds, setReportedIds] = useState(() => new Set());
   const [reportingId, setReportingId] = useState(null);
+  const [blockingId, setBlockingId] = useState(null);
   const [removingId, setRemovingId] = useState(null);
+  const blocks = useBlockedUsers();
   // Mix dont on lit les commentaires : la vue remplace la liste (jamais une
   // deuxième feuille par-dessus celle-ci).
   const [commentsItem, setCommentsItem] = useState(null);
@@ -435,10 +476,19 @@ function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine, launc
     // Un seul chemin pour enregistrer (lib/mixes.js receiveMix) : un mix déjà
     // enregistré n'est jamais ajouté une deuxième fois ; `update: true` = la
     // personne a touché « Mettre à jour », la mise à jour est alors appliquée.
+    // Mon propre mix publié, repris du fil : il reste dans MES créations (`own`),
+    // jamais rangé avec les mix des autres.
+    const mine = item.ownerId === userId;
     const res = await receiveMix(
-      { ...mix, fromFeed: { author: item.author, feedId: item.id } },
+      mine
+        ? { ...mix, own: true, publishedId: item.id }
+        : { ...mix, fromFeed: { author: item.author, feedId: item.id } },
       { update: true }
     );
+    if (res.status === 'limit') {
+      haptic.warning();
+      return;
+    }
     if (res.status === 'same') {
       haptic.warning();
       showToast({ text: 'Déjà dans Mes mix.', icon: 'check' });
@@ -453,7 +503,33 @@ function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine, launc
       promptLogin('Connecte-toi pour signaler un mix.');
       return;
     }
+    setBlockingId(null);
     setReportingId(item.id);
+  };
+
+  // Bloquer un auteur : ses mix quittent le fil, ses commentaires se replient.
+  const handleOpenBlock = (item) => {
+    if (!userId) {
+      promptLogin('Connecte-toi pour bloquer un auteur.');
+      return;
+    }
+    setReportingId(null);
+    setBlockingId(item.id);
+  };
+
+  const handleBlock = async (item) => {
+    setBlockingId(null);
+    const res = await blocks.block(item.ownerId, item.author);
+    if (!res.ok) {
+      haptic.error();
+      showToast({
+        text: res.reason === 'unavailable' ? "Le blocage n'est pas encore ouvert." : 'Impossible de bloquer, réessaie.',
+        icon: 'close',
+      });
+      return;
+    }
+    haptic.warning();
+    showToast({ text: `${item.author || 'Cet auteur'} est bloqué. Liste dans Paramètres.`, icon: 'check' });
   };
 
   const handleReport = async (item, reason) => {
@@ -563,6 +639,13 @@ function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine, launc
     setTimeout(close, 450);
   };
 
+  // Les mix des auteurs que j'ai bloqués ne s'affichent plus (jamais dans « Mes
+  // publications » : ce sont les miens).
+  const visibleItems = useMemo(
+    () => (mine ? items : items.filter((i) => !blocks.isBlocked(i.ownerId))),
+    [items, mine, blocks]
+  );
+
   if (commentsItem) {
     return (
       <MixCommentsView
@@ -632,7 +715,7 @@ function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine, launc
 
       <View style={styles.sortRow}>
         <Text style={styles.countText}>
-          {status === 'ok' ? `${items.length} MIX` : ' '}
+          {status === 'ok' ? `${visibleItems.length} MIX` : ' '}
         </Text>
         {!mine && (
           <View style={styles.sorts}>
@@ -694,7 +777,7 @@ function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine, launc
             <Button variant="glass" size="sm" label="Connexion" onPress={goLogin} style={{ marginTop: 12 }} />
           </View>
         )}
-        {status === 'ok' && items.length === 0 && (
+        {status === 'ok' && visibleItems.length === 0 && (
           <View style={styles.stateBox}>
             <AppIcon name="mix" size={22} color="rgba(255,255,255,0.45)" />
             <Text style={styles.stateTitle}>{mine ? "Tu n'as rien publié" : "Rien ici pour l'instant"}</Text>
@@ -708,7 +791,7 @@ function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine, launc
           </View>
         )}
         {status === 'ok' &&
-          items.map((item) => (
+          visibleItems.map((item) => (
             <FeedCard
               key={item.id}
               item={item}
@@ -717,6 +800,7 @@ function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine, launc
               savedState={savedStates[item.id] ?? null}
               reported={reportedIds.has(item.id)}
               reporting={reportingId === item.id}
+              blocking={blockingId === item.id}
               removing={removingId === item.id}
               commentCount={commentCounts[item.id] ?? 0}
               onOpenComments={() => {
@@ -734,6 +818,9 @@ function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine, launc
               onOpenReport={() => handleOpenReport(item)}
               onCancelReport={() => setReportingId(null)}
               onReport={(reason) => handleReport(item, reason)}
+              onOpenBlock={() => handleOpenBlock(item)}
+              onCancelBlock={() => setBlockingId(null)}
+              onConfirmBlock={() => handleBlock(item)}
             />
           ))}
       </ScrollView>
@@ -958,6 +1045,16 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#FFFFFF',
   },
+  cardNameRow: { flexDirection: 'row', alignItems: 'center' },
+  cardNameText: { flexShrink: 1 },
+  cardBar: { marginRight: 8 },
+  cardNote: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 11.5,
+    lineHeight: 15,
+    color: 'rgba(255,255,255,0.50)',
+    marginTop: 4,
+  },
   cardAuthor: {
     fontFamily: fonts.sansMedium,
     fontSize: 12,
@@ -1034,6 +1131,13 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-end',
     gap: 6,
     marginTop: 10,
+  },
+  // Bloquer / Signaler : côte à côte, à droite de la carte.
+  modRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 18,
   },
   reportLink: {
     fontFamily: fonts.sansBold,

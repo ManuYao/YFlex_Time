@@ -19,6 +19,7 @@ import { useCooldown } from '../hooks/useCooldown';
 import { usePremium } from '../hooks/usePremium';
 import { useMixLauncher } from '../hooks/useMixLauncher';
 import { haptic } from '../hooks/useHaptic';
+import { goBackSafe } from '../lib/navigation';
 import { fonts } from '../lib/fonts';
 import { D, slideInY } from '../lib/animations';
 import { getBlockType, getBlockDuration, getMixTotalDuration, hasEstimatedDuration } from '../lib/mix-blocks';
@@ -108,10 +109,12 @@ export default function MixHub() {
       return;
     }
     const res = await receiveMix(ownedCopy, { update: true });
+    if (res.status === 'limit') return;
     await saveCurrentMix(res.entry);
   };
 
-  const openShare = (tab, mix) => {
+  // `focus` = 'publish' : la feuille s'ouvre sur « Publier dans le fil public ».
+  const openShare = (tab, mix, focus = null) => {
     // L'onglet « Envoyer » d'un mix qui n'est pas à moi n'existe pas ; « Recevoir »
     // reste ouvert (on y colle un lien, ça ne partage rien).
     if (tab === 'send' && mix?.isPreview) {
@@ -119,7 +122,7 @@ export default function MixHub() {
       return;
     }
     haptic.light();
-    setSheet({ type: 'share', tab, mix });
+    setSheet({ type: 'share', tab, mix, focus });
   };
 
   // « Tester » depuis le fil public : le mix devient le MIX courant, la carte
@@ -152,7 +155,7 @@ export default function MixHub() {
           <IconButton
             icon="back"
             haptic={haptic.light}
-            onPress={() => router.back()}
+            onPress={() => goBackSafe(router)}
             accessibilityLabel="Retour"
           />
           <Text style={styles.topTitle}>Mix et Partage</Text>
@@ -272,7 +275,7 @@ export default function MixHub() {
               delay={130}
               icon="globe"
               title="Fil public"
-              summary="Les mix de la communauté"
+              summary="Teste ou enregistre les mix des autres sportifs"
               onPress={() => {
                 haptic.light();
                 setSheet('feed');
@@ -290,10 +293,22 @@ export default function MixHub() {
               icon="share"
               title="Envoyer mon mix"
               summary={
-                notOwned ? "Enregistre d'abord ce mix : il sera à toi" : 'Par lien, ou dans le fil public'
+                notOwned ? "Enregistre d'abord ce mix : il sera à toi" : 'Un lien à coller à un ami, sans compte'
               }
               muted={notOwned}
               onPress={() => openShare('send', currentMix)}
+            />
+            {/* Règle des trois fois : publier a son entrée à part, qui dit ce
+                qu'elle fait (avant, il fallait deviner « Envoyer »). */}
+            <Tile
+              delay={255}
+              icon="globe"
+              title="Publier mon mix"
+              summary={
+                notOwned ? "Enregistre d'abord ce mix : il sera à toi" : 'Mets-le dans le fil public pour la communauté'
+              }
+              muted={notOwned}
+              onPress={() => openShare('send', currentMix, 'publish')}
             />
             {/* Ce que j'ai publié : modifier, tester, retirer — sans passer par
                 la suppression du compte (v16.3.0). */}
@@ -326,9 +341,12 @@ export default function MixHub() {
               <View style={styles.planningText}>
                 <Text style={styles.planningTitle}>Depuis ton planning</Text>
                 <Text style={styles.planningSub}>
-                  Maintiens un bloc 2 s : il devient un MIX prêt à lancer.
+                  {isPremium
+                    ? 'Maintiens un bloc 2 s : il devient un MIX prêt à lancer.'
+                    : 'Organise ta semaine. Lancer un bloc en MIX d\'un maintien : Premium.'}
                 </Text>
               </View>
+              {!isPremium && <AppIcon name="crown" size={14} color="#F0C954" />}
               <Text style={styles.chevron}>›</Text>
             </PressTap>
           </Animated.View>
@@ -353,7 +371,7 @@ export default function MixHub() {
           }}
           onShare={(m) => setSheet({ type: 'share', tab: 'send', mix: m })}
           hint="Tap = en faire ton MIX · croix = supprimer"
-          emptyText="Aucun mix enregistré. Dans le constructeur, maintiens « Enregistrer » 2 s pour en archiver un."
+          emptyText="Aucun mix enregistré. Dans le constructeur, maintiens « Enregistrer » 3 s pour en ajouter un à Mes mix."
         />
       )}
 
@@ -362,6 +380,7 @@ export default function MixHub() {
           screenH={screenH}
           mix={sheet.mix}
           initialTab={sheet.tab}
+          initialFocus={sheet.focus}
           onClose={() => setSheet(null)}
           onOpenFeed={() => setSheet('feed')}
         />

@@ -11,20 +11,24 @@ import MixPill from '../components/common/MixPill';
 import ModeStatsSheet from '../components/common/ModeStatsSheet';
 import DisciplineSheet from '../components/common/DisciplineSheet';
 import MixPublicSheet from '../components/common/MixPublicSheet';
-import ShareRecapSheet from '../components/common/ShareRecapSheet';
+import MixShareSheet from '../components/common/MixShareSheet';
 import ConfirmSheet from '../components/common/ConfirmSheet';
 import PseudoSheet from '../components/common/PseudoSheet';
+import BodyWeightSheet from '../components/common/BodyWeightSheet';
 import ProfileSkeleton from '../components/screens/ProfileSkeleton';
 import ProfileHeader from '../components/screens/ProfileHeader';
 import ProfileAccount from '../components/screens/ProfileAccount';
 import ProfileAnalytics from '../components/screens/ProfileAnalytics';
+import ProfileWeight from '../components/screens/ProfileWeight';
 import ProfileMixShare from '../components/screens/ProfileMixShare';
 import ProfileGamification from '../components/screens/ProfileGamification';
+import ProfileSeasonRow from '../components/screens/ProfileSeasonRow';
 import { useTimers } from '../contexts/TimersContext';
 import { useAuth } from '../contexts/AuthContext';
 import { usePremium } from '../hooks/usePremium';
 import { useScreenReady } from '../hooks/useScreenReady';
 import { haptic } from '../hooks/useHaptic';
+import { goBackSafe } from '../lib/navigation';
 import { fonts } from '../lib/fonts';
 import { getBadgeProgress } from '../lib/badges';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -38,6 +42,7 @@ import {
 } from '../lib/profile';
 import { computeProfileStats } from '../lib/profileStats';
 import { loadHistory } from '../lib/history';
+import { loadBodyWeights, addBodyWeight, removeBodyWeight } from '../lib/bodyWeight';
 import { claimPseudo, PSEUDO_TAKEN_TEXT } from '../lib/pseudos';
 
 /**
@@ -51,7 +56,7 @@ export default function Profile() {
   // premier affichage d'un écran, la page « montait » puis redescendait.
   const insets = useSafeAreaInsets();
   const { height: screenH } = useWindowDimensions();
-  const { timers } = useTimers();
+  const { timers, currentMix, library } = useTimers();
   const { isPremium, loaded: premiumLoaded } = usePremium();
   const { user, signOut, updateDisplayName, hydrated: authHydrated } = useAuth();
   const blurTargetRef = useRef(null);
@@ -60,11 +65,16 @@ export default function Profile() {
   const [sessions, setSessions] = useState([]);
   const [disciplineSheet, setDisciplineSheet] = useState(false);
   const [publicMixSheet, setPublicMixSheet] = useState(false);
+  // Mix proposé à la publication depuis le Profil (null = feuille fermée).
+  const [publishMixSheet, setPublishMixSheet] = useState(null);
   const [feedRefresh, setFeedRefresh] = useState(0);
   const [statsTimerId, setStatsTimerId] = useState(null);
-  const [shareSheet, setShareSheet] = useState(false);
   const [logoutConfirm, setLogoutConfirm] = useState(false);
   const [pseudoSheet, setPseudoSheet] = useState(null); // null | 'edit' | 'welcome' | 'taken'
+  // Suivi du poids (local) : lu avec le reste, pour que la hauteur de la page
+  // soit connue avant de montrer le contenu (voir ProfileSkeleton).
+  const [weights, setWeights] = useState([]);
+  const [weightSheet, setWeightSheet] = useState(false);
   const nameSyncedForRef = useRef(null);
 
   // Chargement en deux temps : un SQUELETTE d'abord (blocs gris qui respirent),
@@ -95,10 +105,11 @@ export default function Profile() {
     React.useCallback(() => {
       let cancelled = false;
       (async () => {
-        const [prof, hist] = await Promise.all([loadProfile(), loadHistory()]);
+        const [prof, hist, kgs] = await Promise.all([loadProfile(), loadHistory(), loadBodyWeights()]);
         if (cancelled) return;
         setProfile(prof);
         setSessions(hist);
+        setWeights(kgs);
         setDataLoaded(true);
       })();
       return () => {
@@ -163,6 +174,22 @@ export default function Profile() {
     return { ok: true };
   };
 
+  // « Publier un de mes mix » (règle des trois fois) : on propose le MIX courant,
+  // sinon le premier mix enregistré qui a des blocs (la feuille permet d'en
+  // choisir un autre). Rien à publier → la page Mix et Partage, qui propose d'en
+  // créer un. Un aperçu venu du fil n'est pas à moi : jamais proposé.
+  const handlePublishMix = () => {
+    const candidate =
+      currentMix?.blocks?.length && !currentMix.isPreview
+        ? currentMix
+        : library.find((m) => m.blocks?.length) || null;
+    if (!candidate) {
+      router.push('/mix-hub');
+      return;
+    }
+    setPublishMixSheet(candidate);
+  };
+
   // Calculer les vraies stats — seulement une fois l'écran prêt : ce calcul
   // parcourt tout l'historique, il n'a pas à se jouer pendant la transition.
   const stats = useMemo(
@@ -209,7 +236,7 @@ export default function Profile() {
               <IconButton
                 icon="back"
                 haptic={haptic.light}
-                onPress={() => router.back()}
+                onPress={() => goBackSafe(router)}
                 accessibilityLabel="Retour"
               />
               <Text style={styles.topTitle}>Profil</Text>
@@ -244,17 +271,33 @@ export default function Profile() {
                 onAccountPress={() => setLogoutConfirm(true)}
                 accountSlot={<ProfileAccount />}
               />
-              <ProfileAnalytics stats={stats} isPremium={isPremium} onGoPremium={() => router.push('/premium')} />
+              <ProfileAnalytics
+                stats={stats}
+                isPremium={isPremium}
+                onGoPremium={() => router.push('/premium')}
+                onOpenAnalysis={() => router.push('/analysis')}
+                weightSlot={
+                  <ProfileWeight
+                    entries={weights}
+                    onAdd={() => setWeightSheet(true)}
+                    onRemove={async (id) => setWeights(await removeBodyWeight(id))}
+                  />
+                }
+              />
               <ProfileMixShare
                 onOpenPublic={() => setPublicMixSheet(true)}
                 onOpenHub={() => router.push('/mix-hub')}
+                onPublish={handlePublishMix}
                 refreshKey={feedRefresh}
+              />
+              <ProfileSeasonRow
+                sessions={sessions}
+                onOpen={(key) => router.push({ pathname: '/season-recap', params: { key } })}
               />
               <ProfileGamification
                 badgeCounts={stats.badgeCounts}
                 hasData={stats.hasData}
                 onOpenModeStats={setStatsTimerId}
-                onShare={() => setShareSheet(true)}
               />
               </Animated.View>
               )}
@@ -263,7 +306,7 @@ export default function Profile() {
             {/* Squelette par-dessus, il s'efface en fondu puis se retire. */}
             {!skeletonGone && (
               <Animated.View style={[styles.skeletonLayer, skeletonStyle]} pointerEvents="none">
-                <ProfileSkeleton showAccount={!user} />
+                <ProfileSkeleton showAccount={!user} weightCount={weights.length} />
               </Animated.View>
             )}
             </View>
@@ -278,6 +321,14 @@ export default function Profile() {
           value={profile?.disciplineIds ?? []}
           onChange={handleDisciplinesChange}
           onClose={() => setDisciplineSheet(false)}
+        />
+      )}
+      {weightSheet && (
+        <BodyWeightSheet
+          screenH={screenH}
+          entries={weights}
+          onSubmit={async (kg) => setWeights(await addBodyWeight(kg))}
+          onClose={() => setWeightSheet(false)}
         />
       )}
       {pseudoSheet && (
@@ -299,15 +350,16 @@ export default function Profile() {
           }}
         />
       )}
-      {shareSheet && stats.hasData && (
-        <ShareRecapSheet
+      {publishMixSheet && (
+        <MixShareSheet
           screenH={screenH}
-          sessions={sessions}
-          timers={timers}
-          badgeCounts={stats.badgeCounts}
-          lastSession={stats.lastSession}
-          identity={{ pseudo: identity.pseudo, initials: identity.initials }}
-          onClose={() => setShareSheet(false)}
+          mix={publishMixSheet}
+          initialFocus="publish"
+          onClose={() => {
+            setPublishMixSheet(null);
+            setFeedRefresh((k) => k + 1);
+          }}
+          onOpenFeed={() => setPublicMixSheet(true)}
         />
       )}
       {statsTimer && (
