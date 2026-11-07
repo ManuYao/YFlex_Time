@@ -49,7 +49,7 @@ import { haptic, setHapticStrength } from '../hooks/useHaptic';
 import { playDenied, playSound, previewVolumeTap } from '../lib/sounds';
 import { detectVoices } from '../lib/voiceCoach';
 import { RAIN_OPTIONS, RAIN_SUBS } from '../lib/rainMode';
-import { goBackSafe } from '../lib/navigation';
+import { goBackSafe, goHomeClean } from '../lib/navigation';
 import { fonts } from '../lib/fonts';
 import { DANGER, ROUND_SIZE } from '../lib/buttonTokens';
 
@@ -112,6 +112,8 @@ export default function Settings() {
   // ici accessible à tout moment depuis la ligne "Version".
   const [updateSheet, setUpdateSheet] = useState(null);
   const [contactSheet, setContactSheet] = useState(false);
+  // Ligne « Tutoriel » dépliante (À propos) : repliée par défaut.
+  const [tutorialsOpen, setTutorialsOpen] = useState(false);
   const [resetConfirm, setResetConfirm] = useState(false);
   // Suppression du compte en ligne (section « Compte », visible seulement si
   // on est connecté).
@@ -273,6 +275,10 @@ export default function Settings() {
         'flexTimer_coachNudge',
         // Alerte « ambiance de saison » (lib/seasonNudge.js) : redevient proposable.
         'flexTimer_seasonNudge',
+        // Proposition « Essaie les jeux » (lib/gamesNudge.js) : repart de zéro après un reset.
+        'flexTimer_gamesNudge',
+        // Astuce du maintien du cercle (lib/holdTip.js) : redevient à montrer.
+        'flexTimer_holdTip',
         // Bulles d'explication du menu (lib/hubTips.js) : redeviennent à montrer.
         'flexTimer_hubTips',
         // Tutoriel de démarrage (lib/tutorial.js) : après un reset la personne
@@ -291,6 +297,11 @@ export default function Settings() {
         'flexTimer_gamePyramidScores',
         'flexTimer_gameComboScores',
         'flexTimer_gameComboSetup',
+        // « Noter mon exercice » des jeux (lib/gameExercisesStore.js) : exercices ajoutés
+        // à la main et bulle d'explication de la première partie.
+        'flexTimer_gameExercises',
+        'flexTimer_gameTagTip',
+        'flexTimer_gameTagTip2',
       ]);
     } catch {}
     // Le cache mémoire des catégories perso survivrait à la purge du
@@ -610,14 +621,58 @@ export default function Settings() {
               subPrefix={pending ? <ModeDots /> : null}
               onPress={() => setUpdateSheet(updateCandidate?.mode || 'info')}
             />
-            <LinkRow
-              label="Revoir le tutoriel"
-              sub="Le tour guidé, en une minute"
+            {/* Tutoriel : une seule ligne qui se déplie, pour ne pas allonger l'écran. Chaque entrée
+                relance À LA MAIN un tutoriel ou une astuce, sans rien enregistrer (les vraies
+                propositions viendront encore). Les aperçus passent par `preview` de app/home.js. */}
+            <ExpandRow
+              label="Tutoriel"
+              sub="Revoir les tours et les astuces"
+              open={tutorialsOpen}
               onPress={() => {
                 haptic.light();
-                router.push({ pathname: '/tutorial', params: { step: 'menu' } });
+                setTutorialsOpen((v) => !v);
               }}
             />
+            {tutorialsOpen && (
+              <>
+                <LinkRow
+                  nested
+                  label="Le tour de l'accueil"
+                  sub="Les bases, en une minute"
+                  onPress={() => {
+                    haptic.light();
+                    router.push({ pathname: '/tutorial', params: { step: 'menu' } });
+                  }}
+                />
+                <LinkRow
+                  nested
+                  label="Le maintien du cercle"
+                  sub="Voir les trophées et les infos d'un chrono"
+                  onPress={() => {
+                    haptic.light();
+                    goHomeClean(router, { preview: 'hold' });
+                  }}
+                />
+                <LinkRow
+                  nested
+                  label="Les jeux"
+                  sub="La proposition pour les découvrir"
+                  onPress={() => {
+                    haptic.light();
+                    goHomeClean(router, { preview: 'games' });
+                  }}
+                />
+                <LinkRow
+                  nested
+                  label="Noter l'exercice d'un score"
+                  sub="Le maintien d'un score, dans les jeux"
+                  onPress={() => {
+                    haptic.light();
+                    router.push({ pathname: '/game-pyramid', params: { demo: '1' } });
+                  }}
+                />
+              </>
+            )}
             <LinkRow label="Conditions d'utilisation" onPress={() => router.push('/terms')} />
             <LinkRow label="Politique de confidentialité" onPress={() => router.push('/privacy')} />
             <LinkRow
@@ -769,6 +824,7 @@ function ModeDots() {
 
 // `leading` : un élément posé avant le texte (icône de ligne) ; `accessibilityLabel`
 // : lecture d'écran de toute la ligne quand le libellé seul ne suffit pas.
+// `nested` : entrée d'une ligne dépliante (ExpandRow), légèrement décalée et plus claire.
 function LinkRow({
   label,
   sub,
@@ -779,6 +835,7 @@ function LinkRow({
   isLast,
   disabled,
   leading,
+  nested,
   accessibilityLabel,
 }) {
   return (
@@ -788,6 +845,7 @@ function LinkRow({
       accessibilityLabel={accessibilityLabel}
       style={({ pressed }) => [
         styles.row,
+        nested && styles.rowNested,
         !isLast && styles.rowBorder,
         disabled && { opacity: 0.4 },
         pressed && !disabled && { opacity: 0.6 },
@@ -807,6 +865,29 @@ function LinkRow({
           ))}
       </View>
       <Text style={styles.chevron}>›</Text>
+    </Pressable>
+  );
+}
+
+// Ligne qui se déplie : même allure que LinkRow, la flèche se tourne vers le bas quand elle est
+// ouverte. Ses entrées sont posées juste dessous par l'appelant (LinkRow `nested`).
+function ExpandRow({ label, sub, open, onPress, isLast }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ expanded: !!open }}
+      style={({ pressed }) => [
+        styles.row,
+        !isLast && styles.rowBorder,
+        pressed && { opacity: 0.6 },
+      ]}
+    >
+      <View style={styles.rowText}>
+        <Text style={styles.rowLabel}>{label}</Text>
+        {!!sub && <Text style={styles.rowSub}>{sub}</Text>}
+      </View>
+      <Text style={[styles.chevron, open && styles.chevronOpen]}>›</Text>
     </Pressable>
   );
 }
@@ -1073,6 +1154,15 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansBold,
     fontSize: 18,
     color: 'rgba(255,255,255,0.30)',
+  },
+  // Ligne dépliée : la flèche pointe vers le bas.
+  chevronOpen: {
+    transform: [{ rotate: '90deg' }],
+  },
+  // Entrée d'une ligne dépliante : décalée vers la droite, fond un peu plus clair.
+  rowNested: {
+    paddingLeft: 30,
+    backgroundColor: 'rgba(255,255,255,0.03)',
   },
 
   diagBox: {

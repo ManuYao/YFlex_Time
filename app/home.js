@@ -60,6 +60,12 @@ import BadgeUnlockSheet from '../components/common/BadgeUnlockSheet';
 import CoachNudgeSheet from '../components/common/CoachNudgeSheet';
 import SeasonNudgeSheet from '../components/common/SeasonNudgeSheet';
 import { loadSeasonNudgeSeen, markSeasonNudgeSeen, shouldShowSeasonNudge } from '../lib/seasonNudge';
+import GamesNudgeSheet from '../components/common/GamesNudgeSheet';
+import { markGamesNudgeSeen, noteGamesNudgeLaunch } from '../lib/gamesNudge';
+import { shouldShowGamesNudge } from '../lib/gamesNudgeShape';
+import { isGameSession } from '../lib/gameHistoryShape';
+import { loadHoldTip, markHoldTipSeen } from '../lib/holdTip';
+import { HOLD_TOUR_STEPS, shouldShowHoldTip } from '../lib/holdTipShape';
 import TutorialInviteSheet from '../components/common/TutorialInviteSheet';
 import ModePickerSheet from '../components/common/ModePickerSheet';
 import ConfirmSheet from '../components/common/ConfirmSheet';
@@ -275,6 +281,8 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   const [ringRect, setRingRect] = useState(null);
   // Rangée de réglages de la carte active : zone éclairée par les bulles du tour guidé.
   const statsRef = useRef(null);
+  // Bouton Profil du haut : zone éclairée par la 2ᵉ bulle de l'astuce du maintien.
+  const profileRef = useRef(null);
   const { timers, updateStat, hydrated } = useTimers();
   const { settings, update: updateSetting } = useSettings();
   const { getStatus: getCooldownStatusRaw } = useCooldown();
@@ -396,6 +404,8 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   // Alerte unique « ambiance de saison » (lib/seasonNudge.js) : conseille de la
   // désactiver sur un téléphone moins puissant.
   const [showSeasonNudge, setShowSeasonNudge] = useState(false);
+  // Proposition « Essaie les jeux » (lib/gamesNudge.js) : dernière de la file de démarrage.
+  const [showGamesNudge, setShowGamesNudge] = useState(false);
   // Lu par handleScrollBeginDrag (callback stable, sans dépendance) pour
   // savoir si un swipe doit interrompre la popup — jamais lu par un render.
   const showCoachNudgeRef = useRef(false);
@@ -410,8 +420,14 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   // régler, lancer), sans rien lancer. 'off' | 'wait' (on laisse les animations
   // d'entrée finir) | 'on'. Déclenché par « C'est parti » du pop-up ci-dessus ou
   // par le paramètre `tour=1` (Paramètres › Revoir le tutoriel, via /tutorial).
-  const { tour: tourParam } = useLocalSearchParams();
+  const { tour: tourParam, preview: previewParam } = useLocalSearchParams();
   const [tourPhase, setTourPhase] = useState(tourParam === '1' ? 'wait' : 'off');
+  // Quelle visite en bulles : 'intro' = le tutoriel de démarrage, 'hold' = l'astuce du maintien
+  // (lib/holdTipShape.js : maintenir le cercle d'un chrono pour voir ses trophées).
+  const [tourKind, setTourKind] = useState('intro');
+  // Vrai quand une proposition est ouverte en APERÇU depuis les Paramètres (`preview=…`) : rien
+  // n'est alors enregistré comme « vu », elle pourra encore venir pour de vrai.
+  const previewRef = useRef(false);
   useEffect(() => {
     if (tourParam === '1') setTourPhase((p) => (p === 'off' ? 'wait' : p));
   }, [tourParam]);
@@ -420,6 +436,22 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
     const timer = setTimeout(() => setTourPhase('on'), 1300);
     return () => clearTimeout(timer);
   }, [tourPhase, hydrated]);
+  // Aperçus à la demande, ouverts depuis Paramètres › À propos › Tutoriel (`preview=games|hold`) :
+  // la personne relance elle-même une proposition ou une astuce, sans rien enregistrer.
+  useEffect(() => {
+    if (!hydrated || !previewParam) return undefined;
+    const timer = setTimeout(() => {
+      previewRef.current = true;
+      if (previewParam === 'games') {
+        setShowGamesNudge(true);
+      } else if (previewParam === 'hold') {
+        setTourKind('hold');
+        setTourPhase('wait');
+      }
+      router.setParams({ preview: undefined });
+    }, 700);
+    return () => clearTimeout(timer);
+  }, [previewParam, hydrated, router]);
 
   // Séance interrompue au dernier lancement (batterie vide, plantage) :
   // récupérée depuis le brouillon (lib/sessionDraft.js), annoncée par un petit
@@ -474,7 +506,12 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   const overlayBusyRef = useRef(false);
   overlayBusyRef.current =
     isLaunching || statsOpen || !!picker || badgeQueue.length > 0 || !!primerLaunch ||
-    showCoachNudge || showSeasonNudge || showTutorialInvite || modePickerOpen || tourPhase !== 'off';
+    showCoachNudge || showSeasonNudge || showGamesNudge || showTutorialInvite || modePickerOpen || tourPhase !== 'off';
+
+  // Compte cette ouverture de l'app pour la proposition des jeux (une fois par démarrage).
+  useEffect(() => {
+    noteGamesNudgeLaunch();
+  }, []);
 
   useEffect(() => {
     shouldShowPermissionPrimer('firstSession').then((due) => {
@@ -595,6 +632,30 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
         if (cancelled || overlayBusyRef.current) return;
         if (shouldShowCoachNudge({ seen: coachSeen, voiceCoachEnabled: settings.voiceCoach, totalRuns })) {
           setShowCoachNudge(true);
+          return;
+        }
+
+        // Jeux — tout dernier de la file : 5ᵉ ouverture pour une nouvelle personne, à partir du
+        // 15/11/2026 pour les testeurs déjà installés (règle dans lib/gamesNudgeShape.js). Jamais
+        // pour quelqu'un qui a déjà joué à un jeu.
+        const gamesState = await noteGamesNudgeLaunch();
+        const history = await loadHistory();
+        const gamesPlayed = history.some(isGameSession);
+        if (cancelled || overlayBusyRef.current) return;
+        if (shouldShowGamesNudge({ state: gamesState, gamesPlayed })) {
+          setShowGamesNudge(true);
+          return;
+        }
+
+        // Astuce du maintien — après les jeux, donc à la première ouverture libre une fois les 3
+        // séances faites (règle dans lib/holdTipShape.js). Séances de chrono seulement : les
+        // parties de jeu et les séances annulées ne comptent pas.
+        const holdState = await loadHoldTip();
+        const sessionsDone = history.filter((s) => s?.timerId && !s.pendingDelete && !isGameSession(s)).length;
+        if (cancelled || overlayBusyRef.current) return;
+        if (shouldShowHoldTip({ state: holdState, sessions: sessionsDone, newUser: gamesState.newUser })) {
+          setTourKind('hold');
+          setTourPhase('wait');
         }
       }, PROGRESSION_DELAY_MS);
     });
@@ -741,6 +802,14 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
     ({ reason, index }) => {
       stopTourCycle();
       setTourPhase('off');
+      // Astuce du maintien : quelle que soit la sortie (Compris, Passer, retour), on ne la remontre
+      // plus — sauf en aperçu depuis les Paramètres, où rien n'est enregistré.
+      if (tourKind === 'hold') {
+        setTourKind('intro');
+        if (previewRef.current) previewRef.current = false;
+        else markHoldTipSeen();
+        return;
+      }
       // Le paramètre est retiré pour qu'un prochain « Revoir le tutoriel » rejoue les bulles.
       if (tourParam === '1') router.setParams({ tour: undefined });
       if (reason === 'skip' && index === 0) {
@@ -752,13 +821,13 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
         markTutorialOutcome('done1');
       }
     },
-    [router, tourParam, stopTourCycle]
+    [router, tourParam, tourKind, stopTourCycle]
   );
 
   // Rectangle d'une zone du tour, en coordonnées de fenêtre ; null si elle n'est
   // pas à l'écran (fenêtre réduite : la bulle correspondante est sautée).
-  const measureTourTarget = useCallback((id) => {
-    const node = (id === 'ring' ? ringRef : id === 'stats' ? statsRef : ctaRef).current;
+  const measureTourOnce = useCallback((id) => {
+    const node = (id === 'ring' ? ringRef : id === 'stats' ? statsRef : id === 'profile' ? profileRef : ctaRef).current;
     return new Promise((resolve) => {
       if (!node?.measureInWindow) {
         resolve(null);
@@ -769,6 +838,31 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
       });
     });
   }, []);
+  // Les éléments du haut et du bas (étiquette, boutons, Lancer) se « révèlent » en glissant de
+  // quelques points chaque fois que le carrousel se repose (useChromeReveal) : mesurés en pleine
+  // révélation, l'éclairage tombait trop haut ou trop bas. On re-mesure donc jusqu'à ce que la
+  // position ne bouge plus (au plus 2,5 s), quelle que soit la taille de l'écran.
+  const measureTourTarget = useCallback(
+    async (id) => {
+      let prev = await measureTourOnce(id);
+      if (!prev) return null;
+      const t0 = Date.now();
+      while (Date.now() - t0 < 2500) {
+        await new Promise((resolve) => setTimeout(resolve, 90));
+        const cur = await measureTourOnce(id);
+        if (!cur) return prev;
+        const still =
+          Math.abs(cur.x - prev.x) < 0.5 &&
+          Math.abs(cur.y - prev.y) < 0.5 &&
+          Math.abs(cur.width - prev.width) < 0.5 &&
+          Math.abs(cur.height - prev.height) < 0.5;
+        prev = cur;
+        if (still) return cur;
+      }
+      return prev;
+    },
+    [measureTourOnce]
+  );
 
   // Alerte « ambiance de saison » : marquée vue à la fermeture (quel que soit le
   // chemin), « Désactiver » coupe l'ambiance tout de suite.
@@ -779,6 +873,21 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   const handleSeasonNudgeDisable = useCallback(() => {
     updateSetting('ambianceMode', 'none');
   }, [updateSetting]);
+
+  // Proposition des jeux : marquée vue à la fermeture (quel que soit le chemin) ; « Voir les jeux »
+  // ouvre en plus le menu des jeux.
+  const handleGamesNudgeClose = useCallback(() => {
+    setShowGamesNudge(false);
+    // Aperçu depuis les Paramètres : rien n'est enregistré, la vraie proposition viendra encore.
+    if (previewRef.current) {
+      previewRef.current = false;
+      return;
+    }
+    markGamesNudgeSeen();
+  }, []);
+  const handleGamesNudgeOpen = useCallback(() => {
+    router.push('/games');
+  }, [router]);
 
   // onClose couvre tout chemin de fermeture de CoachNudgeSheet (voile, retour
   // Android, "Plus tard", "Activer" — close() le déclenche toujours, voir le
@@ -1093,6 +1202,8 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
 
   const handleOpenStats = useCallback(() => {
     setStatsOpen(true);
+    // Elle a trouvé toute seule le maintien du cercle : l'astuce ne lui sert plus.
+    markHoldTipSeen();
   }, []);
 
   const handleGoPremium = useCallback(() => {
@@ -1175,6 +1286,7 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
               tag={active.tag}
               tokens={t}
               tone={active.textMode}
+              profileRef={profileRef}
               onProfile={() => router.push('/profile')}
               onHub={() => router.push('/hub')}
               onTapHaptic={haptic.light}
@@ -1306,11 +1418,11 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
           avale tous les appuis : rien ne se lance, rien ne se règle pendant le tour. */}
       {tourPhase === 'on' && (
         <SpotlightTips
-          steps={HOME_TOUR_STEPS}
+          steps={tourKind === 'hold' ? HOLD_TOUR_STEPS : HOME_TOUR_STEPS}
           measureTarget={measureTourTarget}
           onStepEnter={handleTourStepEnter}
           onDone={handleTourDone}
-          moreLabel="Voir la suite"
+          moreLabel={tourKind === 'hold' ? null : 'Voir la suite'}
         />
       )}
 
@@ -1330,6 +1442,14 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
           screenH={rootH}
           onDisable={handleSeasonNudgeDisable}
           onClose={handleSeasonNudgeClose}
+        />
+      )}
+
+      {showGamesNudge && (
+        <GamesNudgeSheet
+          screenH={rootH}
+          onOpen={handleGamesNudgeOpen}
+          onClose={handleGamesNudgeClose}
         />
       )}
 
@@ -1535,7 +1655,7 @@ function Ember({ id, xPct, yPct, size, drift, duration, delay, peakOpacity, colo
 /* ─────────────────────────────────────────────────────────────────
    (B+C) Top bar — status + tag central + boutons ronds
    ────────────────────────────────────────────────────────────────*/
-function TopBar({ tag, tokens, tone, onProfile, onHub, onTapHaptic, isLaunching }) {
+function TopBar({ tag, tokens, tone, profileRef, onProfile, onHub, onTapHaptic, isLaunching }) {
   // (V) Fenêtre réduite : la ligne « FLEX TIMER » n'apporte rien, elle prend
   // ~22 dp qui reviennent au bouton Lancer (voir lib/responsive.js).
   const isReducedWindow = useLayoutLevel() !== 'full';
@@ -1597,14 +1717,16 @@ function TopBar({ tag, tokens, tone, onProfile, onHub, onTapHaptic, isLaunching 
         </Animated.Text>
 
         {/* Hub Profil : les Paramètres y sont accessibles par l'engrenage. */}
-        <IconButton
-          icon="user"
-          halo="right"
-          tone={tone}
-          onPress={onProfile}
-          haptic={onTapHaptic}
-          accessibilityLabel="Profil"
-        />
+        <View ref={profileRef} collapsable={false}>
+          <IconButton
+            icon="user"
+            halo="right"
+            tone={tone}
+            onPress={onProfile}
+            haptic={onTapHaptic}
+            accessibilityLabel="Profil"
+          />
+        </View>
       </Animated.View>
     </>
   );

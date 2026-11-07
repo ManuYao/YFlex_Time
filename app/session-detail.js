@@ -9,6 +9,7 @@ import Button from '../components/common/Button';
 import IconButton from '../components/common/IconButton';
 import MixCompositionBar from '../components/common/MixCompositionBar';
 import { loadHistory, formatMixBreakdown } from '../lib/history';
+import { GAME_ROUTES, gameTagLabel, isGameSession } from '../lib/gameHistoryShape';
 import { sessionWorkSeconds } from '../lib/profileStats';
 import { formatDuration } from '../lib/formatters';
 import { goBackSafe } from '../lib/navigation';
@@ -32,6 +33,12 @@ export default function SessionDetail() {
   // Même contournement que end-session.js : ce bouton renvoyait direct vers
   // /countdown sans jamais passer par handleLaunch de Home.
   const handleReplay = async () => {
+    // Une partie de jeu se rouvre sur son jeu (gratuit, pas de quota).
+    if (isGameSession(session)) {
+      haptic.medium();
+      router.replace(GAME_ROUTES[session.game] || '/games');
+      return;
+    }
     const isPremium = await loadIsPremium();
     if (!isPremium) {
       const map = await loadCooldownMap();
@@ -71,8 +78,10 @@ export default function SessionDetail() {
   const restValue = session.restTotal > 0 ? formatDuration(session.restTotal) : '—';
   // Même règle que le temps sous tension du Profil (lib/profileStats.js).
   const workValue = formatDuration(sessionWorkSeconds(session));
-  const roundsLabel =
-    session.totalRounds && session.completedRounds != null
+  const isGame = isGameSession(session);
+  const roundsLabel = isGame
+    ? String(session.reps || 0)
+    : session.totalRounds && session.completedRounds != null
       ? `${session.completedRounds}/${session.totalRounds}`
       : '∞';
 
@@ -130,8 +139,8 @@ export default function SessionDetail() {
               </Text>
               <View style={styles.intensityRow}>
                 <View style={[styles.intensityBar, { backgroundColor: session.color }]} />
-                <Text style={[styles.intensityText, { color: session.color }]}>
-                  {session.intensity || '—'}
+                <Text style={[styles.intensityText, { color: session.color }]} numberOfLines={1}>
+                  {isGame ? gameTagLabel(session) : session.intensity || '—'}
                 </Text>
                 <View style={[styles.intensityBar, { backgroundColor: session.color }]} />
               </View>
@@ -139,7 +148,7 @@ export default function SessionDetail() {
           </View>
 
           <View style={styles.statsGrid}>
-            <StatCell label="TOURS" value={roundsLabel} color="#FFFFFF" />
+            <StatCell label={isGame ? 'RÉPÉTITIONS' : 'TOURS'} value={roundsLabel} color="#FFFFFF" />
             <StatCell label="TRAVAIL" value={workValue} color="#1FC777" />
             <StatCell label="REPOS" value={restValue} color="#4A90FF" />
           </View>
@@ -163,7 +172,7 @@ export default function SessionDetail() {
             variant="accent"
             color={session.color}
             icon="play"
-            label="Refaire la séance"
+            label={isGame ? 'Rejouer' : 'Refaire la séance'}
             onPress={handleReplay}
             style={styles.actionMain}
           />
