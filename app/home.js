@@ -60,6 +60,10 @@ import BadgeUnlockSheet from '../components/common/BadgeUnlockSheet';
 import CoachNudgeSheet from '../components/common/CoachNudgeSheet';
 import SeasonNudgeSheet from '../components/common/SeasonNudgeSheet';
 import { loadSeasonNudgeSeen, markSeasonNudgeSeen, shouldShowSeasonNudge } from '../lib/seasonNudge';
+import GamesNudgeSheet from '../components/common/GamesNudgeSheet';
+import { markGamesNudgeSeen, noteGamesNudgeLaunch } from '../lib/gamesNudge';
+import { shouldShowGamesNudge } from '../lib/gamesNudgeShape';
+import { isGameSession } from '../lib/gameHistoryShape';
 import TutorialInviteSheet from '../components/common/TutorialInviteSheet';
 import ModePickerSheet from '../components/common/ModePickerSheet';
 import ConfirmSheet from '../components/common/ConfirmSheet';
@@ -396,6 +400,8 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   // Alerte unique « ambiance de saison » (lib/seasonNudge.js) : conseille de la
   // désactiver sur un téléphone moins puissant.
   const [showSeasonNudge, setShowSeasonNudge] = useState(false);
+  // Proposition « Essaie les jeux » (lib/gamesNudge.js) : dernière de la file de démarrage.
+  const [showGamesNudge, setShowGamesNudge] = useState(false);
   // Lu par handleScrollBeginDrag (callback stable, sans dépendance) pour
   // savoir si un swipe doit interrompre la popup — jamais lu par un render.
   const showCoachNudgeRef = useRef(false);
@@ -474,7 +480,12 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   const overlayBusyRef = useRef(false);
   overlayBusyRef.current =
     isLaunching || statsOpen || !!picker || badgeQueue.length > 0 || !!primerLaunch ||
-    showCoachNudge || showSeasonNudge || showTutorialInvite || modePickerOpen || tourPhase !== 'off';
+    showCoachNudge || showSeasonNudge || showGamesNudge || showTutorialInvite || modePickerOpen || tourPhase !== 'off';
+
+  // Compte cette ouverture de l'app pour la proposition des jeux (une fois par démarrage).
+  useEffect(() => {
+    noteGamesNudgeLaunch();
+  }, []);
 
   useEffect(() => {
     shouldShowPermissionPrimer('firstSession').then((due) => {
@@ -595,6 +606,17 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
         if (cancelled || overlayBusyRef.current) return;
         if (shouldShowCoachNudge({ seen: coachSeen, voiceCoachEnabled: settings.voiceCoach, totalRuns })) {
           setShowCoachNudge(true);
+          return;
+        }
+
+        // Jeux — tout dernier de la file : 5ᵉ ouverture pour une nouvelle personne, à partir du
+        // 15/11/2026 pour les testeurs déjà installés (règle dans lib/gamesNudgeShape.js). Jamais
+        // pour quelqu'un qui a déjà joué à un jeu.
+        const gamesState = await noteGamesNudgeLaunch();
+        const gamesPlayed = (await loadHistory()).some(isGameSession);
+        if (cancelled || overlayBusyRef.current) return;
+        if (shouldShowGamesNudge({ state: gamesState, gamesPlayed })) {
+          setShowGamesNudge(true);
         }
       }, PROGRESSION_DELAY_MS);
     });
@@ -779,6 +801,16 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   const handleSeasonNudgeDisable = useCallback(() => {
     updateSetting('ambianceMode', 'none');
   }, [updateSetting]);
+
+  // Proposition des jeux : marquée vue à la fermeture (quel que soit le chemin) ; « Voir les jeux »
+  // ouvre en plus le menu des jeux.
+  const handleGamesNudgeClose = useCallback(() => {
+    setShowGamesNudge(false);
+    markGamesNudgeSeen();
+  }, []);
+  const handleGamesNudgeOpen = useCallback(() => {
+    router.push('/games');
+  }, [router]);
 
   // onClose couvre tout chemin de fermeture de CoachNudgeSheet (voile, retour
   // Android, "Plus tard", "Activer" — close() le déclenche toujours, voir le
@@ -1330,6 +1362,14 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
           screenH={rootH}
           onDisable={handleSeasonNudgeDisable}
           onClose={handleSeasonNudgeClose}
+        />
+      )}
+
+      {showGamesNudge && (
+        <GamesNudgeSheet
+          screenH={rootH}
+          onOpen={handleGamesNudgeOpen}
+          onClose={handleGamesNudgeClose}
         />
       )}
 
