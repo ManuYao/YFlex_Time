@@ -625,7 +625,7 @@ export default function Settings() {
             />
             <LinkRow
               label="Revoir l'astuce des jeux"
-              sub="La bulle de la toute première partie finie"
+              sub="La bulle qui explique le maintien d'un score"
               onPress={() => {
                 haptic.light();
                 router.push({ pathname: '/game-pyramid', params: { demo: '1' } });

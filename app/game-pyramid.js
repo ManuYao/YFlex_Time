@@ -105,11 +105,12 @@ export default function GamePyramid() {
   const router = useRouter();
   const { height } = useWindowDimensions();
   const { settings } = useSettings();
-  // Démo (Paramètres › À propos › « Revoir l'astuce des jeux ») : on arrive directement sur un
-  // résultat d'exemple, pour revoir la bulle d'explication sans jouer. Rien n'est enregistré.
+  // Démo (Paramètres › À propos › « Revoir l'astuce des jeux ») : on arrive sur le menu du jeu avec
+  // un score d'exemple tout en haut de « Mes scores » (jamais enregistré), pour revoir la bulle
+  // d'explication sans jouer.
   const isDemo = useLocalSearchParams().demo === '1';
 
-  const [phase, setPhase] = useState(isDemo ? 'done' : 'ready'); // ready | countdown | set | rest | confirm | done
+  const [phase, setPhase] = useState('ready'); // ready | countdown | set | rest | confirm | done
   const [formatId, setFormatId] = useState(DEFAULT_FORMAT);
   const [peak, setPeak] = useState(DEFAULT_PEAK);
   const [sets, setSets] = useState(() => buildSets(DEFAULT_FORMAT, DEFAULT_PEAK));
@@ -119,21 +120,24 @@ export default function GamePyramid() {
   const [restLeft, setRestLeft] = useState(0);
   const [restTotal, setRestTotal] = useState(1);
   const [scores, setScores] = useState([]);
-  const [result, setResult] = useState(
-    isDemo ? { total: 36, record: false, complete: true, scoreId: DEMO_SCORE_ID } : null
-  ); // { total, record, complete, scoreId }
+  const [result, setResult] = useState(null); // { total, record, complete, scoreId }
   const [demoExercises, setDemoExercises] = useState([]); // exercice noté dans la démo (jamais enregistré)
   const [finalCount, setFinalCount] = useState(0);
   // Noter son exercice : jamais ouvert tout seul, seulement en MAINTENANT un score.
   const [tagId, setTagId] = useState(null); // score dont on note l'exercice
   const [customExercises, setCustomExercises] = useState([]);
-  const [showTip, setShowTip] = useState(false); // bulle de la toute première partie finie
-  const scoreBlockRef = useRef(null);
-  const tipCheckedRef = useRef(null); // id du score pour lequel la bulle a déjà été décidée
-
+  // La bulle qui explique le maintien se montre sur le MENU du jeu (la liste « Mes scores »), en
+  // pointant le dernier score : `tipDue` = une partie vient de se finir et la règle dit « montre-la » ;
+  // `showTip` = elle est à l'écran.
+  const [tipDue, setTipDue] = useState(isDemo);
+  const [showTip, setShowTip] = useState(false);
+  const firstRowRef = useRef(null); // la ligne du dernier score (la cible de la bulle)
+  const readyScrollRef = useRef(null); // le défilement du menu du jeu
+  const scrollYRef = useRef(0);
+  const demoAtRef = useRef(Date.now());
   const tipShownRef = useRef(false); // la bulle a réellement pu s'afficher (zone mesurée)
 
-  const phaseRef = useRef(isDemo ? 'done' : 'ready');
+  const phaseRef = useRef('ready');
   const countRef = useRef(0);
   const setIndexRef = useRef(0);
   const setsRef = useRef([]);
@@ -236,6 +240,11 @@ export default function GamePyramid() {
       setScores(list);
       // Le score qu'on vient d'ajouter est toujours le premier de la liste.
       setResult((r) => (r ? { ...r, scoreId: list[0]?.id } : r));
+      // La règle de la bulle (lib/gameTagTip.js) : si elle doit être montrée, ce sera sur le menu
+      // du jeu, dès qu'on y revient.
+      decideGameTagTip().then((show) => {
+        if (show) setTipDue(true);
+      });
     }
   };
 
@@ -252,74 +261,19 @@ export default function GamePyramid() {
   // Enregistre l'exercice noté : dans le score ET dans la séance JEU de l'Historique.
   // (Les exercices ajoutés à la main sont déjà gardés par la fenêtre, tout de suite.)
   const applyExercises = async (id, exercises) => {
+    // Noter un exercice = avoir compris le geste : la bulle n'a plus lieu d'être.
+    setTipDue(false);
     if (id === DEMO_SCORE_ID) {
       setDemoExercises(normalizeExercises(exercises)); // démo : rien n'est enregistré
       return;
     }
+    if (normalizeExercises(exercises).length) recordGameTagTipOutcome('done');
     const score = scoresRef.current.find((s) => s.id === id);
     const list = await setPyramidScoreExercises(id, exercises);
     scoresRef.current = list;
     setScores(list);
     if (score?.historyId) setGameSessionExercises(score.historyId, exercises);
   };
-
-  // Une partie vient de se finir : la bulle qui explique le maintien s'affiche ou non selon la
-  // règle de lib/gameTagTip.js (1re partie, puis 3 parties après un « Passer », jamais après
-  // « Compris » ; pour l'instant en MODE TEST : à chaque partie). La démo la montre toujours.
-  // Rien d'autre ne s'ouvre.
-  const scoreId = result?.scoreId;
-  useEffect(() => {
-    if (phase !== 'done' || !scoreId || tipCheckedRef.current === scoreId) return undefined;
-    tipCheckedRef.current = scoreId;
-    let cancelled = false;
-    let timer = null;
-    (isDemo ? Promise.resolve(true) : decideGameTagTip()).then((show) => {
-      if (cancelled || !show) return;
-      timer = setTimeout(() => {
-        if (!cancelled) setShowTip(true);
-      }, 800);
-    });
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [phase, scoreId]);
-
-  // Mesure la zone du score ; réessaie si l'écran n'est pas encore posé. Si elle reste
-  // introuvable la bulle n'apparaît pas — et elle ne sera PAS comptée comme vue.
-  const measureScoreBlock = useCallback(async () => {
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      const rect = await new Promise((resolve) => {
-        const node = scoreBlockRef.current;
-        if (!node?.measureInWindow) {
-          resolve(null);
-          return;
-        }
-        node.measureInWindow((x, y, width, h) => {
-          resolve(width > 0 && h > 0 ? { x, y, width, height: h } : null);
-        });
-      });
-      if (rect) {
-        tipShownRef.current = true;
-        return rect;
-      }
-      await new Promise((r) => setTimeout(r, 150));
-    }
-    return null;
-  }, []);
-
-  // « Compris » = comprise (elle ne revient plus) ; « Passer » ou retour = elle reviendra 3
-  // parties plus tard. Rien n'est compté si elle ne s'est pas affichée, ni en démo.
-  const closeTip = useCallback(
-    ({ reason } = {}) => {
-      if (tipShownRef.current && !isDemo) {
-        recordGameTagTipOutcome(reason === 'skip' ? 'skip' : 'done');
-      }
-      tipShownRef.current = false;
-      setShowTip(false);
-    },
-    [isDemo]
-  );
 
   // Toute la pyramide faite : pas de confirmation, rien à corriger.
   const completePyramid = () => {
@@ -529,11 +483,96 @@ export default function GamePyramid() {
 
   const best = bestPyramidScore(scores, formatId, peak);
   const mine = useMemo(() => scores.filter((s) => FORMATS[s.format]), [scores]);
-  // Le score qu'on vient de faire (écran de résultat) et le dernier de la liste.
-  const demoScore = { id: DEMO_SCORE_ID, exercises: demoExercises };
-  const findScore = (id) => (id === DEMO_SCORE_ID ? demoScore : scores.find((s) => s.id === id));
+  // La liste « Mes scores » : en démo, un faux score tout récent est posé tout en haut (jamais
+  // enregistré), pour pouvoir voir la bulle et essayer le maintien sans jouer.
+  const listScores = useMemo(
+    () =>
+      isDemo
+        ? [
+            {
+              id: DEMO_SCORE_ID,
+              format: 'pyramid',
+              peak: 8,
+              total: 36,
+              complete: true,
+              at: demoAtRef.current,
+              exercises: demoExercises,
+            },
+            ...mine,
+          ]
+        : mine,
+    [isDemo, mine, demoExercises]
+  );
+  const findScore = (id) => listScores.find((s) => s.id === id);
   const doneScore = result?.scoreId ? findScore(result.scoreId) : null;
   const tagScore = tagId ? findScore(tagId) : null;
+  // La bulle vise le DERNIER score tant qu'il n'a pas d'exercice noté (même condition que le halo).
+  const tipTarget = shouldHalo(listScores[0], listScores[0]) ? listScores[0] : null;
+
+  // Une partie vient de se finir et la règle de lib/gameTagTip.js dit « montre la bulle » (pour
+  // l'instant en MODE TEST : à chaque partie) : elle apparaît sur le MENU du jeu, une fois la liste
+  // à l'écran, et pointe le dernier score. Rien d'autre ne s'ouvre.
+  useEffect(() => {
+    if (!tipDue || phase !== 'ready' || !tipTarget) return undefined;
+    const timer = setTimeout(() => setShowTip(true), 900);
+    return () => clearTimeout(timer);
+  }, [tipDue, phase, tipTarget?.id]);
+
+  const measureWindowRect = (node) =>
+    new Promise((resolve) => {
+      if (!node?.measureInWindow) {
+        resolve(null);
+        return;
+      }
+      node.measureInWindow((x, y, width, h) => resolve({ x, y, width, height: h }));
+    });
+
+  // Amène la ligne du dernier score à l'écran (elle est sous « Lancer ») avant de la mesurer.
+  const scrollTipRowIntoView = useCallback(async () => {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const row = await measureWindowRect(firstRowRef.current);
+      const box = await measureWindowRect(readyScrollRef.current);
+      if (!row || !box || row.width <= 0) {
+        await new Promise((r) => setTimeout(r, 150));
+        continue;
+      }
+      // La ligne vers le haut du défilement : la bulle se pose dessous.
+      const delta = row.y - (box.y + box.height * 0.3);
+      if (Math.abs(delta) > 12) {
+        readyScrollRef.current?.scrollTo({ y: Math.max(0, scrollYRef.current + delta), animated: true });
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      return;
+    }
+  }, []);
+
+  // Mesure la ligne du dernier score ; réessaie si l'écran n'est pas encore posé. Si elle reste
+  // introuvable la bulle n'apparaît pas — et elle ne sera PAS comptée comme vue.
+  const measureTipRow = useCallback(async () => {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const rect = await measureWindowRect(firstRowRef.current);
+      if (rect && rect.width > 0 && rect.height > 0) {
+        tipShownRef.current = true;
+        return rect;
+      }
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    return null;
+  }, []);
+
+  // « Compris » = comprise (elle ne revient plus) ; « Passer » ou retour = elle reviendra 3
+  // parties plus tard. Rien n'est compté si elle ne s'est pas affichée, ni en démo.
+  const closeTip = useCallback(
+    ({ reason } = {}) => {
+      if (tipShownRef.current && !isDemo) {
+        recordGameTagTipOutcome(reason === 'skip' ? 'skip' : 'done');
+      }
+      tipShownRef.current = false;
+      setTipDue(false);
+      setShowTip(false);
+    },
+    [isDemo]
+  );
   const total = totalReps(sets);
   const minutes = Math.max(1, Math.round(plannedSeconds(sets, PYRAMID_REP_MS) / 60));
   const ring = Math.min(RING, Math.round(height * 0.34));
@@ -567,9 +606,14 @@ export default function GamePyramid() {
           <>
             {renderTop('La pyramide')}
             <ScrollView
+              ref={readyScrollRef}
               style={styles.flex}
               contentContainerStyle={styles.readyContent}
               showsVerticalScrollIndicator={false}
+              onScroll={(e) => {
+                scrollYRef.current = e.nativeEvent.contentOffset.y;
+              }}
+              scrollEventThrottle={32}
             >
               <Text style={styles.tag}>JEU · RÉPÉTITIONS</Text>
               <Text style={styles.rules}>
@@ -645,16 +689,17 @@ export default function GamePyramid() {
               />
 
               <GameScoreList
-                scores={mine}
+                scores={listScores}
                 accent={ACCENT}
                 getValue={scoreValue}
                 renderRow={(s, inDay) => (
                   // Maintenir 1 s une ligne = noter (ou changer) son exercice ; le halo
                   // n'éclaire que le dernier score, tant qu'il n'a pas d'exercice.
                   <HoldToTag
+                    ref={s.id === listScores[0]?.id ? firstRowRef : undefined}
                     color={ACCENT}
                     radius={16}
-                    invite={shouldHalo(s, mine[0])}
+                    invite={shouldHalo(s, listScores[0])}
                     onHold={() => openTag(s.id)}
                     style={styles.scoreRow}
                     accessibilityLabel={`Score ${s.total}. Maintiens pour noter ton exercice.`}
@@ -764,7 +809,6 @@ export default function GamePyramid() {
               {/* Le score : un halo l'entoure tant que l'exercice n'est pas noté, et le MAINTENIR
                   1 s ouvre « Ton exercice ». Rien ne s'ouvre tout seul. */}
               <HoldToTag
-                ref={scoreBlockRef}
                 color={ACCENT}
                 radius={36}
                 invite={!!doneScore && !doneScore.exercises?.length}
@@ -816,20 +860,22 @@ export default function GamePyramid() {
         />
       )}
 
-      {/* Une bulle explique le maintien (règle : lib/gameTagTip.js). « Passer » la repousse de 3
-          parties, « Compris » la supprime pour de bon. */}
-      {showTip && phase === 'done' && !!doneScore && (
+      {/* Une bulle sur le MENU du jeu explique le maintien du dernier score (règle :
+          lib/gameTagTip.js). « Passer » la repousse de 3 parties, « Compris » la supprime pour
+          de bon. Elle n'apparaît jamais sur l'écran de résultat. */}
+      {showTip && phase === 'ready' && !!tipTarget && (
         <SpotlightTips
           steps={[
             {
               id: 'score',
               icon: 'edit',
               title: 'Note ton exercice',
-              text: 'Maintiens ton score une seconde pour choisir l’exercice que tu viens de faire (tractions, pompes…), ou ajouter le tien. Ce n’est pas obligatoire, c’est juste proposé.',
-              radius: 36,
+              text: 'Tu viens de finir une partie ? Maintiens ton dernier score une seconde pour choisir l’exercice que tu as fait (tractions, pompes…), ou ajouter le tien. Ce n’est pas obligatoire, c’est juste proposé.',
+              radius: 16,
             },
           ]}
-          measureTarget={measureScoreBlock}
+          onStepEnter={scrollTipRowIntoView}
+          measureTarget={measureTipRow}
           onDone={closeTip}
           skipOnLast
         />
