@@ -826,7 +826,7 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
 
   // Rectangle d'une zone du tour, en coordonnées de fenêtre ; null si elle n'est
   // pas à l'écran (fenêtre réduite : la bulle correspondante est sautée).
-  const measureTourTarget = useCallback((id) => {
+  const measureTourOnce = useCallback((id) => {
     const node = (id === 'ring' ? ringRef : id === 'stats' ? statsRef : id === 'profile' ? profileRef : ctaRef).current;
     return new Promise((resolve) => {
       if (!node?.measureInWindow) {
@@ -838,6 +838,31 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
       });
     });
   }, []);
+  // Les éléments du haut et du bas (étiquette, boutons, Lancer) se « révèlent » en glissant de
+  // quelques points chaque fois que le carrousel se repose (useChromeReveal) : mesurés en pleine
+  // révélation, l'éclairage tombait trop haut ou trop bas. On re-mesure donc jusqu'à ce que la
+  // position ne bouge plus (au plus 2,5 s), quelle que soit la taille de l'écran.
+  const measureTourTarget = useCallback(
+    async (id) => {
+      let prev = await measureTourOnce(id);
+      if (!prev) return null;
+      const t0 = Date.now();
+      while (Date.now() - t0 < 2500) {
+        await new Promise((resolve) => setTimeout(resolve, 90));
+        const cur = await measureTourOnce(id);
+        if (!cur) return prev;
+        const still =
+          Math.abs(cur.x - prev.x) < 0.5 &&
+          Math.abs(cur.y - prev.y) < 0.5 &&
+          Math.abs(cur.width - prev.width) < 0.5 &&
+          Math.abs(cur.height - prev.height) < 0.5;
+        prev = cur;
+        if (still) return cur;
+      }
+      return prev;
+    },
+    [measureTourOnce]
+  );
 
   // Alerte « ambiance de saison » : marquée vue à la fermeture (quel que soit le
   // chemin), « Désactiver » coupe l'ambiance tout de suite.
