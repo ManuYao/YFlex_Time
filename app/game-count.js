@@ -14,14 +14,18 @@ import TickRing from '../components/common/TickRing';
 import WheelPicker from '../components/common/WheelPicker';
 import BottomSheet from '../components/common/BottomSheet';
 import GameScoreList from '../components/screens/GameScoreList';
+import GameTagOverlays from '../components/screens/GameTagOverlays';
+import HoldToTag from '../components/common/HoldToTag';
 import { useSettings } from '../contexts/SettingsContext';
 import { haptic } from '../hooks/useHaptic';
+import { useGameExerciseTag } from '../hooks/useGameExerciseTag';
 import { fonts } from '../lib/fonts';
 import { goBackSafe } from '../lib/navigation';
 import { playGameGo, preloadGameSounds } from '../lib/gameSounds';
 import { createNumberCaller } from '../lib/gameVoice';
-import { loadScores, saveScore, deleteScore } from '../lib/gameScores';
-import { recordGameSession } from '../lib/gameHistory';
+import { loadScores, saveScore, deleteScore, setCountScoreExercises } from '../lib/gameScores';
+import { recordGameSession, setGameSessionExercises } from '../lib/gameHistory';
+import { exercisesLabel, shouldHalo } from '../lib/gameExercises';
 import {
   DEFAULT_TEMPO,
   MAX_COUNT,
@@ -127,17 +131,34 @@ export default function GameCount() {
     setResult({ count: value, record: value > 0 && value > previousBest });
     haptic.success();
     if (value > 0) {
-      recordGameSession({
+      // La partie entre dans l'Historique ; son id est gardé dans le score pour y noter
+      // l'exercice plus tard (si la personne le maintient).
+      const entry = await recordGameSession({
         game: 'count',
         startedAt: playStartRef.current,
         endedAt: playEndRef.current ?? Date.now(),
         reps: value,
       });
-      const list = await saveScore({ count: value, tempo: tempoRef.current });
+      const list = await saveScore({ count: value, tempo: tempoRef.current, historyId: entry?.id });
       scoresRef.current = list;
       setScores(list);
+      // Le score qu'on vient d'ajouter est toujours le premier de la liste.
+      setResult((r) => (r ? { ...r, scoreId: list[0]?.id } : r));
+      // La règle de la bulle (lib/gameTagTip.js) : si elle doit être montrée, ce sera sur le menu
+      // du jeu, dès qu'on y revient.
+      tag.noteGameFinished();
     }
   };
+
+  // Enregistre l'exercice noté : dans le score ET dans la séance JEU de l'Historique (appelé par
+  // le hook commun, hooks/useGameExerciseTag.js).
+  const saveExercises = useCallback(async (id, exercises) => {
+    const score = scoresRef.current.find((s) => s.id === id);
+    const list = await setCountScoreExercises(id, exercises);
+    scoresRef.current = list;
+    setScores(list);
+    if (score?.historyId) setGameSessionExercises(score.historyId, exercises);
+  }, []);
 
   // « J'ai lâché » : on ne peut pas toujours toucher le bouton pile à temps, donc
   // on demande de confirmer le score, ou de le corriger de 4 au plus vers le bas
@@ -266,6 +287,10 @@ export default function GameCount() {
 
   const best = bestScore(scores);
   const mine = scores;
+  // Noter l'exercice d'un score (maintien, fenêtre « Ton exercice », bulle du menu) : tout ce qui est
+  // commun aux jeux vit dans hooks/useGameExerciseTag.js et components/screens/GameTagOverlays.js.
+  const tag = useGameExerciseTag({ phase, scores: mine, saveExercises });
+  const doneScore = result?.scoreId ? mine.find((s) => s.id === result.scoreId) : null;
 
   // `onBack` : la flèche en haut à gauche (par défaut : quitter le jeu, retour au menu des jeux ;
   // sur l'écran de résultat : retour au menu DU JEU).
@@ -292,9 +317,12 @@ export default function GameCount() {
           <>
             {renderTop('Le chef d’orchestre')}
             <ScrollView
+              ref={tag.readyScrollRef}
               style={styles.flex}
               contentContainerStyle={styles.readyContent}
               showsVerticalScrollIndicator={false}
+              onScroll={tag.onReadyScroll}
+              scrollEventThrottle={32}
             >
               <Text style={styles.tag}>JEU · RÉPÉTITIONS</Text>
               <Text style={styles.rules}>
@@ -346,10 +374,26 @@ export default function GameCount() {
                 accent={ACCENT}
                 getValue={scoreValue}
                 renderRow={(s, inDay) => (
-                  <View style={styles.scoreRow}>
+                  // Maintenir 1 s une ligne = noter (ou changer) son exercice ; le halo
+                  // n'éclaire que le dernier score, tant qu'il n'a pas d'exercice.
+                  <HoldToTag
+                    ref={s.id === mine[0]?.id ? tag.firstRowRef : undefined}
+                    color={ACCENT}
+                    radius={16}
+                    invite={shouldHalo(s, mine[0])}
+                    onHold={() => tag.openTag(s.id)}
+                    style={styles.scoreRow}
+                    accessibilityLabel={`Score ${s.count}. Maintiens pour noter ton exercice.`}
+                  >
                     <Text style={styles.scoreCount}>{s.count}</Text>
                     <Text style={styles.scoreMeta}>
-                      {[inDay ? null : formatDay(s.at), TEMPOS[s.tempo]?.label].filter(Boolean).join(' · ')}
+                      {[
+                        inDay ? null : formatDay(s.at),
+                        TEMPOS[s.tempo]?.label,
+                        s.exercises?.length ? exercisesLabel(s.exercises) : null,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
                     </Text>
                     <PressTap
                       onPress={() => handleDelete(s.id)}
@@ -359,7 +403,7 @@ export default function GameCount() {
                     >
                       <AppIcon name="close" size={14} color="rgba(255,255,255,0.7)" />
                     </PressTap>
-                  </View>
+                  </HoldToTag>
                 )}
               />
             </ScrollView>
@@ -414,9 +458,25 @@ export default function GameCount() {
           <>
             {renderTop('Le chef d’orchestre', backToMenu)}
             <View style={styles.center}>
-              <Text style={styles.tag}>TON SCORE</Text>
-              <Text style={styles.bigNumber}>{result?.count ?? 0}</Text>
-              <Text style={styles.hint}>répétitions</Text>
+              {/* Le score : un halo l'entoure tant que l'exercice n'est pas noté, et le MAINTENIR
+                  1 s ouvre « Ton exercice ». Rien ne s'ouvre tout seul. */}
+              <HoldToTag
+                color={ACCENT}
+                radius={36}
+                invite={!!doneScore && !doneScore.exercises?.length}
+                onHold={() => tag.openTag(result?.scoreId)}
+                style={styles.resultBlock}
+                accessibilityLabel="Ton score. Maintiens pour noter ton exercice."
+              >
+                <Text style={styles.tag}>TON SCORE</Text>
+                <Text style={styles.bigNumber}>{result?.count ?? 0}</Text>
+                <Text style={styles.hint}>répétitions</Text>
+                {!!doneScore?.exercises?.length && (
+                  <Text style={styles.resultExo} numberOfLines={1}>
+                    {exercisesLabel(doneScore.exercises)}
+                  </Text>
+                )}
+              </HoldToTag>
               {result?.record && <Text style={styles.record}>NOUVEAU RECORD</Text>}
               {!result?.record && best > 0 && (
                 <Text style={styles.hint}>Ton record : {best} répétitions</Text>
@@ -435,6 +495,9 @@ export default function GameCount() {
           </>
         )}
       </SafeAreaView>
+
+      {/* « Ton exercice » (ouverte seulement quand on maintient un score) et la bulle du menu. */}
+      <GameTagOverlays tag={tag} phase={phase} screenH={height} accent={ACCENT} />
 
       {/* Même feuille que la roue de l'app : fermer sans valider garde le score. */}
       {phase === 'confirm' && (
@@ -549,6 +612,21 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(77,216,232,0.07)',
     borderWidth: 1,
     borderColor: 'rgba(77,216,232,0.18)',
+  },
+  // Le score de l'écran de résultat : la zone que le halo entoure et qu'on maintient.
+  resultBlock: {
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 22,
+    paddingHorizontal: 40,
+    borderRadius: 36,
+  },
+  resultExo: {
+    fontFamily: fonts.sansBold,
+    fontSize: 16,
+    color: ACCENT,
+    textAlign: 'center',
+    marginTop: 2,
   },
   scoreCount: { fontFamily: fonts.monoBold, fontSize: 18, color: '#FFFFFF', minWidth: 44 },
   scoreMeta: { flex: 1, fontFamily: fonts.sansMedium, fontSize: 12, color: 'rgba(255,255,255,0.55)' },

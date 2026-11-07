@@ -21,6 +21,10 @@ import PressTap from '../components/common/PressTap';
 import AppIcon from '../components/common/AppIcon';
 import TickRing from '../components/common/TickRing';
 import GameScoreList from '../components/screens/GameScoreList';
+import GameTagOverlays from '../components/screens/GameTagOverlays';
+import HoldToTag from '../components/common/HoldToTag';
+import { useGameExerciseTag } from '../hooks/useGameExerciseTag';
+import { exercisesLabel, shouldHalo } from '../lib/gameExercises';
 import { useSettings } from '../contexts/SettingsContext';
 import { haptic } from '../hooks/useHaptic';
 import { useKeyboardHeight, scrollToFocusedInput } from '../hooks/useKeyboardHeight';
@@ -35,8 +39,9 @@ import {
   deleteComboScore,
   loadComboSetup,
   saveComboSetup,
+  setComboScoreExercises,
 } from '../lib/gameComboStore';
-import { recordGameSession } from '../lib/gameHistory';
+import { recordGameSession, setGameSessionExercises } from '../lib/gameHistory';
 import {
   DEFAULT_SETUP,
   EXO_MAX,
@@ -109,7 +114,6 @@ export default function GameCombo() {
   // Début réel et fin de la partie, pour l'Historique (lib/gameHistory.js).
   const playStartRef = useRef(null);
   const playEndRef = useRef(null);
-  const scrollRef = useRef(null);
   const contentRef = useRef(null);
 
   const keyboardHeight = useKeyboardHeight();
@@ -204,7 +208,9 @@ export default function GameCombo() {
     setResult({ counts, total, record: total > 0 && total > previousBest, complete });
     haptic.success();
     if (total > 0) {
-      recordGameSession({
+      // La partie entre dans l'Historique ; son id est gardé dans le score pour y noter
+      // l'exercice plus tard (si la personne le maintient).
+      const entry = await recordGameSession({
         game: 'combo',
         startedAt: playStartRef.current,
         endedAt: playEndRef.current ?? Date.now(),
@@ -215,11 +221,27 @@ export default function GameCombo() {
         counts,
         complete,
         setup: cfg.setup,
+        historyId: entry?.id,
       });
       scoresRef.current = list;
       setScores(list);
+      // Le score qu'on vient d'ajouter est toujours le premier de la liste.
+      setResult((r) => (r ? { ...r, scoreId: list[0]?.id } : r));
+      // La règle de la bulle (lib/gameTagTip.js) : si elle doit être montrée, ce sera sur le menu
+      // du jeu, dès qu'on y revient.
+      tag.noteGameFinished();
     }
   };
+
+  // Enregistre l'exercice noté : dans le score ET dans la séance JEU de l'Historique (appelé par
+  // le hook commun, hooks/useGameExerciseTag.js).
+  const saveExercises = useCallback(async (id, exercises) => {
+    const score = scoresRef.current.find((s) => s.id === id);
+    const list = await setComboScoreExercises(id, exercises);
+    scoresRef.current = list;
+    setScores(list);
+    if (score?.historyId) setGameSessionExercises(score.historyId, exercises);
+  }, []);
 
   // Fin de partie : le score est enregistré et affiché tout de suite, sans rien
   // demander (choix de l'utilisateur pour ce jeu : pas de roue de confirmation
@@ -352,6 +374,12 @@ export default function GameCombo() {
   const problem = setupProblem(setup);
   const loadingAudio = !problem && !audioReady;
   const best = bestComboScore(scores, tempoId);
+  // Noter l'exercice d'un score (maintien, fenêtre « Ton exercice », bulle du menu) : tout ce qui est
+  // commun aux jeux vit dans hooks/useGameExerciseTag.js et components/screens/GameTagOverlays.js.
+  // Le défilement du menu sert aussi au clavier des mots : un seul `scrollRef`, celui du hook.
+  const tag = useGameExerciseTag({ phase, scores, saveExercises });
+  const scrollRef = tag.readyScrollRef;
+  const doneScore = result?.scoreId ? scores.find((s) => s.id === result.scoreId) : null;
   const ring = Math.min(RING, Math.round(height * 0.34));
   const live = cfgRef.current?.setup;
   const callWord = call && live ? live[call.side].word : '';
@@ -430,6 +458,8 @@ export default function GameCombo() {
               contentContainerStyle={styles.readyContent}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
+              onScroll={tag.onReadyScroll}
+              scrollEventThrottle={32}
             >
               <View ref={contentRef} collapsable={false} style={styles.readyInner}>
                 <Text style={styles.tag}>JEU · DEUX MOTS, DEUX EXERCICES</Text>
@@ -490,12 +520,23 @@ export default function GameCombo() {
                   accent={ACCENT}
                   getValue={scoreValue}
                   renderRow={(s, inDay) => (
-                    <View style={styles.scoreRow}>
+                    // Maintenir 1 s une ligne = noter (ou changer) son exercice ; le halo
+                    // n'éclaire que le dernier score, tant qu'il n'a pas d'exercice.
+                    <HoldToTag
+                      ref={s.id === scores[0]?.id ? tag.firstRowRef : undefined}
+                      color={ACCENT}
+                      radius={16}
+                      invite={shouldHalo(s, scores[0])}
+                      onHold={() => tag.openTag(s.id)}
+                      style={styles.scoreRow}
+                      accessibilityLabel={`Score ${s.total}. Maintiens pour noter ton exercice.`}
+                    >
                       <Text style={styles.scoreCount}>{s.total}</Text>
                       <Text style={styles.scoreMeta} numberOfLines={1}>
                         {TEMPOS[s.tempo]?.label} · {s.detail || s.words}
                         {inDay ? '' : ` · ${formatDay(s.at)}`}
                         {s.complete ? ' · terminée' : ''}
+                        {s.exercises?.length ? ` · ${exercisesLabel(s.exercises)}` : ''}
                       </Text>
                       <PressTap
                         onPress={() => handleDelete(s.id)}
@@ -505,7 +546,7 @@ export default function GameCombo() {
                       >
                         <AppIcon name="close" size={14} color="rgba(255,255,255,0.7)" />
                       </PressTap>
-                    </View>
+                    </HoldToTag>
                   )}
                 />
               </View>
@@ -587,9 +628,26 @@ export default function GameCombo() {
           <>
             {renderTop('Combo Bi-Exo', backToMenu)}
             <View style={styles.center}>
-              <Text style={styles.tag}>{result?.complete ? 'PARTIE TERMINÉE' : 'TON SCORE'}</Text>
-              <Text style={styles.bigNumber}>{result?.total ?? 0}</Text>
-              <Text style={styles.hint}>répétitions en {formatClock(GAME_SECONDS)}</Text>
+              {/* Le score : un halo l'entoure tant que l'exercice n'est pas noté, et le MAINTENIR
+                  1 s ouvre « Ton exercice » (avec les deux exercices de la partie déjà cochés).
+                  Rien ne s'ouvre tout seul. */}
+              <HoldToTag
+                color={ACCENT}
+                radius={36}
+                invite={!!doneScore && !doneScore.exercises?.length}
+                onHold={() => tag.openTag(result?.scoreId)}
+                style={styles.resultBlock}
+                accessibilityLabel="Ton score. Maintiens pour noter ton exercice."
+              >
+                <Text style={styles.tag}>{result?.complete ? 'PARTIE TERMINÉE' : 'TON SCORE'}</Text>
+                <Text style={styles.bigNumber}>{result?.total ?? 0}</Text>
+                <Text style={styles.hint}>répétitions en {formatClock(GAME_SECONDS)}</Text>
+                {!!doneScore?.exercises?.length && (
+                  <Text style={styles.resultExo} numberOfLines={1}>
+                    {exercisesLabel(doneScore.exercises)}
+                  </Text>
+                )}
+              </HoldToTag>
               {result?.record && <Text style={styles.record}>NOUVEAU RECORD</Text>}
               {!result?.record && best > 0 && (
                 <Text style={styles.hint}>Ton record : {best} répétitions</Text>
@@ -618,6 +676,15 @@ export default function GameCombo() {
         )}
       </SafeAreaView>
 
+      {/* « Ton exercice » (ouverte seulement quand on maintient un score ; le combo coche d'office
+          les deux exercices écrits par le joueur) et la bulle du menu. */}
+      <GameTagOverlays
+        tag={tag}
+        phase={phase}
+        screenH={height}
+        accent={ACCENT}
+        initialFor={(s) => (s.exercises?.length ? s.exercises : s.exos ?? [])}
+      />
     </GradientBackground>
   );
 }
@@ -746,6 +813,21 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,95,162,0.07)',
     borderWidth: 1,
     borderColor: 'rgba(255,95,162,0.18)',
+  },
+  // Le score de l'écran de résultat : la zone que le halo entoure et qu'on maintient.
+  resultBlock: {
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 22,
+    paddingHorizontal: 40,
+    borderRadius: 36,
+  },
+  resultExo: {
+    fontFamily: fonts.sansBold,
+    fontSize: 16,
+    color: ACCENT,
+    textAlign: 'center',
+    marginTop: 2,
   },
   scoreCount: { fontFamily: fonts.monoBold, fontSize: 18, color: '#FFFFFF', minWidth: 44 },
   scoreMeta: { flex: 1, fontFamily: fonts.sansMedium, fontSize: 12, color: 'rgba(255,255,255,0.55)' },
