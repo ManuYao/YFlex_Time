@@ -49,7 +49,7 @@ import { haptic, setHapticStrength } from '../hooks/useHaptic';
 import { playDenied, playSound, previewVolumeTap } from '../lib/sounds';
 import { detectVoices } from '../lib/voiceCoach';
 import { RAIN_OPTIONS, RAIN_SUBS } from '../lib/rainMode';
-import { goBackSafe } from '../lib/navigation';
+import { goBackSafe, goHomeClean } from '../lib/navigation';
 import { fonts } from '../lib/fonts';
 import { DANGER, ROUND_SIZE } from '../lib/buttonTokens';
 
@@ -275,6 +275,8 @@ export default function Settings() {
         'flexTimer_seasonNudge',
         // Proposition « Essaie les jeux » (lib/gamesNudge.js) : repart de zéro après un reset.
         'flexTimer_gamesNudge',
+        // Astuce du maintien du cercle (lib/holdTip.js) : redevient à montrer.
+        'flexTimer_holdTip',
         // Bulles d'explication du menu (lib/hubTips.js) : redeviennent à montrer.
         'flexTimer_hubTips',
         // Tutoriel de démarrage (lib/tutorial.js) : après un reset la personne
@@ -631,6 +633,25 @@ export default function Settings() {
               onPress={() => {
                 haptic.light();
                 router.push({ pathname: '/game-pyramid', params: { demo: '1' } });
+              }}
+            />
+            {/* TEMP (07/11/2026) : deux aperçus à valider par l'utilisateur, SANS rien enregistrer
+                (les vraies propositions viendront encore). À supprimer après sa validation, avec
+                l'effet `preview` de app/home.js. */}
+            <LinkRow
+              label="Aperçu : proposition des jeux"
+              sub="Temporaire"
+              onPress={() => {
+                haptic.light();
+                goHomeClean(router, { preview: 'games' });
+              }}
+            />
+            <LinkRow
+              label="Aperçu : astuce du maintien"
+              sub="Temporaire"
+              onPress={() => {
+                haptic.light();
+                goHomeClean(router, { preview: 'hold' });
               }}
             />
             <LinkRow label="Conditions d'utilisation" onPress={() => router.push('/terms')} />
