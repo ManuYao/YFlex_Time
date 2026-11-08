@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, TextInput, StyleSheet } from 'react-native';
 
 import BottomSheet from './BottomSheet';
@@ -7,16 +7,23 @@ import Button from './Button';
 import IconButton from './IconButton';
 import AppIcon from './AppIcon';
 import TouchShield from './TouchShield';
+import MusclePicker from './MusclePicker';
 import { fonts } from '../../lib/fonts';
 import { haptic } from '../../hooks/useHaptic';
 import { useSubmitGuard } from '../../hooks/useSubmitGuard';
 import { DANGER, ROUND_SIZE } from '../../lib/buttonTokens';
+import { BLOCK_NAME_MAX, blockNameFromGroups, toggleGroup } from '../../lib/bodyMap';
+import { getCategory, getCustomCategories, loadCustomCategories } from '../../lib/exercises';
 
-const SUGGESTIONS = ['Pecs / triceps', 'Dos / biceps', 'Jambes', 'Épaules', 'Abdos', 'Cardio'];
+// Hauteur d'une silhouette du corps cliquable : suit la hauteur de l'écran,
+// bornée (la feuille défile si le clavier est ouvert).
+const bodyHeightFor = (screenH) => Math.round(Math.min(300, Math.max(190, screenH * 0.32)));
 
 /**
  * Feuille d'un bloc du Planning. Trois usages, une seule coquille :
- *  - création (pas de nom de départ) : champ + suggestions + « Ajouter le bloc » ;
+ *  - création (pas de nom de départ) : corps cliquable (face / dos) + Cardio et
+ *    groupes perso en pastilles, le nom se remplit tout seul tant qu'on ne l'a
+ *    pas tapé soi-même, puis « Ajouter le bloc ». `onSubmit(nom, groupes)` ;
  *  - menu d'un bloc existant (le ⋮ de sa carte) : Modifier le nom, Déplacer,
  *    Archiver, Supprimer. « Modifier le nom » et « Déplacer » ouvrent une vue
  *    dans la même feuille (jamais une feuille empilée sur une autre) ;
@@ -46,6 +53,37 @@ export default function BlockSheet({
   const guard = useSubmitGuard();
   const trimmed = name.trim();
 
+  // Création : groupes touchés sur le corps ou en pastilles, dans l'ordre.
+  // Le nom suit la sélection tant que la personne ne l'a pas tapé elle-même
+  // (vider le champ rend la main à la sélection).
+  const [groups, setGroups] = useState([]);
+  const nameTyped = useRef(false);
+  const [customGroups, setCustomGroups] = useState(getCustomCategories);
+  useEffect(() => {
+    if (isEdit) return undefined;
+    let cancelled = false;
+    loadCustomCategories().then(() => {
+      if (!cancelled) setCustomGroups(getCustomCategories());
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isEdit]);
+
+  // Poignée stable (lit la sélection par une ref) : taper le nom ne redessine
+  // pas les deux silhouettes (BodyMap est mémoïsé) à chaque lettre.
+  const groupsRef = useRef(groups);
+  groupsRef.current = groups;
+  const toggleMuscle = useCallback((id) => {
+    haptic.selection();
+    const next = toggleGroup(groupsRef.current, id);
+    groupsRef.current = next;
+    setGroups(next);
+    if (!nameTyped.current) {
+      setName(blockNameFromGroups(next, (gid) => getCategory(gid).label));
+    }
+  }, []);
+
   return (
     <BottomSheet screenH={screenH} onClose={onClose} zIndex={90} keyboardAware>
       {({ close }) => {
@@ -54,7 +92,7 @@ export default function BlockSheet({
           guard.run(
             'name',
             () => {
-              onSubmit(trimmed);
+              onSubmit(trimmed, isEdit ? undefined : groups);
               close();
             },
             haptic.medium
@@ -167,36 +205,32 @@ export default function BlockSheet({
                   <Text style={styles.title}>Nouveau bloc</Text>
                 )}
 
+                {!isEdit && (
+                  <View style={styles.picker}>
+                    <MusclePicker
+                      bodyHeight={bodyHeightFor(screenH)}
+                      selected={groups}
+                      onToggle={toggleMuscle}
+                      others={[getCategory('cardio'), ...customGroups]}
+                    />
+                  </View>
+                )}
+
                 <TextInput
                   value={name}
-                  onChangeText={setName}
-                  placeholder="Pecs / triceps"
+                  onChangeText={(text) => {
+                    setName(text);
+                    nameTyped.current = text.trim().length > 0;
+                  }}
+                  placeholder="Nom du bloc"
                   placeholderTextColor="rgba(255,255,255,0.30)"
                   selectionColor="#FFFFFF"
-                  maxLength={28}
+                  maxLength={BLOCK_NAME_MAX}
                   autoFocus={isEdit}
                   style={styles.input}
                   returnKeyType="done"
                   onSubmitEditing={submitName}
                 />
-
-                {!isEdit && (
-                  <View style={styles.suggestions}>
-                    {SUGGESTIONS.map((s) => (
-                      <PressTap
-                        key={s}
-                        onPress={() => {
-                          haptic.selection();
-                          setName(s);
-                        }}
-                        tapScale={0.94}
-                        style={styles.suggestionChip}
-                      >
-                        <Text style={styles.suggestionText}>{s}</Text>
-                      </PressTap>
-                    ))}
-                  </View>
-                )}
 
                 <Button
                   variant="solid"
@@ -339,23 +373,8 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#FFFFFF',
   },
-  suggestions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginTop: 12,
-  },
-  suggestionChip: {
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.14)',
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  suggestionText: {
-    fontFamily: fonts.sansSemibold,
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.60)',
+  picker: {
+    marginBottom: 18,
   },
   cta: {
     marginTop: 20,

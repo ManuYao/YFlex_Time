@@ -38,13 +38,27 @@ const emptyCategoryDraft = () => ({
   text: CATEGORY_PALETTE[0].text,
 });
 
-export default function ExerciseLibrarySheet({ screenH, blockName, onClose, onPick }) {
+export default function ExerciseLibrarySheet({
+  screenH,
+  blockName,
+  preferredCategory = null,
+  onClose,
+  onPick,
+}) {
   const [categories, setCategories] = useState(getAllCategories);
-  // Le rayon s'ouvre sur le groupe déduit du nom du bloc ("Jambes" → JAMBES)
-  // au lieu du premier de la liste. Recalculé quand `categories` change :
-  // les groupes perso arrivent d'AsyncStorage après le premier rendu, un bloc
-  // nommé comme l'un d'eux ne peut être reconnu qu'à ce moment-là.
-  const guess = useMemo(() => guessCategoryFromName(blockName), [blockName, categories]);
+  // Le rayon s'ouvre sur le premier groupe touché sur le corps à la création
+  // du bloc (`preferredCategory`), sinon sur le groupe déduit du nom du bloc
+  // ("Jambes" → JAMBES), au lieu du premier de la liste. Recalculé quand
+  // `categories` change : les groupes perso arrivent d'AsyncStorage après le
+  // premier rendu, un bloc nommé comme l'un d'eux (ou qui en a choisi un) ne
+  // peut être reconnu qu'à ce moment-là.
+  const guess = useMemo(
+    () =>
+      preferredCategory && categories.some((c) => c.id === preferredCategory)
+        ? preferredCategory
+        : guessCategoryFromName(blockName),
+    [preferredCategory, blockName, categories]
+  );
   const [categoryId, setCategoryId] = useState(() => guess ?? categories[0].id);
   // Dès que l'utilisateur a choisi ou touché un groupe lui-même, la
   // présélection ne le reprend plus — lui changer sa sélection sous les

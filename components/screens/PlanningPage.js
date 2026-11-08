@@ -118,6 +118,11 @@ function PlanningContent({
   // ferme, la fermeture doit attendre son résultat pour savoir quelle étiquette
   // ouvrir.
   const pendingDetailRef = useRef(null);
+  // Même principe à la création d'un bloc : la feuille « Nouveau bloc » se
+  // ferme, puis la bibliothèque d'exercices du bloc créé s'ouvre d'elle-même
+  // (sur le premier muscle touché). Rien d'imposé : on la ferme si on veut.
+  // Promesse de l'id du bloc créé (null = rien à ouvrir).
+  const pendingLibraryRef = useRef(null);
 
   // Dernière version du planning, lisible depuis une minuterie ou une feuille
   // sans tomber sur une copie périmée (la sauvegarde auto d'une note peut
@@ -269,6 +274,17 @@ function PlanningContent({
     }
     const detail = await pending;
     if (detail) openSheet(detail);
+    else closeSheet();
+  };
+  const closeBlockSheet = async () => {
+    const pending = pendingLibraryRef.current;
+    pendingLibraryRef.current = null;
+    if (!pending) {
+      closeSheet();
+      return;
+    }
+    const blockId = await pending;
+    if (blockId && mountedRef.current) openSheet({ type: 'library', blockId });
     else closeSheet();
   };
 
@@ -553,13 +569,20 @@ function PlanningContent({
               archived: !!target.archivedAt,
             };
           })}
-          onClose={closeSheet}
-          onSubmit={async (name) => {
-            setPlanning(
-              sheet.blockId
-                ? await renameBlock(planningRef.current, dayKey, sheet.blockId, name)
-                : await addBlock(planningRef.current, dayKey, name)
-            );
+          onClose={closeBlockSheet}
+          onSubmit={async (name, groups) => {
+            if (sheet.blockId) {
+              setPlanning(await renameBlock(planningRef.current, dayKey, sheet.blockId, name));
+              return;
+            }
+            const created = (async () => {
+              const next = await addBlock(planningRef.current, dayKey, name, groups);
+              setPlanning(next);
+              const blocks = next[dayKey]?.blocks || [];
+              return blocks[blocks.length - 1]?.id ?? null;
+            })();
+            pendingLibraryRef.current = created;
+            await created;
           }}
           onMove={async (toKey) => {
             const current = planningRef.current;
@@ -602,6 +625,7 @@ function PlanningContent({
         <ExerciseLibrarySheet
           screenH={screenH}
           blockName={findBlock(sheet.blockId)?.name}
+          preferredCategory={findBlock(sheet.blockId)?.groups?.[0] ?? null}
           onClose={closeLibrarySheet}
           onPick={(exercise) => {
             const blockId = sheet.blockId;
