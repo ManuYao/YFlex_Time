@@ -36,15 +36,31 @@ function BodyMap({ side = 'front', height, selected = [], onToggle }) {
         const group = groupOfSlug(part.slug);
         const lit = group && selected.includes(group);
         const fill = lit ? getCategory(group).color : group ? MUSCLE_IDLE : NEUTRAL_FILL;
+        const press = group ? () => onToggle?.(group) : undefined;
+        // L'appui est posé sur chaque tracé (pas sur le groupe <G>) : c'est le
+        // tracé touché qui reçoit l'événement. Ce qui n'est pas un muscle ne
+        // capte rien.
         return (
-          <G key={part.slug} onPress={group ? () => onToggle?.(group) : undefined}>
+          <G key={part.slug}>
             {part.d.map((d, i) => (
-              <Path key={i} d={d} fill={fill} stroke={MUSCLE_STROKE} strokeWidth={3} />
+              <Path
+                key={i}
+                d={d}
+                fill={fill}
+                stroke={MUSCLE_STROKE}
+                strokeWidth={3}
+                onPress={press}
+                pointerEvents={group ? 'auto' : 'none'}
+              />
             ))}
           </G>
         );
       })}
-      <Path d={BODY_OUTLINE[side]} fill="none" stroke={OUTLINE} strokeWidth={4} />
+      {/* Contour dessiné PAR-DESSUS les muscles mais transparent au toucher :
+          sur Android, react-native-svg teste l'appui sur la surface du tracé
+          même sans remplissage (RenderableView.hitTest), le contour avalait
+          donc tous les appuis du corps (bug vu sur téléphone le 08/11). */}
+      <Path d={BODY_OUTLINE[side]} fill="none" stroke={OUTLINE} strokeWidth={4} pointerEvents="none" />
     </Svg>
   );
 }
