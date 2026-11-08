@@ -243,6 +243,12 @@ export default function Settings() {
         'flexTimer_seasonRecapSeen',
         'flexTimer_customExercises',
         'flexTimer_customCategories',
+        // Animations d'exercices : catalogue en cache et liste de MES demandes
+        // (lib/exerciseAnimationStore.js, lib/animationRequests.js). Les
+        // fichiers téléchargés (documentDirectory/animations) se reconstruisent
+        // tout seuls à partir du catalogue.
+        'flexTimer_animCatalog',
+        'flexTimer_animRequests',
         // L'utilisateur repart de zéro : le rappel avant l'envoi d'un
         // mail redevient utile.
         'flexTimer_contactNoticeHidden',
