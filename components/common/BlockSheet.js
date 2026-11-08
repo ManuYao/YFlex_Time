@@ -9,6 +9,7 @@ import AppIcon from './AppIcon';
 import TouchShield from './TouchShield';
 import MusclePicker from './MusclePicker';
 import { fonts } from '../../lib/fonts';
+import { categoryChip } from '../../lib/exercises';
 import { haptic } from '../../hooks/useHaptic';
 import { useSubmitGuard } from '../../hooks/useSubmitGuard';
 import { DANGER, ROUND_SIZE } from '../../lib/buttonTokens';
@@ -37,16 +38,18 @@ export default function BlockSheet({
   initialName = '',
   archived = false,
   moveTargets = [],
+  tags = [],
   onClose,
   onSubmit,
   onMove,
+  onMoveTag,
   onArchive,
   onReopen,
   onDelete,
 }) {
   const [name, setName] = useState(initialName);
   const isEdit = !!initialName;
-  // 'menu' | 'name' | 'move' — seule la création démarre directement sur le
+  // 'menu' | 'name' | 'move' | 'order' — seule la création démarre directement sur le
   // champ du nom.
   const [view, setView] = useState(isEdit && !archived ? 'menu' : 'name');
   const [movingTo, setMovingTo] = useState(null);
@@ -158,6 +161,20 @@ export default function BlockSheet({
                     setView('name');
                   }}
                 />
+
+                {tags.length > 1 && (
+                  <Button
+                    variant="glass"
+                    fullWidth
+                    icon="list"
+                    label="Ordre des exercices"
+                    onPress={() => {
+                      haptic.light();
+                      setView('order');
+                    }}
+                    style={styles.orderBtn}
+                  />
+                )}
 
                 <View style={styles.pairRow}>
                   <Button
@@ -302,6 +319,64 @@ export default function BlockSheet({
               </>
             )}
 
+            {/* ───────── Ordre des exercices du bloc ───────── */}
+            {!archived && isEdit && view === 'order' && (
+              <>
+                <View style={styles.subHeader}>
+                  <IconButton
+                    icon="back"
+                    size={ROUND_SIZE.sheet}
+                    onPress={backToMenu}
+                    accessibilityLabel="Retour"
+                  />
+                  <Text style={styles.subHeaderLabel}>ORDRE DES EXERCICES</Text>
+                </View>
+
+                {tags.map((tag, i) => {
+                  const chip = categoryChip(tag.category);
+                  const first = i === 0;
+                  const last = i === tags.length - 1;
+                  return (
+                    <View key={tag.id} style={styles.orderRow}>
+                      <Text style={styles.orderIndex}>{i + 1}</Text>
+                      <View
+                        style={[styles.orderLabel, { backgroundColor: chip.bg, borderColor: chip.border }]}
+                      >
+                        <Text style={[styles.orderLabelText, { color: chip.text }]} numberOfLines={1}>
+                          {tag.label.toUpperCase()}
+                        </Text>
+                      </View>
+                      <IconButton
+                        icon="up"
+                        size={ROUND_SIZE.sheet}
+                        disabled={first}
+                        onPress={() => {
+                          haptic.selection();
+                          onMoveTag?.(tag.id, -1);
+                        }}
+                        accessibilityLabel={`Monter ${tag.label}`}
+                        style={first && styles.orderBtnOff}
+                      />
+                      <IconButton
+                        icon="down"
+                        size={ROUND_SIZE.sheet}
+                        disabled={last}
+                        onPress={() => {
+                          haptic.selection();
+                          onMoveTag?.(tag.id, 1);
+                        }}
+                        accessibilityLabel={`Descendre ${tag.label}`}
+                        style={last && styles.orderBtnOff}
+                      />
+                    </View>
+                  );
+                })}
+                <Text style={styles.ghostHint}>
+                  Le premier de la liste est celui que tu fais en premier.
+                </Text>
+              </>
+            )}
+
             {isEdit && (archived || view === 'menu') && (
               <Button
                 variant="ghost"
@@ -391,6 +466,37 @@ const styles = StyleSheet.create({
   },
   deleteLink: {
     marginTop: 4,
+  },
+  orderBtn: {
+    marginTop: 12,
+  },
+  orderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 8,
+  },
+  orderIndex: {
+    width: 18,
+    textAlign: 'center',
+    fontFamily: fonts.monoBold,
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.40)',
+  },
+  orderLabel: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  orderLabelText: {
+    fontFamily: fonts.sansBold,
+    fontSize: 12,
+    letterSpacing: 0.6,
+  },
+  orderBtnOff: {
+    opacity: 0.3,
   },
   deleteText: {
     color: DANGER,

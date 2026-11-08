@@ -47,6 +47,7 @@ import {
   isBlockLaunchable,
   loadPlanning,
   moveBlock,
+  moveTag,
   removeBlock,
   removeTag,
   renameBlock,
@@ -569,6 +570,14 @@ function PlanningContent({
               archived: !!target.archivedAt,
             };
           })}
+          tags={sheet.blockId ? findBlock(sheet.blockId)?.tags ?? [] : []}
+          onMoveTag={async (tagId, delta) => {
+            const next = await moveTag(planningRef.current, dayKey, sheet.blockId, tagId, delta);
+            // Mise à jour immédiate de la référence : deux appuis rapprochés
+            // partent chacun de la dernière liste, pas d'une copie périmée.
+            planningRef.current = next;
+            setPlanning(next);
+          }}
           onClose={closeBlockSheet}
           onSubmit={async (name, groups) => {
             if (sheet.blockId) {
