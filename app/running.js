@@ -31,6 +31,7 @@ import Animated, {
   Easing,
   FadeIn,
   FadeOut,
+  useReducedMotion,
 } from 'react-native-reanimated';
 
 import GradientBackground from '../components/common/GradientBackground';
@@ -391,7 +392,7 @@ export default function Running() {
   // fichier n'est téléchargé que pour un Premium (pour les autres, la carte
   // explique que c'est Premium). Reste ouverte d'un exercice à l'autre jusqu'à
   // ce qu'on la replie.
-  const { isPremium } = usePremium();
+  const { isPremium, loaded: premiumLoaded } = usePremium();
   const moveTarget = (() => {
     if (!isMix || isTutorial || state.isComplete) return null;
     const cur = mixBlocks[curBlockIdx];
@@ -410,12 +411,18 @@ export default function Running() {
     hapticOnce.light();
     setMoveOpen((v) => !v);
   }, []);
-  const moveVisible = !!moveTarget && !!moveAnim.entry && !isMini;
+  // `premiumLoaded` : avant la première lecture, `isPremium` vaut false par
+  // défaut — la pastille afficherait une couronne une fraction de seconde.
+  const moveVisible = premiumLoaded && !!moveTarget && !!moveAnim.entry && !isMini;
   const moveExpanded = moveVisible && moveOpen;
   // Carte compacte : le chrono doit rester lisible de loin. L'anneau rétrécit
-  // le temps qu'elle est dépliée (sinon tout se chevauche sur un écran moyen).
-  const ringSize = moveExpanded ? Math.min(ring, Math.round(Math.max(150, Math.min(230, winH * 0.27)))) : ring;
-  const timeSize = moveExpanded ? Math.round((bigTimeSize * ringSize) / ring) : bigTimeSize;
+  // pendant qu'elle est dépliée (sinon tout se chevauche sur un écran moyen).
+  // Le rétrécissement est un ZOOM animé par l'interface native (valeur
+  // partagée `shrink`, voir plus bas), JAMAIS un changement de la taille de
+  // l'anneau : en 18.2.0 `size` changeait, ce qui recalculait et redessinait
+  // les 60 graduations d'un coup, avec un saut de mise en page, à l'ouverture
+  // comme à la fermeture (micro-freeze signalé le 08/11/2026).
+  const ringSmall = Math.min(ring, Math.round(Math.max(150, Math.min(230, winH * 0.27))));
   const moveCardW = Math.min(winW - 40, 360);
   const moveMaxAnimH = Math.round(winH * 0.22);
 
@@ -673,6 +680,27 @@ export default function Running() {
     transform: [{ scale: ringScale.value }],
   }));
 
+  // Languette ouverte : la boîte de l'anneau rétrécit en hauteur et l'anneau
+  // (taille et géométrie INCHANGÉES, rien n'est redessiné) est zoomé vers son
+  // bord haut, les deux avec la même valeur → le visuel suit exactement la
+  // boîte. Tout se passe sur l'interface native, pas sur le fil JavaScript.
+  const reducedMotion = useReducedMotion();
+  const shrink = useSharedValue(0);
+  useEffect(() => {
+    shrink.value = withTiming(moveExpanded ? 1 : 0, {
+      duration: reducedMotion ? 0 : 260,
+      easing: Easing.out(Easing.cubic),
+    });
+  }, [moveExpanded]);
+  const ringMargin = scaled(isReduced ? 14 : showNextUp ? 18 : 32, ui);
+  const ringBoxStyle = useAnimatedStyle(() => ({
+    height: ring + (ringSmall - ring) * shrink.value,
+    marginBottom: ringMargin + (10 - ringMargin) * shrink.value,
+  }));
+  const ringZoomStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: 1 + (ringSmall / ring - 1) * shrink.value }],
+  }));
+
   // Phase label + time transition à chaque phase change
   const phaseY = useSharedValue(0);
   const phaseOpacity = useSharedValue(1);
@@ -812,47 +840,45 @@ export default function Running() {
               </Text>
             </Animated.View>
           ) : (
-            <Animated.View
-              style={[
-                styles.ringWrap,
-                {
-                  width: ringSize,
-                  height: ringSize,
-                  marginBottom: moveExpanded ? 10 : scaled(isReduced ? 14 : showNextUp ? 18 : 32, ui),
-                },
-                ringStyle,
-              ]}
-            >
-              <TickRing
-                progress={state.ringProgress}
-                size={ringSize}
-                colorActive={t.ringActive}
-                colorInactive={t.ringInactive}
-              />
-              <View style={styles.ringCenter} pointerEvents="none">
-                <Animated.Text
-                  style={[
-                    styles.phaseLabel,
-                    { color: t.tertiary },
-                    state.phaseLabel.length > 16 && { fontSize: 9, letterSpacing: 2.5 },
-                    phaseLabelStyle,
-                  ]}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
+            <Animated.View style={[{ width: ring }, ringBoxStyle]}>
+              <Animated.View
+                style={[{ width: ring, height: ring, transformOrigin: ['50%', 0, 0] }, ringZoomStyle]}
+              >
+                <Animated.View
+                  style={[styles.ringWrap, { width: ring, height: ring, marginBottom: 0 }, ringStyle]}
                 >
-                  {state.phaseLabel}
-                </Animated.Text>
-                <Animated.Text
-                  style={[
-                    styles.bigTime,
-                    { color: t.primary, fontSize: timeSize, lineHeight: Math.round(timeSize * 1.05) },
-                    timeStyle,
-                  ]}
-                >
-                  {formatDuration(displaySeconds)}
-                </Animated.Text>
-                <Text style={[styles.restantLabel, { color: t.tertiary }]}>{centerLabel}</Text>
-              </View>
+                  <TickRing
+                    progress={state.ringProgress}
+                    size={ring}
+                    colorActive={t.ringActive}
+                    colorInactive={t.ringInactive}
+                  />
+                  <View style={styles.ringCenter} pointerEvents="none">
+                    <Animated.Text
+                      style={[
+                        styles.phaseLabel,
+                        { color: t.tertiary },
+                        state.phaseLabel.length > 16 && { fontSize: 9, letterSpacing: 2.5 },
+                        phaseLabelStyle,
+                      ]}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                    >
+                      {state.phaseLabel}
+                    </Animated.Text>
+                    <Animated.Text
+                      style={[
+                        styles.bigTime,
+                        { color: t.primary, fontSize: bigTimeSize, lineHeight: Math.round(bigTimeSize * 1.05) },
+                        timeStyle,
+                      ]}
+                    >
+                      {formatDuration(displaySeconds)}
+                    </Animated.Text>
+                    <Text style={[styles.restantLabel, { color: t.tertiary }]}>{centerLabel}</Text>
+                  </View>
+                </Animated.View>
+              </Animated.View>
             </Animated.View>
           )}
 

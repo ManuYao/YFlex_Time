@@ -4,6 +4,7 @@ import Animated, {
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
+  withDelay,
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
@@ -55,6 +56,20 @@ function MovementTab({
   }, [name, mode]);
   const bounce = useAnimatedStyle(() => ({ transform: [{ translateY: ty.value }] }));
 
+  // Apparition de la carte : fondu + petite remontée, lancés juste après le
+  // début du zoom de l'anneau (qui libère la place), pour ne rien chevaucher.
+  // Valeur partagée = animé par l'interface native, aucun rendu JavaScript.
+  const appear = useSharedValue(0);
+  useEffect(() => {
+    appear.value = open
+      ? withDelay(reduced ? 0 : 110, withTiming(1, { duration: reduced ? 0 : 220 }))
+      : 0;
+  }, [open]);
+  const cardAppear = useAnimatedStyle(() => ({
+    opacity: appear.value,
+    transform: [{ translateY: (1 - appear.value) * 12 }],
+  }));
+
   if (!anim?.entry) return null;
 
   if (!open) {
@@ -79,7 +94,7 @@ function MovementTab({
   const ratio = anim.entry.width / anim.entry.height;
   const frameH = Math.min(maxAnimHeight, (cardWidth - 20) / ratio);
   return (
-    <View style={[styles.card, { width: cardWidth }]}>
+    <Animated.View style={[styles.card, { width: cardWidth }, cardAppear]}>
       <PressTap onPress={onToggle} tapScale={0.98} accessibilityLabel="Replier" style={styles.head}>
         <Text style={styles.headLabel}>{mode === 'next' ? 'ENSUITE' : 'EN COURS'}</Text>
         <Text style={styles.headName} numberOfLines={1}>
@@ -103,7 +118,7 @@ function MovementTab({
           <Text style={styles.lockedSub}>Tu la retrouves gratuitement dans ton planning.</Text>
         </View>
       )}
-    </View>
+    </Animated.View>
   );
 }
 
