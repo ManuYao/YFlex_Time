@@ -9,7 +9,10 @@ import Button from './Button';
 import IconButton from './IconButton';
 import AppIcon from './AppIcon';
 import TouchShield from './TouchShield';
+import ExerciseAnimation from './ExerciseAnimation';
 import { fonts } from '../../lib/fonts';
+import { searchCatalog } from '../../lib/exerciseAnimations';
+import { useExerciseAnimation } from '../../hooks/useExerciseAnimation';
 import { formatValue, formatSecondsCompact } from '../../lib/formatters';
 import { getCategory } from '../../lib/exercises';
 import { BLOCK_TYPES, getBlockType, getRangesForType } from '../../lib/mix-blocks';
@@ -105,7 +108,14 @@ export default function ExerciseDetailSheet({
     weight: tag.weight,
     sets: tag.sets,
     rest: tag.rest,
+    // Animation choisie à la main (exercice perso, ou mauvaise animation
+    // trouvée par le nom). null = choix automatique par le nom.
+    animationId: tag.animationId ?? null,
   }));
+  // Choix d'une animation : vue à part dans la même feuille.
+  const [choosing, setChoosing] = useState(false);
+  const [animQuery, setAnimQuery] = useState('');
+  const anim = useExerciseAnimation(draft.label, draft.animationId);
   const [editing, setEditing] = useState(null);
   // Renommage de l'exercice : vue à part dans la même feuille (comme les roues),
   // le nouveau nom se range dans `draft` et part avec « Enregistrer ».
@@ -222,7 +232,7 @@ export default function ExerciseDetailSheet({
               <Text style={styles.title} numberOfLines={1}>{draft.label}</Text>
               {/* Renommer : visible sur la fiche principale seulement, pas
                   pendant le réglage d'une roue. */}
-              {!field && !timerEditing && !renaming && (
+              {!field && !timerEditing && !renaming && !choosing && (
                 <IconButton
                   icon="edit"
                   variant="ghost"
@@ -244,7 +254,76 @@ export default function ExerciseDetailSheet({
             </Text>
           </View>
 
-          {renaming ? (
+          {choosing ? (
+            <View>
+              <View style={styles.editHeader}>
+                <IconButton
+                  icon="back"
+                  size={ROUND_SIZE.sheet}
+                  onPress={() => {
+                    haptic.light();
+                    setChoosing(false);
+                  }}
+                  accessibilityLabel="Retour"
+                />
+                <Text style={styles.editLabel}>CHOISIR UNE ANIMATION</Text>
+              </View>
+
+              <TextInput
+                value={animQuery}
+                onChangeText={setAnimQuery}
+                placeholder="Chercher un mouvement"
+                placeholderTextColor="rgba(255,255,255,0.30)"
+                selectionColor="#FFFFFF"
+                maxLength={40}
+                returnKeyType="search"
+                style={styles.nameInput}
+              />
+
+              <View style={styles.animList}>
+                {searchCatalog(anim.catalog, animQuery).map((e) => {
+                  const selected = anim.entry?.id === e.id;
+                  return (
+                    <PressTap
+                      key={e.id}
+                      onPress={() => {
+                        haptic.selection();
+                        setDraft((prev) => ({ ...prev, animationId: e.id }));
+                        setChoosing(false);
+                      }}
+                      tapScale={0.97}
+                      style={[styles.animRow, selected && styles.animRowSelected]}
+                    >
+                      <View style={[styles.animDot, { backgroundColor: getCategory(e.groupId).color }]} />
+                      <Text style={styles.animRowText} numberOfLines={1}>
+                        {e.names[0] || e.id}
+                      </Text>
+                      {selected && <AppIcon name="check" size={14} color="#FFFFFF" />}
+                    </PressTap>
+                  );
+                })}
+                {searchCatalog(anim.catalog, animQuery).length === 0 && (
+                  <Text style={styles.animEmpty}>
+                    Aucun mouvement ne correspond. De nouvelles animations arrivent au fil des semaines.
+                  </Text>
+                )}
+              </View>
+
+              {!!draft.animationId && (
+                <Button
+                  variant="ghost"
+                  size="md"
+                  label="Revenir au choix automatique"
+                  onPress={() => {
+                    haptic.light();
+                    setDraft((prev) => ({ ...prev, animationId: null }));
+                    setChoosing(false);
+                  }}
+                  style={styles.removeLink}
+                />
+              )}
+            </View>
+          ) : renaming ? (
             <View>
               <View style={styles.editHeader}>
                 <IconButton
@@ -384,6 +463,52 @@ export default function ExerciseDetailSheet({
             </View>
           ) : (
             <View>
+              {/* Animation du mouvement (catalogue en ligne, voir
+                  lib/exerciseAnimationStore.js). Rien tant que le catalogue
+                  n'est pas lu ; rien du tout s'il est vide (première ouverture
+                  sans réseau). Gratuit pour tous dans le planning. */}
+              {anim.entry ? (
+                <View style={styles.animBlock}>
+                  <ExerciseAnimation
+                    entry={anim.entry}
+                    uri={anim.uri}
+                    failed={anim.status === 'error'}
+                    label={draft.label}
+                  />
+                  <View style={styles.animCaption}>
+                    <Text style={styles.animCaptionLabel}>MOUVEMENT</Text>
+                    <PressTap
+                      onPress={() => {
+                        haptic.light();
+                        setAnimQuery('');
+                        setChoosing(true);
+                      }}
+                      tapScale={0.95}
+                      hitSlop={10}
+                    >
+                      <Text style={styles.animLink}>Changer</Text>
+                    </PressTap>
+                  </View>
+                </View>
+              ) : anim.status === 'none' && anim.catalog.length > 0 ? (
+                <View style={styles.animNone}>
+                  <Text style={styles.animNoneText} numberOfLines={2}>
+                    Pas encore d’animation pour cet exercice.
+                  </Text>
+                  <PressTap
+                    onPress={() => {
+                      haptic.light();
+                      setAnimQuery('');
+                      setChoosing(true);
+                    }}
+                    tapScale={0.95}
+                    hitSlop={10}
+                  >
+                    <Text style={styles.animLink}>Choisir</Text>
+                  </PressTap>
+                </View>
+              ) : null}
+
               <View style={styles.grid}>
                 {FIELDS.map((f) => (
                   // PressTap applique `style` à sa vue interne, pas au
@@ -562,6 +687,85 @@ export default function ExerciseDetailSheet({
 const styles = StyleSheet.create({
   header: {
     marginBottom: 18,
+  },
+  animBlock: {
+    marginBottom: 16,
+  },
+  animCaption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 8,
+    paddingHorizontal: 2,
+  },
+  animCaptionLabel: {
+    fontFamily: fonts.monoBold,
+    fontSize: 9,
+    letterSpacing: 1.6,
+    color: 'rgba(255,255,255,0.32)',
+  },
+  animLink: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.70)',
+    textDecorationLine: 'underline',
+  },
+  animNone: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+  },
+  animNoneText: {
+    flex: 1,
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.45)',
+  },
+  animList: {
+    marginTop: 12,
+    gap: 6,
+  },
+  animRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.09)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  animRowSelected: {
+    borderColor: 'rgba(255,255,255,0.45)',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  animDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  animRowText: {
+    flex: 1,
+    fontFamily: fonts.sansSemibold,
+    fontSize: 14,
+    color: '#FFFFFF',
+  },
+  animEmpty: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
+    lineHeight: 17,
+    color: 'rgba(255,255,255,0.40)',
+    textAlign: 'center',
+    marginTop: 6,
   },
   titleRow: {
     flexDirection: 'row',

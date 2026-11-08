@@ -128,7 +128,7 @@ export default function ExerciseLibrarySheet({
       ? filterExercisesByDisciplines(category.exercises, disciplineIds)
       : category.exercises
     ).map((label) => ({ label, custom: false })),
-    ...customInCategory.map((e) => ({ label: e.label, custom: true })),
+    ...customInCategory.map((e) => ({ label: e.label, custom: true, animationId: e.animationId ?? null })),
   ];
   const trimmed = customName.trim();
   const draftLabel = draft.label.trim();
@@ -467,7 +467,7 @@ export default function ExerciseLibrarySheet({
                       key={ex.label}
                       onPress={() => {
                         haptic.medium();
-                        onPick({ label: ex.label, category: categoryId });
+                        onPick({ label: ex.label, category: categoryId, animationId: ex.animationId ?? null });
                         close();
                       }}
                       // Seuls les exercices créés se suppriment ainsi — ceux
