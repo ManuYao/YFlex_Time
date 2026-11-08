@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -56,6 +56,11 @@ import { useSound } from '../hooks/useSound';
 import { tickVoiceCoach, speakEnd, stopVoiceCoach } from '../lib/voiceCoach';
 import { loadCooldownMap, saveCooldownMap, consumeLaunch } from '../lib/cooldown';
 import { loadIsPremium } from '../lib/premium';
+import MovementTab from '../components/common/MovementTab';
+import { useExerciseAnimation } from '../hooks/useExerciseAnimation';
+import { usePremium } from '../hooks/usePremium';
+import { haptic as hapticOnce } from '../hooks/useHaptic';
+import { prefetchAnimations } from '../lib/exerciseAnimationStore';
 
 // Une séance TABATA / MIX ne compte dans le quota gratuit de la semaine qu'après
 // 40 s de chrono : un retour brusque au tout début ne coûte rien.
@@ -102,7 +107,7 @@ export default function Running() {
   const level = useLayoutLevel();
   const isMini = level === 'mini';
   const isReduced = isMini || level === 'compact';
-  const { height: winH } = useWindowSize();
+  const { height: winH, width: winW } = useWindowSize();
   const ring = scaled(level === 'compact' ? 260 : 320, ui);
   const bigTimeSize = isMini ? scaled(64, ui) : scaled(level === 'compact' ? 62 : 76, ui);
 
@@ -379,6 +384,51 @@ export default function Running() {
     setSavedWeights((prev) => ({ ...prev, [weightBlock.planRef.tagId]: kg }));
     await setTagWeightByRef(weightBlock.planRef, kg);
   };
+
+  // Languette « Voir le mouvement » (étape 5 des animations, 18.2.0) : MIX
+  // seulement (les chronos simples n'ont pas de nom d'exercice). Pendant
+  // l'effort, l'exercice en cours ; pendant un bloc REPOS, le suivant. Le
+  // fichier n'est téléchargé que pour un Premium (pour les autres, la carte
+  // explique que c'est Premium). Reste ouverte d'un exercice à l'autre jusqu'à
+  // ce qu'on la replie.
+  const { isPremium } = usePremium();
+  const moveTarget = (() => {
+    if (!isMix || isTutorial || state.isComplete) return null;
+    const cur = mixBlocks[curBlockIdx];
+    if (!cur) return null;
+    if (cur.type === 'rest') {
+      const nxt = mixBlocks.slice(curBlockIdx + 1).find((b) => b.type !== 'rest');
+      return nxt ? { label: nxt.label || '', animationId: nxt.animationId ?? null, mode: 'next' } : null;
+    }
+    return { label: cur.label || '', animationId: cur.animationId ?? null, mode: 'now' };
+  })();
+  const moveAnim = useExerciseAnimation(moveTarget?.label ?? '', moveTarget?.animationId ?? null, {
+    download: isPremium,
+  });
+  const [moveOpen, setMoveOpen] = useState(false);
+  const toggleMove = useCallback(() => {
+    hapticOnce.light();
+    setMoveOpen((v) => !v);
+  }, []);
+  const moveVisible = !!moveTarget && !!moveAnim.entry && !isMini;
+  const moveExpanded = moveVisible && moveOpen;
+  // Carte compacte : le chrono doit rester lisible de loin. L'anneau rétrécit
+  // le temps qu'elle est dépliée (sinon tout se chevauche sur un écran moyen).
+  const ringSize = moveExpanded ? Math.min(ring, Math.round(Math.max(150, Math.min(230, winH * 0.27)))) : ring;
+  const timeSize = moveExpanded ? Math.round((bigTimeSize * ringSize) / ring) : bigTimeSize;
+  const moveCardW = Math.min(winW - 40, 360);
+  const moveMaxAnimH = Math.round(winH * 0.22);
+
+  // Une coupure de réseau en pleine séance ne doit pas priver de la
+  // languette : on télécharge d'avance les animations de tout le MIX.
+  useEffect(() => {
+    if (!isMix || isTutorial || !isPremium) return;
+    prefetchAnimations(
+      mixBlocks
+        .filter((b) => b.type !== 'rest')
+        .map((b) => ({ label: b.label || '', animationId: b.animationId ?? null }))
+    );
+  }, [isPremium]);
 
   const handleReset = () => {
     haptic.warning();
@@ -765,13 +815,17 @@ export default function Running() {
             <Animated.View
               style={[
                 styles.ringWrap,
-                { width: ring, height: ring, marginBottom: scaled(isReduced ? 14 : showNextUp ? 18 : 32, ui) },
+                {
+                  width: ringSize,
+                  height: ringSize,
+                  marginBottom: moveExpanded ? 10 : scaled(isReduced ? 14 : showNextUp ? 18 : 32, ui),
+                },
                 ringStyle,
               ]}
             >
               <TickRing
                 progress={state.ringProgress}
-                size={ring}
+                size={ringSize}
                 colorActive={t.ringActive}
                 colorInactive={t.ringInactive}
               />
@@ -791,7 +845,7 @@ export default function Running() {
                 <Animated.Text
                   style={[
                     styles.bigTime,
-                    { color: t.primary, fontSize: bigTimeSize, lineHeight: Math.round(bigTimeSize * 1.05) },
+                    { color: t.primary, fontSize: timeSize, lineHeight: Math.round(timeSize * 1.05) },
                     timeStyle,
                   ]}
                 >
@@ -815,17 +869,33 @@ export default function Running() {
             />
           ) : (
             <>
-              {showNextUp && (
+              {/* Languette dépliée : elle dit déjà « ENSUITE » et occupe la
+                  place, la carte « Ensuite » et le déroulé s'effacent. */}
+              {showNextUp && !moveExpanded && (
                 <NextUp next={state.nextBlock} tokens={t} compact={isReduced} mini={isMini} />
               )}
               {/* Pendant un repos annoncé, le déroulé cède la place sur les
                   écrans un peu courts : « ENSUITE » est ce qu'on veut lire. */}
-              {!isReduced && !(showNextUp && winH < 860) && (
+              {!isReduced && !moveExpanded && !(showNextUp && winH < 860) && (
                 <PhasesPills phases={state.phasesList} timer={timer} tokens={t} />
               )}
             </>
           )}
         </View>
+
+        {moveVisible && (
+          <MovementTab
+            anim={moveAnim}
+            name={moveTarget.label}
+            mode={moveTarget.mode}
+            open={moveOpen}
+            onToggle={toggleMove}
+            isPremium={isPremium}
+            paused={isPaused}
+            cardWidth={moveCardW}
+            maxAnimHeight={moveMaxAnimH}
+          />
+        )}
 
         <BottomControls
           tokens={t}
