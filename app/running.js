@@ -54,7 +54,7 @@ import { useUiScale, scaled, useLayoutLevel, useWindowSize } from '../lib/respon
 import { useHaptic } from '../hooks/useHaptic';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { useSound } from '../hooks/useSound';
-import { tickVoiceCoach, speakEnd, stopVoiceCoach } from '../lib/voiceCoach';
+import { tickVoiceCoach, speakEnd, stopVoiceCoach, releaseVoiceSoon } from '../lib/voiceCoach';
 import { loadCooldownMap, saveCooldownMap, consumeLaunch } from '../lib/cooldown';
 import { loadIsPremium } from '../lib/premium';
 import MovementTab from '../components/common/MovementTab';
@@ -599,6 +599,10 @@ export default function Running() {
       // Quitter Running en pleine phrase ne doit pas laisser le coach
       // continuer à parler par-dessus l'écran suivant (Home, fin de séance…).
       if (!endSpokenRef.current) stopVoiceCoach();
+      // Les lecteurs audio de la voix n'ont plus lieu d'être une fois la séance
+      // finie : on les retire (après « Terminé ! ») au lieu de les garder jusqu'au
+      // redémarrage de l'app.
+      releaseVoiceSoon();
     };
   }, []);
 
