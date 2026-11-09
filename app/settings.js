@@ -689,6 +689,14 @@ export default function Settings() {
                 router.push('/permissions');
               }}
             />
+            <LinkRow
+              label="Mémoire"
+              sub="Mesurer ce que l'app garde en mémoire"
+              onPress={() => {
+                haptic.light();
+                router.push('/diagnostic');
+              }}
+            />
             <LinkRow label="Contact" sub={CONTACT_EMAIL} onPress={handleContact} isLast />
           </Section>
 

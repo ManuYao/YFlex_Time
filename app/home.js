@@ -150,6 +150,17 @@ const STREAK_THRESHOLD = 3;
 // Appui long sur le cercle central — ouvre le panneau stats/badges (T).
 const STATS_HOLD_MS = 1500;
 
+// Statut de quota d'un compte Premium : toujours le MÊME objet (voir
+// getCooldownStatus), pour ne pas défaire la mémoïsation des cartes.
+const PREMIUM_COOLDOWN_STATUS = Object.freeze({
+  limited: false,
+  isLocked: false,
+  remaining: Infinity,
+  uses: 0,
+  quota: Infinity,
+  lockedUntil: null,
+});
+
 // (V) Largeur minimale d'un chip de réglage (label + valeur) pour rester
 // lisible en row. En dessous, statsRow bascule en liste verticale — voir
 // TimerCard.
@@ -292,16 +303,9 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   // uniquement ici, au point d'usage.
   const getCooldownStatus = useCallback(
     (timerId) => {
-      if (isPremium) {
-        return {
-          limited: false,
-          isLocked: false,
-          remaining: Infinity,
-          uses: 0,
-          quota: Infinity,
-          lockedUntil: null,
-        };
-      }
+      // Constante partagée : un objet neuf à chaque appel annulait la mémoïsation
+      // des cartes (elles se redessinaient toutes au moindre changement).
+      if (isPremium) return PREMIUM_COOLDOWN_STATUS;
       return getCooldownStatusRaw(timerId);
     },
     [isPremium, getCooldownStatusRaw]
