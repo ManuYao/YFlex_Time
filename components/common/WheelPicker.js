@@ -180,6 +180,12 @@ function WheelPickerBase({
   // il appellerait un onChange périmé (liaison séries ↔ tours de la fiche).
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  // Même principe pour le tableau de valeurs : `commit` (et donc le gestionnaire
+  // de défilement) ne doit PAS dépendre de lui, sinon il est reconstruit.
+  const valuesRef = useRef(values);
+  valuesRef.current = values;
+  // Primitive : seul ce nombre est copié côté animation (jamais le tableau).
+  const lastIndex = values.length - 1;
   const initialIdx = Math.max(0, values.indexOf(selectedValue));
   // Centre de la fenêtre d'items montés (voir WINDOW_BUFFER). Une ref en plus de
   // l'état : `commit` peut être un appel d'un ancien rendu et doit lire la valeur
@@ -222,18 +228,26 @@ function WheelPickerBase({
   // index, que la valeur soit retenue pendant le scroll ou confirmée à
   // l'arrêt. Le filtre anti-doublon vit déjà côté UI thread (scrollHandler),
   // donc pas besoin de re-vérifier ici.
-  const commit = (idx) => {
-    haptic.selection();
-    railPulse.value = withSequence(
-      withTiming(1.035, { duration: 90, easing: easeImpact }),
-      withSpring(1, springBouncy)
-    );
-    onChangeRef.current?.(values[idx]);
-    if (Math.abs(idx - windowCenterRef.current) >= RECENTER_STEP) {
-      windowCenterRef.current = idx;
-      setWindowCenter(idx);
-    }
-  };
+  // STABLE (useCallback, que des refs et des valeurs partagées) : un `commit`
+  // recréé à chaque rendu faisait reconstruire le gestionnaire de défilement (et
+  // recopier le tableau de valeurs côté animation) à chaque recentrage de la
+  // fenêtre, soit toutes les 4 valeurs pendant un long défilement.
+  const commit = useCallback(
+    (idx) => {
+      haptic.selection();
+      railPulse.value = withSequence(
+        withTiming(1.035, { duration: 90, easing: easeImpact }),
+        withSpring(1, springBouncy)
+      );
+      onChangeRef.current?.(valuesRef.current[idx]);
+      if (Math.abs(idx - windowCenterRef.current) >= RECENTER_STEP) {
+        windowCenterRef.current = idx;
+        setWindowCenter(idx);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
 
   const scrollHandler = useAnimatedScrollHandler({
     onBeginDrag: () => {
@@ -245,7 +259,7 @@ function WheelPickerBase({
       scrollY.value = e.contentOffset.y;
       const idx = Math.max(
         0,
-        Math.min(values.length - 1, Math.round(e.contentOffset.y / ITEM_HEIGHT))
+        Math.min(lastIndex, Math.round(e.contentOffset.y / ITEM_HEIGHT))
       );
       if (idx !== lastIdxShared.value) {
         lastIdxShared.value = idx;
