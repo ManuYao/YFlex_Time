@@ -930,12 +930,29 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   // (une View simple sans handler de tap, cf TimerCard). On n'accepte donc un
   // changement d'index que s'il suit un vrai geste de l'utilisateur.
   const draggingRef = useRef(false);
+  // Registre des « annuler le maintien du cercle » de chaque carte (voir TimerCard) :
+  // le glissé du carrousel les appelle tous. Un doigt posé sur le cercle déclenche
+  // le maintien (onPressIn) ; si l'événement « relâché/annulé » arrive en retard ou
+  // jamais (app chargée, carte qui n'est plus l'active), le compteur de 1,5 s allait
+  // au bout tout seul et ouvrait les stats en plein glissé.
+  const holdBusRef = useRef(null);
+  if (holdBusRef.current === null) holdBusRef.current = new Set();
+  // Vrai tant que le carrousel n'est pas posé EXACTEMENT sur une page. Lit la
+  // position réelle (fil d'interface) ; volontairement pas draggingRef, qui peut
+  // rester vrai si aucun « élan » n'est signalé en fin de glissé.
+  const isCarouselBusy = useCallback(() => {
+    const w = pageW.value || 1;
+    const p = scrollX.value / w;
+    return Math.abs(p - Math.round(p)) > 0.02;
+  }, []);
   // Heure de montage : le FlatList fait un saut au démarrage (initialScrollIndex),
   // on n'écoute pas la position avant qu'il soit posé.
   const mountedAtRef = useRef(Date.now());
   const hapticIndexRef = useRef(initialIndex);
   const handleScrollBeginDrag = useCallback(() => {
     draggingRef.current = true;
+    // Un glissé commence : plus aucun maintien du cercle ne doit pouvoir aboutir.
+    holdBusRef.current.forEach((cancelHold) => cancelHold());
     // Swiper le carrousel pendant que CoachNudgeSheet est ouverte compte
     // comme une interruption (demande utilisateur) : la popup se ferme et
     // repart sur le même délai de 7 jours que les autres fermetures.
@@ -1249,9 +1266,11 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
         onStatHaptic={haptic.light}
         onOpenStats={handleOpenStats}
         onGoPremium={handleGoPremium}
+        holdBus={holdBusRef.current}
+        isCarouselBusy={isCarouselBusy}
       />
     ),
-    [settledIndex, rootW, heatMap, getCooldownStatus, handleStatPress, handleMixEdit, haptic, handleOpenStats, handleGoPremium]
+    [settledIndex, rootW, heatMap, getCooldownStatus, handleStatPress, handleMixEdit, haptic, handleOpenStats, handleGoPremium, isCarouselBusy]
   );
 
   if (!hydrated) {
@@ -1279,7 +1298,11 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
 
         {activeHeat >= STREAK_THRESHOLD && (
           <Animated.View style={[StyleSheet.absoluteFill, emberReveal]} pointerEvents="none">
-            <EmberField key={active.id} color={active.color} heatCount={activeHeat} />
+            {/* Pas de `key` par mode : avec, les 6 à 16 braises (chacune une vue animée avec
+                un dégradé SVG) étaient DÉMONTÉES puis remontées à chaque changement de timer,
+                en plein glissé. Sans, elles restent en place et ne changent que de couleur
+                (invisible : le champ est éteint pendant le glissé, voir emberReveal). */}
+            <EmberField color={active.color} heatCount={activeHeat} />
           </Animated.View>
         )}
 
@@ -1312,6 +1335,11 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
             initialScrollIndex={initialIndex}
             renderItem={renderItem}
             getItemLayout={getItemLayout}
+            // Par défaut Android DÉTACHE de la vue native les cartes hors écran puis les
+            // RATTACHE en plein glissé (et jette leur dessin en cache) : la carte qui entre
+            // doit alors tout redessiner (anneau, 105 traits, textes…) pendant le geste.
+            // Seulement 5 cartes, déjà montées : on les laisse en place.
+            removeClippedSubviews={false}
             style={styles.list}
             scrollEnabled={!hideChrome}
           />
@@ -1490,7 +1518,10 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
    pas d'écran noir, pas de couleur parasite. Au plus deux couches visibles
    à la fois (les autres sont à 0 ou entièrement recouvertes).
    ────────────────────────────────────────────────────────────────*/
-function ScrollInkBackground({ timers, scrollX, width }) {
+// Mémoïsés : l'accueil se re-rend à chaque changement de page (deux fois par glissé) ;
+// ces 5 fonds, eux, ne dépendent que de la position du doigt (fil d'interface) et de
+// leur mode — inutile de les refaire (5 dégradés) à chaque rendu de l'écran.
+const ScrollInkBackground = React.memo(function ScrollInkBackground({ timers, scrollX, width }) {
   const widthSV = useSharedValue(width || 1);
   useEffect(() => {
     widthSV.value = width || 1;
@@ -1503,9 +1534,9 @@ function ScrollInkBackground({ timers, scrollX, width }) {
       ))}
     </View>
   );
-}
+});
 
-function FadeLayer({ timer, index, scrollX, widthSV }) {
+const FadeLayer = React.memo(function FadeLayer({ timer, index, scrollX, widthSV }) {
   const style = useAnimatedStyle(() => {
     const p = scrollX.value / widthSV.value;
     // Recouverte par la page suivante, devenue pleine : inutile de la peindre.
@@ -1520,7 +1551,7 @@ function FadeLayer({ timer, index, scrollX, widthSV }) {
       <GradientBackground colors={timer.bgColors} textMode={timer.textMode} grain={false} inherit={false} />
     </Animated.View>
   );
-}
+});
 
 /* ─────────────────────────────────────────────────────────────────
    EmberField/Ember — braises ambiantes sur tout le fond, dès
@@ -1739,7 +1770,7 @@ function TopBar({ tag, tokens, tone, profileRef, onProfile, onHub, onTapHaptic, 
 /* ─────────────────────────────────────────────────────────────────
    TimerCard — orchestration des animations sur isActive
    ────────────────────────────────────────────────────────────────*/
-const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, heatCount, cooldown, ringRef, statsRef, onStatPress, onMixEdit, onStatHaptic, onOpenStats, onGoPremium }) {
+const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, heatCount, cooldown, ringRef, statsRef, onStatPress, onMixEdit, onStatHaptic, onOpenStats, onGoPremium, holdBus, isCarouselBusy }) {
   const t = getTokens(timer.textMode);
   const hero = getTimerHero(timer);
   const description = getTimerDescription(timer);
@@ -1748,7 +1779,32 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
   // du design. Ne se reduit qu'en fenetre flottante (voir lib/responsive.js).
   const ui = useUiScale();
   const isMix = timer.id === 'mix';
-  const { isPressing, progress, start, cancel } = useLongPress(onOpenStats, STATS_HOLD_MS);
+  // Maintien du cercle central (1,5 s → stats/trophées). Il ne doit JAMAIS aboutir
+  // pendant un glissé du carrousel, ni sur une carte qui n'est plus l'active : au
+  // moment d'aboutir on revérifie les deux (le doigt a pu partir sans que
+  // l'événement « relâché » ne nous parvienne à temps quand l'app est chargée).
+  const isActiveRef = useRef(isActive);
+  isActiveRef.current = isActive;
+  const guardedOpenStats = useCallback(() => {
+    if (!isActiveRef.current || isCarouselBusy?.()) return;
+    onOpenStats();
+  }, [onOpenStats, isCarouselBusy]);
+  const { isPressing, progress, start, cancel } = useLongPress(guardedOpenStats, STATS_HOLD_MS);
+  // `cancel` change d'identité à chaque rendu (il lit isPressing/progress) : on le
+  // garde par ref pour ne l'enregistrer qu'une fois auprès du carrousel.
+  const cancelRef = useRef(cancel);
+  cancelRef.current = cancel;
+  useEffect(() => {
+    if (!holdBus) return undefined;
+    const cancelHold = () => cancelRef.current();
+    holdBus.add(cancelHold);
+    return () => holdBus.delete(cancelHold);
+  }, [holdBus]);
+  // La carte cesse d'être l'active (page posée ailleurs) : ses poignées d'appui
+  // passent à undefined, plus rien n'annulerait un maintien resté en route.
+  useEffect(() => {
+    if (!isActive) cancelRef.current();
+  }, [isActive]);
 
   // Entrées animées (chiffre, nom, réglages, déroulé…) : elles ne jouent que
   // (a) au lancement de l'app pour la carte affichée, (b) quand une valeur

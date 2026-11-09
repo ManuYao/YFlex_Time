@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -171,6 +171,31 @@ export default function MixBuilder() {
   // places du quota.
   const launchingRef = useRef(false);
 
+  // Lignes de la liste : callbacks STABLES + ligne mémoïsée (BlockRow). Avant, un
+  // `renderItem` recréé à chaque rendu du constructeur faisait refaire TOUTES les
+  // lignes montées (30 blocs = ~30 × 25 éléments, dont Swipeable, 2 SVG et des
+  // valeurs Reanimated) à chaque cran de roue d'un bloc, à chaque lettre tapée et
+  // à chaque fin de glissé. Maintenant seule la ligne dont le bloc a changé se
+  // refait (les autres gardent le même objet bloc). Les numéros de lignes sont
+  // rafraîchis par `extraData` (voir blocksOrderSig) quand l'ORDRE change.
+  const removeBlockRef = useRef(null);
+  const handleEditRow = useCallback((id) => setEditingBlockId(id), []);
+  const handleDeleteRow = useCallback((id) => removeBlockRef.current?.(id), []);
+  const renderBlockRow = useCallback(
+    ({ item, drag, isActive, getIndex }) => (
+      <BlockRow
+        block={item}
+        index={getIndex() ?? 0}
+        drag={drag}
+        isActive={isActive}
+        readOnly={preview}
+        onEdit={handleEditRow}
+        onDelete={handleDeleteRow}
+      />
+    ),
+    [preview, handleEditRow, handleDeleteRow]
+  );
+
   useEffect(
     () => () => {
       clearTimeout(toastTimer.current);
@@ -215,6 +240,11 @@ export default function MixBuilder() {
   }
 
   draftLatestRef.current = draft;
+
+  // Ordre des blocs (ids) : ne change qu'à l'ajout, la suppression ou le
+  // déplacement d'un bloc — PAS quand on règle un bloc. Passé en `extraData` à la
+  // liste, il met à jour les numéros de lignes sans refaire les lignes inchangées.
+  const blocksOrderSig = draft.blocks.map((b) => b.id).join('|');
 
   const totalSec = getMixTotalDuration(draft.blocks);
   const totalIsEstimate = hasEstimatedDuration(draft.blocks);
@@ -298,6 +328,7 @@ export default function MixBuilder() {
     haptic.warning();
     setDraft((d) => ({ ...d, blocks: d.blocks.filter((b) => b.id !== id) }));
   };
+  removeBlockRef.current = removeBlock;
 
   const updateBlock = (id, patch) => {
     setDraft((d) => ({
@@ -935,17 +966,8 @@ export default function MixBuilder() {
             style={styles.listInner}
             containerStyle={styles.listInner}
             activationDistance={6}
-            renderItem={({ item, drag, isActive, getIndex }) => (
-              <BlockRow
-                block={item}
-                index={getIndex() ?? 0}
-                drag={drag}
-                isActive={isActive}
-                readOnly={preview}
-                onEdit={() => setEditingBlockId(item.id)}
-                onDelete={() => removeBlock(item.id)}
-              />
-            )}
+            extraData={blocksOrderSig}
+            renderItem={renderBlockRow}
           />
         </View>
 
@@ -1134,7 +1156,9 @@ export default function MixBuilder() {
   );
 }
 
-function BlockRow({ block, index, drag, isActive, onEdit, onDelete, readOnly = false }) {
+// Mémoïsée : ne se refait que si SON bloc, son numéro ou son état change (voir
+// renderBlockRow). `onEdit`/`onDelete` reçoivent l'id du bloc (callbacks stables).
+const BlockRow = memo(function BlockRow({ block, index, drag, isActive, onEdit, onDelete, readOnly = false }) {
   const type = getBlockType(block.type);
   const swipeRef = useRef(null);
   if (!type) return null;
@@ -1143,7 +1167,7 @@ function BlockRow({ block, index, drag, isActive, onEdit, onDelete, readOnly = f
     <Pressable
       onPress={() => {
         swipeRef.current?.close();
-        onDelete?.();
+        onDelete?.(block.id);
       }}
       style={({ pressed }) => [
         styles.swipeDelete,
@@ -1177,7 +1201,7 @@ function BlockRow({ block, index, drag, isActive, onEdit, onDelete, readOnly = f
         <Pressable
           onLongPress={readOnly ? undefined : drag}
           delayLongPress={250}
-          onPress={readOnly ? undefined : onEdit}
+          onPress={readOnly ? undefined : () => onEdit?.(block.id)}
           style={({ pressed }) => [
             styles.row,
             isActive && {
@@ -1248,7 +1272,7 @@ function BlockRow({ block, index, drag, isActive, onEdit, onDelete, readOnly = f
       </Swipeable>
     </ScaleDecorator>
   );
-}
+});
 
 function RoleBadge({ role }) {
   const info = getBlockRole(role);

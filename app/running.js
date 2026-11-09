@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -94,7 +94,11 @@ export default function Running() {
     () => (isTutorial ? buildTutorialTimer(baseTimer) : baseTimer),
     [isTutorial, baseTimer]
   );
-  const t = getTokens(timer.textMode);
+  // Mémoïsé : getTokens renvoie un objet NEUF à chaque appel, ce qui défaisait la
+  // protection (React.memo) de tous les enfants qui le reçoivent. L'écran se
+  // redessine 10 fois par seconde (tick de 100 ms) : voir RunBackdrop, RunCenter,
+  // TopBar, BottomControls… qui ne se redessinent plus que si LEURS valeurs changent.
+  const t = useMemo(() => getTokens(timer.textMode), [timer.textMode]);
 
   // Vaut 1 sur un telephone normal : rien ne bouge. Ne se reduit qu'en
   // fenetre flottante / split-screen (voir lib/responsive.js).
@@ -544,10 +548,58 @@ export default function Running() {
     });
   };
 
+  // Commandes à identité STABLE : chaque bouton appelle toujours la DERNIÈRE
+  // version du handler (lue dans `latest` à l'appui), exactement comme avant où
+  // l'écran, redessiné 10×/s, redonnait aux boutons un handler frais. Sans ça,
+  // BottomControls / TopBar ne pourraient pas être protégés du redessin.
+  const latest = useRef(null);
+  latest.current = {
+    onReturn: handleReturn,
+    onReset: handleReset,
+    onPauseToggle: handlePauseToggle,
+    onSkip: handleSkip,
+    onEndWork: isLastEmomRound ? handleFinish : isLastMixEmomRound ? handleSkip : handleEndWork,
+    onFinish: handleStop,
+  };
+  const stable = useMemo(
+    () => ({
+      onReturn: () => latest.current.onReturn(),
+      onReset: () => latest.current.onReset(),
+      onPauseToggle: () => latest.current.onPauseToggle(),
+      onSkip: () => latest.current.onSkip(),
+      onEndWork: () => latest.current.onEndWork(),
+      onFinish: () => latest.current.onFinish(),
+      onWeightPress: () => {
+        haptic.light();
+        setWeightSheet(true);
+      },
+    }),
+    []
+  );
+
   const displaySeconds = isWorkInfinite
     ? Math.floor(state.phaseSecondsLeft)
     : Math.ceil(state.phaseSecondsLeft);
   const centerLabel = isWorkInfinite ? 'ÉCOULÉ' : 'RESTANT';
+  // Valeurs ARRONDIES à ce que l'œil peut voir, pour que les enfants protégés ne
+  // se redessinent pas à chaque tick de 100 ms : la barre du haut à 0,1 % près
+  // (< 0,4 px sur une barre de 340 px) et l'anneau à la graduation près
+  // (TickRing allume floor(60 × progrès) graduations ; le « + 0,5 » met la valeur
+  // au milieu de sa graduation, donc le floor() de TickRing retombe toujours juste).
+  const barProgress = Math.floor(Math.min(1, state.totalProgress || 0) * 1000) / 1000;
+  const ringTicksLit = Math.floor(60 * Math.max(0, Math.min(1, state.ringProgress || 0)));
+  const ringProgressQ = (ringTicksLit + 0.5) / 60;
+  const timeText = formatDuration(displaySeconds);
+  // Bulle de charge : même élément tant que ses valeurs ne changent pas.
+  const hasWeightBlock = !!weightBlock;
+  const weightStrong = state.blockType === 'rest' && weightValue == null;
+  const weightAccessory = useMemo(
+    () =>
+      hasWeightBlock && !isMini ? (
+        <WeightBubble tokens={t} value={weightValue} strong={weightStrong} onPress={stable.onWeightPress} />
+      ) : null,
+    [hasWeightBlock, isMini, t, weightValue, weightStrong, stable]
+  );
 
   // Decompte sonore des trois dernieres secondes d'une phase (sons 1/2/3
   // dans l'ordre de lecture : le 1 a T-3s, le 3 a T-1s — ce dernier dure
@@ -773,31 +825,26 @@ export default function Running() {
   }, [state.isRest]);
 
   return (
-    // (V) Le fond ne change pas de couleur : c'est la MÊME couleur, éteinte,
-    // fondue par-dessus pendant l'inter-série (voir lib/phase-colors.js).
-    // Le mode garde donc son identité, il baisse juste d'intensité le temps
-    // de souffler. Passer par GradientBackground plutôt que par un calque
-    // peint ici garantit que les deux couches ont la même géométrie radiale.
-    <GradientBackground
-      colors={timer.bgColors}
-      textMode={timer.textMode}
-      overlayColors={isMixTimer ? mixBlockColors || restColors : restColors}
-      overlayOpacity={isMixTimer ? mixVeil : restVeil}
-    >
-      {/* Pulse ambiant — suit la phase, sinon il repeindrait la couleur
-          pleine par-dessus le repos toutes les deux secondes. */}
-      <Animated.View
-        pointerEvents="none"
-        style={[StyleSheet.absoluteFill, pulseStyle]}
-      >
-        <LinearGradient
-          colors={isMixTimer ? mixBlockColors || timer.bgColors : state.isRest ? restColors : timer.bgColors}
-          locations={[0, 0.45, 1]}
-          start={{ x: 0.5, y: 0 }}
-          end={{ x: 0.5, y: 1 }}
-          style={StyleSheet.absoluteFill}
-        />
-      </Animated.View>
+    // Racine neutre : le fond (RunBackdrop) est posé EN DESSOUS, protégé du
+    // redessin de 10×/s. Avant, tout l'écran était l'enfant d'un
+    // GradientBackground, donc ses trois calques SVG plein écran se refaisaient
+    // à chaque tick. Rendu identique : même fond, même ordre d'empilement.
+    <View style={styles.screenRoot}>
+      {/* (V) Le fond ne change pas de couleur : c'est la MÊME couleur, éteinte,
+          fondue par-dessus pendant l'inter-série (voir lib/phase-colors.js).
+          Le mode garde donc son identité, il baisse juste d'intensité le temps
+          de souffler. Passer par GradientBackground plutôt que par un calque
+          peint ici garantit que les deux couches ont la même géométrie radiale.
+          Pulse ambiant — suit la phase, sinon il repeindrait la couleur pleine
+          par-dessus le repos toutes les deux secondes. */}
+      <RunBackdrop
+        bgColors={timer.bgColors}
+        textMode={timer.textMode}
+        overlayColors={isMixTimer ? mixBlockColors || restColors : restColors}
+        overlayOpacity={isMixTimer ? mixVeil : restVeil}
+        pulseColors={isMixTimer ? mixBlockColors || timer.bgColors : state.isRest ? restColors : timer.bgColors}
+        pulseStyle={pulseStyle}
+      />
 
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <TopBar
@@ -806,85 +853,28 @@ export default function Running() {
           name={timer.name}
           tag={ctaLabel}
           roundLabel={state.roundLabel}
-          onReturn={handleReturn}
-          progress={state.totalProgress}
+          onReturn={stable.onReturn}
+          progress={barProgress}
           markers={state.phaseMarkers}
           isPaused={isPaused}
         />
 
         <View style={[styles.center, isReduced && styles.centerReduced]}>
-          {isMini ? (
-            /* (V) Mini — le temps, la phase, rien d'autre. L'anneau dit la
-               même chose que la barre de progression déjà en haut, mais
-               coûte toute la hauteur dont le chrono a besoin pour rester
-               lisible à distance. */
-            <Animated.View style={[styles.miniCenter, timeStyle]}>
-              <Animated.Text
-                style={[
-                  styles.phaseLabel,
-                  styles.miniPhaseLabel,
-                  { color: t.tertiary },
-                  phaseLabelStyle,
-                ]}
-                numberOfLines={1}
-              >
-                {state.phaseLabel}
-              </Animated.Text>
-              <Text
-                style={[
-                  styles.bigTime,
-                  { color: t.primary, fontSize: bigTimeSize, lineHeight: Math.round(bigTimeSize * 1.05) },
-                ]}
-                numberOfLines={1}
-              >
-                {formatDuration(displaySeconds)}
-              </Text>
-              <Text style={[styles.restantLabel, styles.miniRestantLabel, { color: t.tertiary }]} numberOfLines={1}>
-                {centerLabel}
-              </Text>
-            </Animated.View>
-          ) : (
-            <Animated.View style={[{ width: ring }, ringBoxStyle]}>
-              <Animated.View
-                style={[{ width: ring, height: ring, transformOrigin: ['50%', 0, 0] }, ringZoomStyle]}
-              >
-                <Animated.View
-                  style={[styles.ringWrap, { width: ring, height: ring, marginBottom: 0 }, ringStyle]}
-                >
-                  <TickRing
-                    progress={state.ringProgress}
-                    size={ring}
-                    colorActive={t.ringActive}
-                    colorInactive={t.ringInactive}
-                  />
-                  <View style={styles.ringCenter} pointerEvents="none">
-                    <Animated.Text
-                      style={[
-                        styles.phaseLabel,
-                        { color: t.tertiary },
-                        state.phaseLabel.length > 16 && { fontSize: 9, letterSpacing: 2.5 },
-                        phaseLabelStyle,
-                      ]}
-                      numberOfLines={1}
-                      adjustsFontSizeToFit
-                    >
-                      {state.phaseLabel}
-                    </Animated.Text>
-                    <Animated.Text
-                      style={[
-                        styles.bigTime,
-                        { color: t.primary, fontSize: bigTimeSize, lineHeight: Math.round(bigTimeSize * 1.05) },
-                        timeStyle,
-                      ]}
-                    >
-                      {formatDuration(displaySeconds)}
-                    </Animated.Text>
-                    <Text style={[styles.restantLabel, { color: t.tertiary }]}>{centerLabel}</Text>
-                  </View>
-                </Animated.View>
-              </Animated.View>
-            </Animated.View>
-          )}
+          <RunCenter
+            isMini={isMini}
+            ring={ring}
+            bigTimeSize={bigTimeSize}
+            tokens={t}
+            ringProgress={ringProgressQ}
+            phaseLabel={state.phaseLabel}
+            timeText={timeText}
+            centerLabel={centerLabel}
+            timeStyle={timeStyle}
+            phaseLabelStyle={phaseLabelStyle}
+            ringBoxStyle={ringBoxStyle}
+            ringZoomStyle={ringZoomStyle}
+            ringStyle={ringStyle}
+          />
 
           {/* Le déroulé des phases est un repère de confort : premier bloc
               sacrifié quand la hauteur manque. */}
@@ -932,13 +922,13 @@ export default function Running() {
           tone={timer.textMode}
           timerColor={timer.color}
           isPaused={isPaused}
-          onReset={handleReset}
-          onPauseToggle={handlePauseToggle}
-          onSkip={handleSkip}
+          onReset={stable.onReset}
+          onPauseToggle={stable.onPauseToggle}
+          onSkip={stable.onSkip}
           skipLabel={isEmom ? 'Next' : 'Skip'}
           showEndWork={(isManualBasic && isWorkInfinite) || isLastEmomRound || isLastMixEmomRound}
           endWorkLabel={isLastBasicWork || isLastEmomRound || isLastMixEmomRound ? 'FINI' : 'REPOS'}
-          onEndWork={isLastEmomRound ? handleFinish : isLastMixEmomRound ? handleSkip : handleEndWork}
+          onEndWork={stable.onEndWork}
           hideSkip={(isManualBasic && isWorkInfinite) || isLastEmomRound || isLastMixEmomRound}
           // AMRAP, TABATA, BASIC, EMOM : « Quitter » remplace « Skip ». Il arrête
           // la séance EN GARDANT ce qui a été fait (écran de fin + historique),
@@ -947,20 +937,8 @@ export default function Running() {
           // fait déjà le travail ; le chrono de test du tutoriel garde le sien.
           showFinish={!isMix && !isTutorial && !isLastBasicWork && !isLastEmomRound}
           finishLabel="Quitter"
-          onFinish={handleStop}
-          accessory={
-            weightBlock && !isMini ? (
-              <WeightBubble
-                tokens={t}
-                value={weightValue}
-                strong={state.blockType === 'rest' && weightValue == null}
-                onPress={() => {
-                  haptic.light();
-                  setWeightSheet(true);
-                }}
-              />
-            ) : null
-          }
+          onFinish={stable.onFinish}
+          accessory={weightAccessory}
         />
       </SafeAreaView>
 
@@ -992,11 +970,167 @@ export default function Running() {
           />
         </Animated.View>
       )}
-    </GradientBackground>
+    </View>
   );
 }
 
-function TopBar({ tokens, tone, name, tag, roundLabel, onReturn, progress, markers, isPaused }) {
+// ─── Enfants protégés du redessin de 10×/s ────────────────────────────────────
+// L'écran de séance reçoit un nouveau temps toutes les 100 ms (hooks/useTimer.js,
+// tick volontairement inchangé : bips et voix en dépendent). Chaque bloc ci-dessous
+// est mémoïsé : il ne se redessine que si ce QU'IL AFFICHE change (le chiffre une
+// fois par seconde, l'anneau à chaque graduation, la barre au dixième de pour
+// cent…), pas à chaque tick.
+
+const sameNumbers = (a, b) => {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+};
+
+const samePhases = (a, b) => {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].label !== b[i].label || a[i].type !== b[i].type || a[i].status !== b[i].status) return false;
+  }
+  return true;
+};
+
+const sameNext = (a, b) =>
+  a === b ||
+  (!!a && !!b &&
+    a.label === b.label && a.type === b.type && a.weight === b.weight &&
+    a.rounds === b.rounds && a.seconds === b.seconds);
+
+// Fond de l'écran : dégradé radial + sa surcouche de repos + pulse ambiant. Ses
+// valeurs ne changent qu'à un changement de phase / de bloc.
+const RunBackdrop = memo(function RunBackdrop({
+  bgColors,
+  textMode,
+  overlayColors,
+  overlayOpacity,
+  pulseColors,
+  pulseStyle,
+}) {
+  return (
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
+      <GradientBackground
+        colors={bgColors}
+        textMode={textMode}
+        overlayColors={overlayColors}
+        overlayOpacity={overlayOpacity}
+      >
+        <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, pulseStyle]}>
+          <LinearGradient
+            colors={pulseColors}
+            locations={[0, 0.45, 1]}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
+        </Animated.View>
+      </GradientBackground>
+    </View>
+  );
+});
+
+// Le cœur de l'écran : anneau de graduations + libellé de phase + gros chiffre.
+// Se redessine une fois par seconde (le chiffre), par graduation (l'anneau) et
+// à chaque changement de phase.
+const RunCenter = memo(function RunCenter({
+  isMini,
+  ring,
+  bigTimeSize,
+  tokens: t,
+  ringProgress,
+  phaseLabel,
+  timeText,
+  centerLabel,
+  timeStyle,
+  phaseLabelStyle,
+  ringBoxStyle,
+  ringZoomStyle,
+  ringStyle,
+}) {
+  if (isMini) {
+    /* (V) Mini — le temps, la phase, rien d'autre. L'anneau dit la
+       même chose que la barre de progression déjà en haut, mais
+       coûte toute la hauteur dont le chrono a besoin pour rester
+       lisible à distance. */
+    return (
+      <Animated.View style={[styles.miniCenter, timeStyle]}>
+        <Animated.Text
+          style={[
+            styles.phaseLabel,
+            styles.miniPhaseLabel,
+            { color: t.tertiary },
+            phaseLabelStyle,
+          ]}
+          numberOfLines={1}
+        >
+          {phaseLabel}
+        </Animated.Text>
+        <Text
+          style={[
+            styles.bigTime,
+            { color: t.primary, fontSize: bigTimeSize, lineHeight: Math.round(bigTimeSize * 1.05) },
+          ]}
+          numberOfLines={1}
+        >
+          {timeText}
+        </Text>
+        <Text style={[styles.restantLabel, styles.miniRestantLabel, { color: t.tertiary }]} numberOfLines={1}>
+          {centerLabel}
+        </Text>
+      </Animated.View>
+    );
+  }
+  return (
+    <Animated.View style={[{ width: ring }, ringBoxStyle]}>
+      <Animated.View
+        style={[{ width: ring, height: ring, transformOrigin: ['50%', 0, 0] }, ringZoomStyle]}
+      >
+        <Animated.View
+          style={[styles.ringWrap, { width: ring, height: ring, marginBottom: 0 }, ringStyle]}
+        >
+          <TickRing
+            progress={ringProgress}
+            size={ring}
+            colorActive={t.ringActive}
+            colorInactive={t.ringInactive}
+          />
+          <View style={styles.ringCenter} pointerEvents="none">
+            <Animated.Text
+              style={[
+                styles.phaseLabel,
+                { color: t.tertiary },
+                phaseLabel.length > 16 && { fontSize: 9, letterSpacing: 2.5 },
+                phaseLabelStyle,
+              ]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+            >
+              {phaseLabel}
+            </Animated.Text>
+            <Animated.Text
+              style={[
+                styles.bigTime,
+                { color: t.primary, fontSize: bigTimeSize, lineHeight: Math.round(bigTimeSize * 1.05) },
+                timeStyle,
+              ]}
+            >
+              {timeText}
+            </Animated.Text>
+            <Text style={[styles.restantLabel, { color: t.tertiary }]}>{centerLabel}</Text>
+          </View>
+        </Animated.View>
+      </Animated.View>
+    </Animated.View>
+  );
+});
+
+const TopBar = memo(function TopBar({ tokens, tone, name, tag, roundLabel, onReturn, progress, markers, isPaused }) {
   const dotScale = useSharedValue(1);
   const dotOpacity = useSharedValue(0.6);
   useEffect(() => {
@@ -1091,7 +1225,17 @@ function TopBar({ tokens, tone, name, tag, roundLabel, onReturn, progress, marke
       </View>
     </View>
   );
-}
+}, (a, b) =>
+  a.tokens === b.tokens &&
+  a.tone === b.tone &&
+  a.name === b.name &&
+  a.tag === b.tag &&
+  a.roundLabel === b.roundLabel &&
+  a.progress === b.progress &&
+  a.isPaused === b.isPaused &&
+  a.onReturn === b.onReturn &&
+  sameNumbers(a.markers, b.markers)
+);
 
 const NEXT_MODE_NAMES = { amrap: 'AMRAP', emom: 'EMOM', tabata: 'TABATA', basic: 'BASIC' };
 
@@ -1099,7 +1243,7 @@ const NEXT_MODE_NAMES = { amrap: 'AMRAP', emom: 'EMOM', tabata: 'TABATA', basic:
 // noir sur blanc (nom, format, tours, charge). La voix le dit déjà, mais
 // quand on ne retient pas ce qu'on vient d'entendre il faut pouvoir le lire.
 // Rien si le bloc suivant est lui-même un repos, ou s'il n'y en a plus.
-function NextUp({ next, tokens, compact, mini }) {
+const NextUp = memo(function NextUp({ next, tokens, compact, mini }) {
   const typed = (next.label || '').trim();
   const mode = NEXT_MODE_NAMES[next.type];
   const name = typed || mode || 'Exercice';
@@ -1139,9 +1283,11 @@ function NextUp({ next, tokens, compact, mini }) {
       )}
     </Animated.View>
   );
-}
+}, (a, b) =>
+  a.tokens === b.tokens && a.compact === b.compact && a.mini === b.mini && sameNext(a.next, b.next)
+);
 
-function PhasesPills({ phases, timer, tokens }) {
+const PhasesPills = memo(function PhasesPills({ phases, tokens }) {
   if (!phases || phases.length === 0) return null;
   // Même capsules que le déroulé de l'accueil : la phase en cours est pleine
   // et un peu plus haute, les phases faites en retrait, les suivantes éteintes.
@@ -1160,7 +1306,7 @@ function PhasesPills({ phases, timer, tokens }) {
       />
     </View>
   );
-}
+}, (a, b) => a.tokens === b.tokens && samePhases(a.phases, b.phases));
 
 function PhaseChip({ index, isCurrent, bg, border, color, label, tokens }) {
   const entryY = useSharedValue(16);
@@ -1251,7 +1397,7 @@ const CONTROLS_ACCESSORY_RESERVE = 2 * (WEIGHT_BUBBLE_EDGE + WEIGHT_BUBBLE_SIZE 
 const BOTTOM_PAD = 56;
 const BOTTOM_PAD_REDUCED = 12;
 
-function BottomControls({
+const BottomControls = memo(function BottomControls({
   tokens,
   tone,
   timerColor,
@@ -1412,7 +1558,7 @@ function BottomControls({
       ) : null}
     </View>
   );
-}
+});
 
 // Petite bulle à droite : « + kg » tant qu'aucune charge n'est renseignée, la
 // charge sinon. Discrète en effort, bien visible en repos (c'est le moment où
@@ -1460,6 +1606,8 @@ const fallbackState = () => ({
 });
 
 const styles = StyleSheet.create({
+  // Racine de l'écran de séance (le fond est posé dessous par RunBackdrop).
+  screenRoot: { flex: 1 },
   safe: { flex: 1 },
 
   weightBubble: {

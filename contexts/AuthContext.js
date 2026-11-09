@@ -61,6 +61,21 @@ async function applySessionFromUrl(url) {
   }
 }
 
+// Même session ? Supabase rappelle onAuthStateChange pour des événements qui ne
+// changent rien (retour au premier plan, vérification périodique) avec un objet
+// neuf : sans cette comparaison, tous les écrans qui lisent useAuth() se
+// redessinent à chaque fois.
+const sameSession = (a, b) =>
+  a === b ||
+  (!!a &&
+    !!b &&
+    a.access_token === b.access_token &&
+    a.refresh_token === b.refresh_token &&
+    a.expires_at === b.expires_at &&
+    a.user?.id === b.user?.id &&
+    a.user?.updated_at === b.user?.updated_at &&
+    a.user?.user_metadata?.display_name === b.user?.user_metadata?.display_name);
+
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null);
   const [hydrated, setHydrated] = useState(false);
@@ -73,11 +88,12 @@ export function AuthProvider({ children }) {
     let cancelled = false;
     supabase.auth.getSession().then(({ data }) => {
       if (cancelled) return;
-      setSession(data.session ?? null);
+      const next = data.session ?? null;
+      setSession((prev) => (sameSession(prev, next) ? prev : next));
       setHydrated(true);
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      setSession(nextSession);
+      setSession((prev) => (sameSession(prev, nextSession) ? prev : nextSession));
     });
     return () => {
       cancelled = true;
