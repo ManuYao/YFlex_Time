@@ -10,10 +10,11 @@ import { goBackSafe } from '../lib/navigation';
 import { fonts } from '../lib/fonts';
 import { ROUND_SIZE } from '../lib/buttonTokens';
 import { useHaptic } from '../hooks/useHaptic';
-import { formatMb, formatDelta } from '../lib/memoryProbeShape';
+import { formatMb, formatDelta, formatMs, formatClock } from '../lib/memoryProbeShape';
 import {
   isMemoryReadable,
   subscribeMemory,
+  subscribePerf,
   resetMemoryBaseline,
   loadMemoryBadge,
   subscribeMemoryBadge,
@@ -30,9 +31,11 @@ export default function Diagnostic() {
   const haptic = useHaptic();
   const [stats, setStats] = useState(null);
   const [badgeOn, setBadgeOn] = useState(false);
+  const [perf, setPerf] = useState(null);
   const readable = isMemoryReadable();
 
   useEffect(() => subscribeMemory(setStats), []);
+  useEffect(() => subscribePerf(setPerf), []);
   useEffect(() => {
     loadMemoryBadge();
     return subscribeMemoryBadge(setBadgeOn);
@@ -97,6 +100,42 @@ export default function Diagnostic() {
               />
             </View>
           )}
+
+          <View style={styles.card}>
+            <Text style={styles.cardKicker}>FLUIDITÉ</Text>
+            {!badgeOn ? (
+              <Text style={[styles.cardBody, styles.perfHint]}>
+                Affiche le compteur ci-dessous pour mesurer la fluidité (images par seconde et
+                moments où l'app se fige).
+              </Text>
+            ) : !perf || perf.seconds === 0 ? (
+              <Text style={[styles.cardBody, styles.perfHint]}>Mesure en cours…</Text>
+            ) : (
+              <>
+                <View style={styles.row}>
+                  <Metric label="Images / s" value={perf.fps == null ? '—' : String(perf.fps)} />
+                  <Metric label="Pire image" value={formatMs(perf.worstFrameAll?.ms)} />
+                  <Metric label="Pire gel" value={formatMs(perf.worstStallAll?.ms)} />
+                </View>
+                <Text style={styles.cardBody}>
+                  {`${perf.slowAll} images lentes sur ${perf.seconds} s mesurées.`}
+                </Text>
+                <Text style={styles.cardKicker}>GROS MOMENTS (image {'>'} 100 ms ou gel {'>'} 300 ms)</Text>
+                {perf.events.length === 0 ? (
+                  <Text style={[styles.cardBody, styles.eventEmpty]}>Aucun pour l'instant.</Text>
+                ) : (
+                  perf.events
+                    .slice()
+                    .reverse()
+                    .map((e, i) => (
+                      <Text key={`${e.at}-${i}`} style={styles.eventRow}>
+                        {`${formatClock(e.at)}  ${e.path || '/'}  image ${formatMs(e.frame)}  gel ${formatMs(e.stall)}`}
+                      </Text>
+                    ))
+                )}
+              </>
+            )}
+          </View>
 
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Compteur sur tous les écrans</Text>
@@ -228,6 +267,15 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   cta: { alignSelf: 'flex-start' },
+  perfHint: { marginTop: 8, marginBottom: 0 },
+  eventEmpty: { marginTop: 6, marginBottom: 0 },
+  eventRow: {
+    fontFamily: fonts.monoBold,
+    fontSize: 11,
+    lineHeight: 18,
+    color: 'rgba(255,255,255,0.75)',
+    marginTop: 4,
+  },
   footnote: {
     fontFamily: fonts.sansMedium,
     fontSize: 11,
