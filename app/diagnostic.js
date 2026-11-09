@@ -12,6 +12,12 @@ import { ROUND_SIZE } from '../lib/buttonTokens';
 import { useHaptic } from '../hooks/useHaptic';
 import { formatMb, formatDelta, formatMs, formatClock } from '../lib/memoryProbeShape';
 import {
+  isNativeMemoryAvailable,
+  subscribeNativeMemory,
+  resetNativeBaseline,
+} from '../lib/nativeMemory';
+import { describeNative, diagnoseNative } from '../lib/nativeMemoryShape';
+import {
   isMemoryReadable,
   subscribeMemory,
   subscribePerf,
@@ -32,9 +38,14 @@ export default function Diagnostic() {
   const [stats, setStats] = useState(null);
   const [badgeOn, setBadgeOn] = useState(false);
   const [perf, setPerf] = useState(null);
+  const [track, setTrack] = useState(null);
   const readable = isMemoryReadable();
+  // Mémoire NATIVE, chauffe, processeur par fil : seulement avec le module natif
+  // de l'APK récent (sinon rien n'est affiché ni mesuré).
+  const nativeOn = isNativeMemoryAvailable();
 
   useEffect(() => subscribeMemory(setStats), []);
+  useEffect(() => (nativeOn ? subscribeNativeMemory(setTrack) : undefined), [nativeOn]);
   useEffect(() => subscribePerf(setPerf), []);
   useEffect(() => {
     loadMemoryBadge();
@@ -95,11 +106,38 @@ export default function Diagnostic() {
                 onPress={() => {
                   haptic.light();
                   resetMemoryBaseline();
+                  resetNativeBaseline();
                 }}
                 style={styles.cta}
               />
             </View>
           )}
+
+          {nativeOn && track && track.now ? (
+            <View style={styles.card}>
+              <Text style={styles.cardKicker}>MÉMOIRE TOTALE, CHAUFFE ET PROCESSEUR</Text>
+              {diagnoseNative(track).map((d, i) => (
+                <Text
+                  key={`diag-${i}`}
+                  style={[
+                    styles.diagRow,
+                    { color: d.level === 'bad' ? '#FF5454' : d.level === 'warn' ? '#FFC933' : '#7CF0B4' },
+                  ]}
+                >
+                  {d.text}
+                </Text>
+              ))}
+              {describeNative(track).map((r) => (
+                <View key={r.key} style={styles.nativeRow}>
+                  <Text style={styles.nativeLabel}>{r.label}</Text>
+                  <Text style={styles.nativeValue}>
+                    {r.value}
+                    {r.delta ? `  ${r.delta}` : ''}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
 
           <View style={styles.card}>
             <Text style={styles.cardKicker}>FLUIDITÉ</Text>
@@ -267,6 +305,30 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   cta: { alignSelf: 'flex-start' },
+  diagRow: {
+    fontFamily: fonts.sansBold,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 8,
+  },
+  nativeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    gap: 12,
+    marginTop: 8,
+  },
+  nativeLabel: {
+    flex: 1,
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.6)',
+  },
+  nativeValue: {
+    fontFamily: fonts.monoBold,
+    fontSize: 12,
+    color: '#FFFFFF',
+  },
   perfHint: { marginTop: 8, marginBottom: 0 },
   eventEmpty: { marginTop: 6, marginBottom: 0 },
   eventRow: {
