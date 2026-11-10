@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { memo, useCallback, useRef, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 
 import BottomSheet from './BottomSheet';
@@ -11,29 +11,46 @@ import { useHaptic } from '../../hooks/useHaptic';
 
 const isHalf = (w) => Number.isFinite(w) && Math.abs(w - Math.floor(w) - 0.5) < 0.001;
 
+// Le tableau des valeurs est créé UNE fois pour toute l'app (et non à chaque
+// ouverture de la feuille).
+const WEIGHT_VALUES = Array.from({ length: 201 }, (_, i) => i);
+
 /**
  * Charge saisie PENDANT la séance (MIX lancé depuis le Planning) : même roue
  * que la fiche d'un exercice, mais seule. Le chrono continue de tourner
  * derrière ; fermer sans valider ne change rien.
  */
-export default function QuickWeightSheet({ screenH, label, initial, color = '#FFFFFF', onSave, onClose }) {
+function QuickWeightSheetBase({ screenH, label, initial, color = '#FFFFFF', onSave, onClose }) {
   const haptic = useHaptic();
-  const values = useMemo(() => Array.from({ length: 201 }, (_, i) => i), []);
-  const [kg, setKg] = useState(Number.isFinite(initial) ? Math.floor(initial) : 20);
+  const values = WEIGHT_VALUES;
+  // La charge choisie n'est lue qu'au « OK » : une ref, pas un état. Un état
+  // redessinait toute la feuille à CHAQUE cran de la roue (et la séance, derrière,
+  // se redessine déjà 10 fois par seconde : le tout ramait de plus en plus).
+  const kgRef = useRef(Number.isFinite(initial) ? Math.floor(initial) : 20);
   const [half, setHalf] = useState(isHalf(initial));
+  // Callbacks du parent (recréés à chaque rendu de la séance) lus par ref : la
+  // feuille ne dépend plus de leur identité.
+  const onSaveRef = useRef(onSave);
+  onSaveRef.current = onSave;
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const closeStable = useCallback(() => onCloseRef.current?.(), []);
+  const handleWheel = useCallback((v) => {
+    kgRef.current = v;
+  }, []);
 
   return (
-    <BottomSheet screenH={screenH} onClose={onClose} zIndex={140}>
+    <BottomSheet screenH={screenH} onClose={closeStable} zIndex={140}>
       {({ close }) => (
         <View>
           <Text style={styles.kicker}>CHARGE</Text>
           <Text style={styles.title} numberOfLines={1}>{label}</Text>
           <WheelPicker
             values={values}
-            selectedValue={kg}
+            selectedValue={kgRef.current}
             type="weight"
             accentColor={color}
-            onChange={setKg}
+            onChange={handleWheel}
             visibleItems={3}
           />
           <PressTap
@@ -53,7 +70,7 @@ export default function QuickWeightSheet({ screenH, label, initial, color = '#FF
             label="OK"
             haptic={haptic.medium}
             onPress={() => {
-              onSave(kg + (half ? 0.5 : 0));
+              onSaveRef.current?.(kgRef.current + (half ? 0.5 : 0));
               close();
             }}
             style={styles.cta}
@@ -63,6 +80,13 @@ export default function QuickWeightSheet({ screenH, label, initial, color = '#FF
     </BottomSheet>
   );
 }
+
+// Ne se redessine que si ce qu'elle AFFICHE change (pas à chaque tick du chrono).
+export default memo(
+  QuickWeightSheetBase,
+  (a, b) =>
+    a.screenH === b.screenH && a.label === b.label && a.initial === b.initial && a.color === b.color
+);
 
 const styles = StyleSheet.create({
   kicker: { fontFamily: fonts.sansBold, fontSize: 11, letterSpacing: 2, color: 'rgba(255,255,255,0.5)', textAlign: 'center' },

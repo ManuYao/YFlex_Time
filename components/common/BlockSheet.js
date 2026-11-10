@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, TextInput, StyleSheet } from 'react-native';
 
 import BottomSheet from './BottomSheet';
@@ -7,16 +7,24 @@ import Button from './Button';
 import IconButton from './IconButton';
 import AppIcon from './AppIcon';
 import TouchShield from './TouchShield';
+import MusclePicker from './MusclePicker';
 import { fonts } from '../../lib/fonts';
+import { categoryChip } from '../../lib/exercises';
 import { haptic } from '../../hooks/useHaptic';
 import { useSubmitGuard } from '../../hooks/useSubmitGuard';
 import { DANGER, ROUND_SIZE } from '../../lib/buttonTokens';
+import { BLOCK_NAME_MAX, blockNameFromGroups, toggleGroup } from '../../lib/bodyMap';
+import { getCategory, getCustomCategories, loadCustomCategories } from '../../lib/exercises';
 
-const SUGGESTIONS = ['Pecs / triceps', 'Dos / biceps', 'Jambes', 'Épaules', 'Abdos', 'Cardio'];
+// Hauteur d'une silhouette du corps cliquable : suit la hauteur de l'écran,
+// bornée (la feuille défile si le clavier est ouvert).
+const bodyHeightFor = (screenH) => Math.round(Math.min(300, Math.max(190, screenH * 0.32)));
 
 /**
  * Feuille d'un bloc du Planning. Trois usages, une seule coquille :
- *  - création (pas de nom de départ) : champ + suggestions + « Ajouter le bloc » ;
+ *  - création (pas de nom de départ) : corps cliquable (face / dos) + Cardio et
+ *    groupes perso en pastilles, le nom se remplit tout seul tant qu'on ne l'a
+ *    pas tapé soi-même, puis « Ajouter le bloc ». `onSubmit(nom, groupes)` ;
  *  - menu d'un bloc existant (le ⋮ de sa carte) : Modifier le nom, Déplacer,
  *    Archiver, Supprimer. « Modifier le nom » et « Déplacer » ouvrent une vue
  *    dans la même feuille (jamais une feuille empilée sur une autre) ;
@@ -30,21 +38,54 @@ export default function BlockSheet({
   initialName = '',
   archived = false,
   moveTargets = [],
+  tags = [],
   onClose,
   onSubmit,
   onMove,
+  onMoveTag,
   onArchive,
   onReopen,
   onDelete,
 }) {
   const [name, setName] = useState(initialName);
   const isEdit = !!initialName;
-  // 'menu' | 'name' | 'move' — seule la création démarre directement sur le
+  // 'menu' | 'name' | 'move' | 'order' — seule la création démarre directement sur le
   // champ du nom.
   const [view, setView] = useState(isEdit && !archived ? 'menu' : 'name');
   const [movingTo, setMovingTo] = useState(null);
   const guard = useSubmitGuard();
   const trimmed = name.trim();
+
+  // Création : groupes touchés sur le corps ou en pastilles, dans l'ordre.
+  // Le nom suit la sélection tant que la personne ne l'a pas tapé elle-même
+  // (vider le champ rend la main à la sélection).
+  const [groups, setGroups] = useState([]);
+  const nameTyped = useRef(false);
+  const [customGroups, setCustomGroups] = useState(getCustomCategories);
+  useEffect(() => {
+    if (isEdit) return undefined;
+    let cancelled = false;
+    loadCustomCategories().then(() => {
+      if (!cancelled) setCustomGroups(getCustomCategories());
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isEdit]);
+
+  // Poignée stable (lit la sélection par une ref) : taper le nom ne redessine
+  // pas les deux silhouettes (BodyMap est mémoïsé) à chaque lettre.
+  const groupsRef = useRef(groups);
+  groupsRef.current = groups;
+  const toggleMuscle = useCallback((id) => {
+    haptic.selection();
+    const next = toggleGroup(groupsRef.current, id);
+    groupsRef.current = next;
+    setGroups(next);
+    if (!nameTyped.current) {
+      setName(blockNameFromGroups(next, (gid) => getCategory(gid).label));
+    }
+  }, []);
 
   return (
     <BottomSheet screenH={screenH} onClose={onClose} zIndex={90} keyboardAware>
@@ -54,7 +95,7 @@ export default function BlockSheet({
           guard.run(
             'name',
             () => {
-              onSubmit(trimmed);
+              onSubmit(trimmed, isEdit ? undefined : groups);
               close();
             },
             haptic.medium
@@ -121,6 +162,20 @@ export default function BlockSheet({
                   }}
                 />
 
+                {tags.length > 1 && (
+                  <Button
+                    variant="glass"
+                    fullWidth
+                    icon="list"
+                    label="Ordre des exercices"
+                    onPress={() => {
+                      haptic.light();
+                      setView('order');
+                    }}
+                    style={styles.orderBtn}
+                  />
+                )}
+
                 <View style={styles.pairRow}>
                   <Button
                     variant="glass"
@@ -167,36 +222,32 @@ export default function BlockSheet({
                   <Text style={styles.title}>Nouveau bloc</Text>
                 )}
 
+                {!isEdit && (
+                  <View style={styles.picker}>
+                    <MusclePicker
+                      bodyHeight={bodyHeightFor(screenH)}
+                      selected={groups}
+                      onToggle={toggleMuscle}
+                      others={[getCategory('cardio'), ...customGroups]}
+                    />
+                  </View>
+                )}
+
                 <TextInput
                   value={name}
-                  onChangeText={setName}
-                  placeholder="Pecs / triceps"
+                  onChangeText={(text) => {
+                    setName(text);
+                    nameTyped.current = text.trim().length > 0;
+                  }}
+                  placeholder="Nom du bloc"
                   placeholderTextColor="rgba(255,255,255,0.30)"
                   selectionColor="#FFFFFF"
-                  maxLength={28}
+                  maxLength={BLOCK_NAME_MAX}
                   autoFocus={isEdit}
                   style={styles.input}
                   returnKeyType="done"
                   onSubmitEditing={submitName}
                 />
-
-                {!isEdit && (
-                  <View style={styles.suggestions}>
-                    {SUGGESTIONS.map((s) => (
-                      <PressTap
-                        key={s}
-                        onPress={() => {
-                          haptic.selection();
-                          setName(s);
-                        }}
-                        tapScale={0.94}
-                        style={styles.suggestionChip}
-                      >
-                        <Text style={styles.suggestionText}>{s}</Text>
-                      </PressTap>
-                    ))}
-                  </View>
-                )}
 
                 <Button
                   variant="solid"
@@ -264,6 +315,64 @@ export default function BlockSheet({
                 </View>
                 <Text style={styles.ghostHint}>
                   Le bloc arrive à la fin du jour choisi, avec ses exercices et ses réglages.
+                </Text>
+              </>
+            )}
+
+            {/* ───────── Ordre des exercices du bloc ───────── */}
+            {!archived && isEdit && view === 'order' && (
+              <>
+                <View style={styles.subHeader}>
+                  <IconButton
+                    icon="back"
+                    size={ROUND_SIZE.sheet}
+                    onPress={backToMenu}
+                    accessibilityLabel="Retour"
+                  />
+                  <Text style={styles.subHeaderLabel}>ORDRE DES EXERCICES</Text>
+                </View>
+
+                {tags.map((tag, i) => {
+                  const chip = categoryChip(tag.category);
+                  const first = i === 0;
+                  const last = i === tags.length - 1;
+                  return (
+                    <View key={tag.id} style={styles.orderRow}>
+                      <Text style={styles.orderIndex}>{i + 1}</Text>
+                      <View
+                        style={[styles.orderLabel, { backgroundColor: chip.bg, borderColor: chip.border }]}
+                      >
+                        <Text style={[styles.orderLabelText, { color: chip.text }]} numberOfLines={1}>
+                          {tag.label.toUpperCase()}
+                        </Text>
+                      </View>
+                      <IconButton
+                        icon="up"
+                        size={ROUND_SIZE.sheet}
+                        disabled={first}
+                        onPress={() => {
+                          haptic.selection();
+                          onMoveTag?.(tag.id, -1);
+                        }}
+                        accessibilityLabel={`Monter ${tag.label}`}
+                        style={first && styles.orderBtnOff}
+                      />
+                      <IconButton
+                        icon="down"
+                        size={ROUND_SIZE.sheet}
+                        disabled={last}
+                        onPress={() => {
+                          haptic.selection();
+                          onMoveTag?.(tag.id, 1);
+                        }}
+                        accessibilityLabel={`Descendre ${tag.label}`}
+                        style={last && styles.orderBtnOff}
+                      />
+                    </View>
+                  );
+                })}
+                <Text style={styles.ghostHint}>
+                  Le premier de la liste est celui que tu fais en premier.
                 </Text>
               </>
             )}
@@ -339,23 +448,8 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#FFFFFF',
   },
-  suggestions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginTop: 12,
-  },
-  suggestionChip: {
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.14)',
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  suggestionText: {
-    fontFamily: fonts.sansSemibold,
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.60)',
+  picker: {
+    marginBottom: 18,
   },
   cta: {
     marginTop: 20,
@@ -372,6 +466,37 @@ const styles = StyleSheet.create({
   },
   deleteLink: {
     marginTop: 4,
+  },
+  orderBtn: {
+    marginTop: 12,
+  },
+  orderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 8,
+  },
+  orderIndex: {
+    width: 18,
+    textAlign: 'center',
+    fontFamily: fonts.monoBold,
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.40)',
+  },
+  orderLabel: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  orderLabelText: {
+    fontFamily: fonts.sansBold,
+    fontSize: 12,
+    letterSpacing: 0.6,
+  },
+  orderBtnOff: {
+    opacity: 0.3,
   },
   deleteText: {
     color: DANGER,

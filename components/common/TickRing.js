@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo } from 'react';
-import Svg, { Line } from 'react-native-svg';
+import Svg, { Line, Path } from 'react-native-svg';
 import Animated, {
   cancelAnimation,
   useSharedValue,
@@ -9,9 +9,10 @@ import Animated, {
   Easing,
 } from 'react-native-reanimated';
 
+import { TOTAL_TICKS, tickSegments, tickPathGroups } from '../../lib/tickGeometry';
+
 const AnimatedLine = Animated.createAnimatedComponent(Line);
 
-const TOTAL_TICKS = 60;
 const easeImpact = Easing.bezier(0.22, 1, 0.36, 1);
 
 /**
@@ -38,46 +39,50 @@ export default function TickRing({
 
   // La géométrie (positions, longueurs) ne dépend que de `size` — inutile de
   // refaire 60x du trig à chaque tick du chrono (toutes les 100ms). Seule la
-  // couleur active/inactive change avec `progress`.
-  const geometry = useMemo(() => {
-    const center = size / 2;
-    const outerRadius = size / 2 - 4;
-    const innerRadius = outerRadius - 18;
-    return Array.from({ length: TOTAL_TICKS }).map((_, i) => {
-      const angle = (i / TOTAL_TICKS) * Math.PI * 2 - Math.PI / 2;
-      const isMajor = i % 5 === 0;
-      const r1 = isMajor ? innerRadius - 4 : innerRadius;
-      const x1 = center + Math.cos(angle) * r1;
-      const y1 = center + Math.sin(angle) * r1;
-      const x2 = center + Math.cos(angle) * outerRadius;
-      const y2 = center + Math.sin(angle) * outerRadius;
-      return { x1, y1, x2, y2, isMajor };
-    });
-  }, [size]);
+  // couleur active/inactive change avec `progress`. Formules : lib/tickGeometry.js
+  // (identiques à l'ancien calcul, vérifiées par un test Node).
+  const geometry = useMemo(() => tickSegments(size), [size]);
 
   // Anneau qui ne s'anime pas à l'apparition (chrono, carrousel d'accueil… la
-  // plupart des cas) : de simples traits, sans valeur partagée ni propriété
-  // animée. Avant, chacune des 60 graduations en portait deux — 300 sur l'accueil
-  // (5 cartes) — pour rien, puisque rien ne bouge. Seul l'anneau qui s'anime à
-  // l'apparition (`animateIn` / `triggerKey`) garde les traits animés.
-  const Tick = animateIn || triggerKey !== undefined ? TickLine : StaticTickLine;
+  // plupart des cas) : les graduations FIXES sont regroupées en au plus 4 tracés
+  // (actives/éteintes × longues/courtes) au lieu de 60 nœuds SVG, sans aucune valeur
+  // partagée ni propriété animée. Avant : 60 `Line` par anneau (plus de 500 sur
+  // l'accueil à 5 cartes), et 300 propriétés animées avant cela. Même dessin au
+  // millième de pixel. Seul l'anneau qui s'anime à l'apparition (`animateIn` /
+  // `triggerKey`) garde les traits animés un par un (opacité propre à chaque trait).
+  const animatedTicks = animateIn || triggerKey !== undefined;
+  const fixedGroups = useMemo(
+    () => (animatedTicks ? null : tickPathGroups(geometry, activeTicks, sweepMode)),
+    [geometry, animatedTicks, activeTicks, sweepMode]
+  );
 
   return (
     <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-      {geometry.map((g, i) => (
-        <Tick
-          key={i}
-          i={i}
-          x1={g.x1}
-          y1={g.y1}
-          x2={g.x2}
-          y2={g.y2}
-          stroke={!sweepMode && i < activeTicks ? colorActive : colorInactive}
-          strokeWidth={g.isMajor ? 2.5 : 1.5}
-          animateIn={animateIn}
-          triggerKey={triggerKey}
-        />
-      ))}
+      {animatedTicks
+        ? geometry.map((g, i) => (
+            <TickLine
+              key={i}
+              i={i}
+              x1={g.x1}
+              y1={g.y1}
+              x2={g.x2}
+              y2={g.y2}
+              stroke={!sweepMode && i < activeTicks ? colorActive : colorInactive}
+              strokeWidth={g.isMajor ? 2.5 : 1.5}
+              animateIn={animateIn}
+              triggerKey={triggerKey}
+            />
+          ))
+        : fixedGroups.map((grp) => (
+            <Path
+              key={grp.key}
+              d={grp.d}
+              stroke={grp.active ? colorActive : colorInactive}
+              strokeWidth={grp.width}
+              strokeLinecap="round"
+              fill="none"
+            />
+          ))}
       {sweepMode &&
         geometry.map((g, i) =>
           i < activeTicks ? (
@@ -99,17 +104,10 @@ export default function TickRing({
   );
 }
 
-// Graduation fixe : un trait, rien d'autre. Mémoïsée comme TickLine (une seule
-// graduation change de couleur à la fois sur le chrono).
-const StaticTickLine = React.memo(function StaticTickLine({ x1, y1, x2, y2, stroke, strokeWidth }) {
-  return (
-    <Line x1={x1} y1={y1} x2={x2} y2={y2} stroke={stroke} strokeWidth={strokeWidth} strokeLinecap="round" />
-  );
-});
-
-// Mémoïsé : sur l'écran Running, le progrès du chrono ne fait basculer
-// qu'un seul tick de inactif à actif à la fois — les 59 autres doivent
-// pouvoir bail out au lieu de se re-render 10x/seconde.
+// Graduation animée à l'apparition (`animateIn` / `triggerKey`) : un trait par graduation,
+// chacun avec SA opacité et SON tracé progressif décalés — impossible à regrouper en un seul
+// tracé sans perdre ce fondu individuel. Mémoïsé : une seule graduation change de couleur à
+// la fois sur un anneau qui avance.
 const TickLine = React.memo(function TickLine({
   i,
   x1,

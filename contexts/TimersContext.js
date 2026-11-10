@@ -69,6 +69,15 @@ const applyOverrides = (timers, overrides, currentMix) =>
     return applyMixToTimer(withOverrides, currentMix);
   });
 
+// Mêmes réglages enregistrés pour un mode ? (objets `{ clé: valeur }` à plat)
+const sameOverrides = (a, b) => {
+  if (a === b) return true;
+  const ka = a ? Object.keys(a) : [];
+  const kb = b ? Object.keys(b) : [];
+  if (ka.length !== kb.length) return false;
+  return ka.every((k) => b[k] === a[k]);
+};
+
 export function TimersProvider({ children }) {
   const [overrides, setOverrides] = useState({});
   const [library, setLibrary] = useState([]);
@@ -254,10 +263,29 @@ export function TimersProvider({ children }) {
     }
   }, []);
 
-  const timers = useMemo(
-    () => applyOverrides(TIMERS, overrides, currentMix),
-    [overrides, currentMix]
-  );
+  // Partage de structure : un mode dont les réglages n'ont pas changé GARDE le
+  // même objet d'un calcul à l'autre. Avant, changer l'intervalle de l'EMOM
+  // recréait aussi AMRAP, TABATA, BASIC et MIX : les 5 cartes de l'accueil (avec
+  // leurs 60 graduations) se redessinaient alors que 4 n'avaient rien de neuf.
+  const timersCacheRef = useRef({});
+  const timers = useMemo(() => {
+    const cache = timersCacheRef.current;
+    const nextCache = {};
+    const out = TIMERS.map((t) => {
+      const ovs = overrides[t.id];
+      const mix = t.id === 'mix' ? currentMix : null;
+      const hit = cache[t.id];
+      if (hit && hit.mix === mix && sameOverrides(hit.ovs, ovs)) {
+        nextCache[t.id] = hit;
+        return hit.timer;
+      }
+      const timer = applyOverrides([t], overrides, currentMix)[0];
+      nextCache[t.id] = { ovs, mix, timer };
+      return timer;
+    });
+    timersCacheRef.current = nextCache;
+    return out;
+  }, [overrides, currentMix]);
 
   const value = useMemo(
     () => ({

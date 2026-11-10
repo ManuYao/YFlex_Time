@@ -2,12 +2,19 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { haptic } from './useHaptic';
 
 const TICK_MS = 50;
+// Écart maximal toléré entre deux « tics » (normalement ~50 ms). Au-delà, le code
+// de l'app a été GELÉ un instant (téléphone chargé) : on ne peut plus savoir si le
+// doigt est resté posé — l'événement « relâché » attend dans la file. Sans cette
+// garde, un gel de plus de `duration` faisait aboutir le maintien tout seul à la
+// reprise (ex. les trophées qui s'ouvraient sans qu'on les maintienne).
+const STALL_MS = 400;
 
 export function useLongPress(onComplete, duration = 3000, { silent = false } = {}) {
   const [isPressing, setIsPressing] = useState(false);
   const [progress, setProgress] = useState(0);
   const intervalRef = useRef(null);
   const startTimeRef = useRef(null);
+  const lastTickRef = useRef(0);
   const lastSecondRef = useRef(-1);
   const completedRef = useRef(false);
 
@@ -25,9 +32,20 @@ export function useLongPress(onComplete, duration = 3000, { silent = false } = {
     setIsPressing(true);
     setProgress(0);
     startTimeRef.current = Date.now();
+    lastTickRef.current = startTimeRef.current;
 
     intervalRef.current = setInterval(() => {
-      const elapsed = Date.now() - startTimeRef.current;
+      const now = Date.now();
+      const gap = now - lastTickRef.current;
+      lastTickRef.current = now;
+      if (gap > STALL_MS) {
+        // Gel détecté : on annule plutôt que d'aboutir par erreur (voir STALL_MS).
+        stopInterval();
+        setIsPressing(false);
+        setProgress(0);
+        return;
+      }
+      const elapsed = now - startTimeRef.current;
       const p = Math.min(elapsed / duration, 1);
       setProgress(p);
 

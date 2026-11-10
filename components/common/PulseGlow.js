@@ -12,8 +12,12 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { withAlpha } from '../../lib/phase-colors';
+import { useLightLevel, slowFactor } from '../../lib/lightMode';
 
 const breathe = Easing.inOut(Easing.ease);
+// Mode allégé niveau 2 (effets coupés) : la lueur reste allumée, FIGÉE à mi-intensité
+// (milieu de sa respiration 0,7 ↔ 1) ; plus aucune boucle.
+const GLOW_STATIC = 0.85;
 
 /**
  * PulseGlow — lueur diffuse qui respire autour d'un bouton (bouton central de
@@ -34,6 +38,9 @@ const breathe = Easing.inOut(Easing.ease);
 export default function PulseGlow({ color, size = 92, active = true }) {
   const reduceMotion = useReducedMotion();
   const glow = useSharedValue(active ? 0.75 : 0);
+  // Mode allégé (lib/lightMode.js) : niveau 1 = respiration deux fois plus lente ;
+  // niveau 2 = lueur figée. `slow` vaut 1 (normal), 2 (ralenti) ou null (coupé).
+  const slow = slowFactor(useLightLevel());
 
   useEffect(() => {
     cancelAnimation(glow);
@@ -41,18 +48,20 @@ export default function PulseGlow({ color, size = 92, active = true }) {
       glow.value = withTiming(0, { duration: 350 });
     } else if (reduceMotion) {
       glow.value = withTiming(0.8, { duration: 350 });
+    } else if (slow == null) {
+      glow.value = withTiming(GLOW_STATIC, { duration: 400 });
     } else {
       glow.value = withRepeat(
         withSequence(
-          withTiming(1, { duration: 1400, easing: breathe }),
-          withTiming(0.7, { duration: 1400, easing: breathe })
+          withTiming(1, { duration: 1400 * slow, easing: breathe }),
+          withTiming(0.7, { duration: 1400 * slow, easing: breathe })
         ),
         -1,
         false
       );
     }
     return () => cancelAnimation(glow);
-  }, [active, reduceMotion]);
+  }, [active, reduceMotion, slow]);
 
   // Opacité seule, plus lente et moins ample (v14.1.1) : faire aussi varier
   // l'échelle obligeait Android à redessiner le flou de l'ombre à chaque

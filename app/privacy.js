@@ -22,6 +22,7 @@ const SECTIONS = [
       "Ton historique de séances (type de chrono, durée, tours, date), synchronisé pour que tu le retrouves sur un autre téléphone. Ton planning, tes réglages et tes timers personnalisés ne sont pas envoyés.",
       "Si tu publies un MIX dans le fil public : son nom, son contenu (blocs et notes de blocs), sa catégorie et ton pseudo comme auteur. Les notes (étoiles) et les signalements que tu donnes aux MIX des autres sont aussi enregistrés avec ton compte.",
       "Si tu commentes un MIX publié : le texte de ton commentaire, ton pseudo et la date. Les signalements que tu fais (sur un MIX ou un commentaire), les commentaires que tu aimes et la liste des personnes que tu bloques sont aussi enregistrés avec ton compte.",
+      "Si tu demandes l'animation d'un exercice qui n'en a pas encore : le nom de l'exercice demandé, la date et ton compte. Tu es la seule personne à voir tes demandes dans l'application ; nous les lisons pour savoir quelles animations fabriquer en premier. Tu peux aussi nous les envoyer par mail, sans compte.",
       "Ces données sont conservées tant que ton compte existe.",
     ],
   },
@@ -49,7 +50,7 @@ const SECTIONS = [
   {
     heading: 'Tes droits et la suppression',
     paragraphs: [
-      "Tu peux supprimer ton compte à tout moment : Paramètres › Compte › Supprimer mon compte. Cela efface définitivement ton compte, ton historique synchronisé, tes MIX publiés (avec les commentaires qu'ils ont reçus), tes commentaires, tes likes, tes notes, tes signalements et ta liste de personnes bloquées.",
+      "Tu peux supprimer ton compte à tout moment : Paramètres › Compte › Supprimer mon compte. Cela efface définitivement ton compte, ton historique synchronisé, tes MIX publiés (avec les commentaires qu'ils ont reçus), tes commentaires, tes likes, tes notes, tes signalements, tes demandes d'animations et ta liste de personnes bloquées.",
       "Tu peux aussi retirer un de tes MIX du fil public quand tu veux. Les copies déjà enregistrées par d'autres personnes restent sur leur téléphone.",
       "Sur ton téléphone, le bouton « Réinitialiser l'application » (Paramètres) efface les données locales, tout comme désinstaller l'application. La réinitialisation ne supprime pas ton compte en ligne : utilise pour cela « Supprimer mon compte ».",
       "Pour accéder à tes données, les corriger ou poser une question, écris à yaomanuit@gmail.com.",
@@ -73,7 +74,7 @@ export default function Privacy() {
   return (
     <LegalScreen
       title="Politique de confidentialité"
-      updatedAt="6 octobre 2026 · version bêta"
+      updatedAt="8 novembre 2026 · version bêta"
       sections={SECTIONS}
     />
   );

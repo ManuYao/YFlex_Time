@@ -5,6 +5,18 @@ import { loadCooldownMap, saveCooldownMap, getCooldownStatus, consumeLaunch } fr
 
 // Meme pattern que useTimerHeat.js : recharge au focus (la Home est
 // retrouvee via router.replace apres chaque seance).
+// Mêmes entrées ? (objet `{ modeId: { uses, weekStart } }`, deux niveaux à plat)
+const sameMap = (a, b) => {
+  if (a === b) return true;
+  const ka = Object.keys(a);
+  if (ka.length !== Object.keys(b).length) return false;
+  return ka.every((k) => {
+    const x = a[k];
+    const y = b[k];
+    return x === y || (!!x && !!y && x.uses === y.uses && x.weekStart === y.weekStart);
+  });
+};
+
 export function useCooldown() {
   const [map, setMap] = useState({});
 
@@ -12,7 +24,9 @@ export function useCooldown() {
     useCallback(() => {
       let cancelled = false;
       loadCooldownMap().then((m) => {
-        if (!cancelled) setMap(m);
+        // Relu à CHAQUE retour sur l'écran : si rien n'a changé on garde le même
+        // objet, sinon `getStatus` change et tout l'accueil se redessine pour rien.
+        if (!cancelled) setMap((prev) => (sameMap(prev, m) ? prev : m));
       });
       return () => {
         cancelled = true;

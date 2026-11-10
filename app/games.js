@@ -10,7 +10,7 @@ import AppIcon from '../components/common/AppIcon';
 import { haptic } from '../hooks/useHaptic';
 import { fonts } from '../lib/fonts';
 import { goBackSafe } from '../lib/navigation';
-import { EXERCISES, bestScore } from '../lib/gameCount';
+import { bestScore } from '../lib/gameCount';
 import { loadScores } from '../lib/gameScores';
 import { loadPyramidScores } from '../lib/gamePyramidScores';
 import { loadComboScores } from '../lib/gameComboStore';
@@ -42,7 +42,7 @@ export default function Games() {
     }, [])
   );
 
-  const best = scores ? Math.max(0, ...Object.keys(EXERCISES).map((id) => bestScore(scores, id))) : 0;
+  const best = scores ? bestScore(scores) : 0;
   // Les pyramides n'ont pas de record unique (chaque format et sommet a le sien) :
   // la carte montre le plus gros total de répétitions d'une partie.
   const pyramidBest = pyramidScores ? Math.max(0, ...pyramidScores.map((s) => s.total)) : 0;

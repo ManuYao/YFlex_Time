@@ -60,6 +60,12 @@ import BadgeUnlockSheet from '../components/common/BadgeUnlockSheet';
 import CoachNudgeSheet from '../components/common/CoachNudgeSheet';
 import SeasonNudgeSheet from '../components/common/SeasonNudgeSheet';
 import { loadSeasonNudgeSeen, markSeasonNudgeSeen, shouldShowSeasonNudge } from '../lib/seasonNudge';
+import GamesNudgeSheet from '../components/common/GamesNudgeSheet';
+import { markGamesNudgeSeen, noteGamesNudgeLaunch } from '../lib/gamesNudge';
+import { shouldShowGamesNudge } from '../lib/gamesNudgeShape';
+import { isGameSession } from '../lib/gameHistoryShape';
+import { loadHoldTip, markHoldTipSeen } from '../lib/holdTip';
+import { HOLD_TOUR_STEPS, shouldShowHoldTip } from '../lib/holdTipShape';
 import TutorialInviteSheet from '../components/common/TutorialInviteSheet';
 import ModePickerSheet from '../components/common/ModePickerSheet';
 import ConfirmSheet from '../components/common/ConfirmSheet';
@@ -115,6 +121,7 @@ import { useTimerHeat } from '../hooks/useTimerHeat';
 import { useScreenReady } from '../hooks/useScreenReady';
 import { resolveStartIndex } from '../lib/smartStart';
 import { useLongPress } from '../hooks/useLongPress';
+import { useLightLevel, slowFactor } from '../lib/lightMode';
 import { useCooldown } from '../hooks/useCooldown';
 import { usePremium } from '../hooks/usePremium';
 
@@ -143,6 +150,17 @@ const STREAK_THRESHOLD = 3;
 
 // Appui long sur le cercle central — ouvre le panneau stats/badges (T).
 const STATS_HOLD_MS = 1500;
+
+// Statut de quota d'un compte Premium : toujours le MÊME objet (voir
+// getCooldownStatus), pour ne pas défaire la mémoïsation des cartes.
+const PREMIUM_COOLDOWN_STATUS = Object.freeze({
+  limited: false,
+  isLocked: false,
+  remaining: Infinity,
+  uses: 0,
+  quota: Infinity,
+  lockedUntil: null,
+});
 
 // (V) Largeur minimale d'un chip de réglage (label + valeur) pour rester
 // lisible en row. En dessous, statsRow bascule en liste verticale — voir
@@ -275,6 +293,8 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   const [ringRect, setRingRect] = useState(null);
   // Rangée de réglages de la carte active : zone éclairée par les bulles du tour guidé.
   const statsRef = useRef(null);
+  // Bouton Profil du haut : zone éclairée par la 2ᵉ bulle de l'astuce du maintien.
+  const profileRef = useRef(null);
   const { timers, updateStat, hydrated } = useTimers();
   const { settings, update: updateSetting } = useSettings();
   const { getStatus: getCooldownStatusRaw } = useCooldown();
@@ -284,16 +304,9 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   // uniquement ici, au point d'usage.
   const getCooldownStatus = useCallback(
     (timerId) => {
-      if (isPremium) {
-        return {
-          limited: false,
-          isLocked: false,
-          remaining: Infinity,
-          uses: 0,
-          quota: Infinity,
-          lockedUntil: null,
-        };
-      }
+      // Constante partagée : un objet neuf à chaque appel annulait la mémoïsation
+      // des cartes (elles se redessinaient toutes au moindre changement).
+      if (isPremium) return PREMIUM_COOLDOWN_STATUS;
       return getCooldownStatusRaw(timerId);
     },
     [isPremium, getCooldownStatusRaw]
@@ -396,6 +409,8 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   // Alerte unique « ambiance de saison » (lib/seasonNudge.js) : conseille de la
   // désactiver sur un téléphone moins puissant.
   const [showSeasonNudge, setShowSeasonNudge] = useState(false);
+  // Proposition « Essaie les jeux » (lib/gamesNudge.js) : dernière de la file de démarrage.
+  const [showGamesNudge, setShowGamesNudge] = useState(false);
   // Lu par handleScrollBeginDrag (callback stable, sans dépendance) pour
   // savoir si un swipe doit interrompre la popup — jamais lu par un render.
   const showCoachNudgeRef = useRef(false);
@@ -410,8 +425,14 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   // régler, lancer), sans rien lancer. 'off' | 'wait' (on laisse les animations
   // d'entrée finir) | 'on'. Déclenché par « C'est parti » du pop-up ci-dessus ou
   // par le paramètre `tour=1` (Paramètres › Revoir le tutoriel, via /tutorial).
-  const { tour: tourParam } = useLocalSearchParams();
+  const { tour: tourParam, preview: previewParam } = useLocalSearchParams();
   const [tourPhase, setTourPhase] = useState(tourParam === '1' ? 'wait' : 'off');
+  // Quelle visite en bulles : 'intro' = le tutoriel de démarrage, 'hold' = l'astuce du maintien
+  // (lib/holdTipShape.js : maintenir le cercle d'un chrono pour voir ses trophées).
+  const [tourKind, setTourKind] = useState('intro');
+  // Vrai quand une proposition est ouverte en APERÇU depuis les Paramètres (`preview=…`) : rien
+  // n'est alors enregistré comme « vu », elle pourra encore venir pour de vrai.
+  const previewRef = useRef(false);
   useEffect(() => {
     if (tourParam === '1') setTourPhase((p) => (p === 'off' ? 'wait' : p));
   }, [tourParam]);
@@ -420,6 +441,22 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
     const timer = setTimeout(() => setTourPhase('on'), 1300);
     return () => clearTimeout(timer);
   }, [tourPhase, hydrated]);
+  // Aperçus à la demande, ouverts depuis Paramètres › À propos › Tutoriel (`preview=games|hold`) :
+  // la personne relance elle-même une proposition ou une astuce, sans rien enregistrer.
+  useEffect(() => {
+    if (!hydrated || !previewParam) return undefined;
+    const timer = setTimeout(() => {
+      previewRef.current = true;
+      if (previewParam === 'games') {
+        setShowGamesNudge(true);
+      } else if (previewParam === 'hold') {
+        setTourKind('hold');
+        setTourPhase('wait');
+      }
+      router.setParams({ preview: undefined });
+    }, 700);
+    return () => clearTimeout(timer);
+  }, [previewParam, hydrated, router]);
 
   // Séance interrompue au dernier lancement (batterie vide, plantage) :
   // récupérée depuis le brouillon (lib/sessionDraft.js), annoncée par un petit
@@ -448,6 +485,9 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
 
   const active = timers[activeIndex];
   const activeHeat = heatMap[active.id] || 0;
+  // Mode allégé (lib/lightMode.js) : braises (décor) ralenties au niveau 1, coupées au
+  // niveau 2 (téléphone chaud ou batterie à 20 % ou moins). Les flammes de série restent.
+  const lightLevel = useLightLevel();
   const t = getTokens(active.textMode);
   const activeCooldown = getCooldownStatus(active.id);
   // TopBar/BottomBar doivent s'effacer aussi bien pendant le morph de
@@ -474,7 +514,12 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   const overlayBusyRef = useRef(false);
   overlayBusyRef.current =
     isLaunching || statsOpen || !!picker || badgeQueue.length > 0 || !!primerLaunch ||
-    showCoachNudge || showSeasonNudge || showTutorialInvite || modePickerOpen || tourPhase !== 'off';
+    showCoachNudge || showSeasonNudge || showGamesNudge || showTutorialInvite || modePickerOpen || tourPhase !== 'off';
+
+  // Compte cette ouverture de l'app pour la proposition des jeux (une fois par démarrage).
+  useEffect(() => {
+    noteGamesNudgeLaunch();
+  }, []);
 
   useEffect(() => {
     shouldShowPermissionPrimer('firstSession').then((due) => {
@@ -595,6 +640,30 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
         if (cancelled || overlayBusyRef.current) return;
         if (shouldShowCoachNudge({ seen: coachSeen, voiceCoachEnabled: settings.voiceCoach, totalRuns })) {
           setShowCoachNudge(true);
+          return;
+        }
+
+        // Jeux — tout dernier de la file : 5ᵉ ouverture pour une nouvelle personne, à partir du
+        // 15/11/2026 pour les testeurs déjà installés (règle dans lib/gamesNudgeShape.js). Jamais
+        // pour quelqu'un qui a déjà joué à un jeu.
+        const gamesState = await noteGamesNudgeLaunch();
+        const history = await loadHistory();
+        const gamesPlayed = history.some(isGameSession);
+        if (cancelled || overlayBusyRef.current) return;
+        if (shouldShowGamesNudge({ state: gamesState, gamesPlayed })) {
+          setShowGamesNudge(true);
+          return;
+        }
+
+        // Astuce du maintien — après les jeux, donc à la première ouverture libre une fois les 3
+        // séances faites (règle dans lib/holdTipShape.js). Séances de chrono seulement : les
+        // parties de jeu et les séances annulées ne comptent pas.
+        const holdState = await loadHoldTip();
+        const sessionsDone = history.filter((s) => s?.timerId && !s.pendingDelete && !isGameSession(s)).length;
+        if (cancelled || overlayBusyRef.current) return;
+        if (shouldShowHoldTip({ state: holdState, sessions: sessionsDone, newUser: gamesState.newUser })) {
+          setTourKind('hold');
+          setTourPhase('wait');
         }
       }, PROGRESSION_DELAY_MS);
     });
@@ -741,6 +810,14 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
     ({ reason, index }) => {
       stopTourCycle();
       setTourPhase('off');
+      // Astuce du maintien : quelle que soit la sortie (Compris, Passer, retour), on ne la remontre
+      // plus — sauf en aperçu depuis les Paramètres, où rien n'est enregistré.
+      if (tourKind === 'hold') {
+        setTourKind('intro');
+        if (previewRef.current) previewRef.current = false;
+        else markHoldTipSeen();
+        return;
+      }
       // Le paramètre est retiré pour qu'un prochain « Revoir le tutoriel » rejoue les bulles.
       if (tourParam === '1') router.setParams({ tour: undefined });
       if (reason === 'skip' && index === 0) {
@@ -752,13 +829,13 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
         markTutorialOutcome('done1');
       }
     },
-    [router, tourParam, stopTourCycle]
+    [router, tourParam, tourKind, stopTourCycle]
   );
 
   // Rectangle d'une zone du tour, en coordonnées de fenêtre ; null si elle n'est
   // pas à l'écran (fenêtre réduite : la bulle correspondante est sautée).
-  const measureTourTarget = useCallback((id) => {
-    const node = (id === 'ring' ? ringRef : id === 'stats' ? statsRef : ctaRef).current;
+  const measureTourOnce = useCallback((id) => {
+    const node = (id === 'ring' ? ringRef : id === 'stats' ? statsRef : id === 'profile' ? profileRef : ctaRef).current;
     return new Promise((resolve) => {
       if (!node?.measureInWindow) {
         resolve(null);
@@ -769,6 +846,31 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
       });
     });
   }, []);
+  // Les éléments du haut et du bas (étiquette, boutons, Lancer) se « révèlent » en glissant de
+  // quelques points chaque fois que le carrousel se repose (useChromeReveal) : mesurés en pleine
+  // révélation, l'éclairage tombait trop haut ou trop bas. On re-mesure donc jusqu'à ce que la
+  // position ne bouge plus (au plus 2,5 s), quelle que soit la taille de l'écran.
+  const measureTourTarget = useCallback(
+    async (id) => {
+      let prev = await measureTourOnce(id);
+      if (!prev) return null;
+      const t0 = Date.now();
+      while (Date.now() - t0 < 2500) {
+        await new Promise((resolve) => setTimeout(resolve, 90));
+        const cur = await measureTourOnce(id);
+        if (!cur) return prev;
+        const still =
+          Math.abs(cur.x - prev.x) < 0.5 &&
+          Math.abs(cur.y - prev.y) < 0.5 &&
+          Math.abs(cur.width - prev.width) < 0.5 &&
+          Math.abs(cur.height - prev.height) < 0.5;
+        prev = cur;
+        if (still) return cur;
+      }
+      return prev;
+    },
+    [measureTourOnce]
+  );
 
   // Alerte « ambiance de saison » : marquée vue à la fermeture (quel que soit le
   // chemin), « Désactiver » coupe l'ambiance tout de suite.
@@ -779,6 +881,21 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   const handleSeasonNudgeDisable = useCallback(() => {
     updateSetting('ambianceMode', 'none');
   }, [updateSetting]);
+
+  // Proposition des jeux : marquée vue à la fermeture (quel que soit le chemin) ; « Voir les jeux »
+  // ouvre en plus le menu des jeux.
+  const handleGamesNudgeClose = useCallback(() => {
+    setShowGamesNudge(false);
+    // Aperçu depuis les Paramètres : rien n'est enregistré, la vraie proposition viendra encore.
+    if (previewRef.current) {
+      previewRef.current = false;
+      return;
+    }
+    markGamesNudgeSeen();
+  }, []);
+  const handleGamesNudgeOpen = useCallback(() => {
+    router.push('/games');
+  }, [router]);
 
   // onClose couvre tout chemin de fermeture de CoachNudgeSheet (voile, retour
   // Android, "Plus tard", "Activer" — close() le déclenche toujours, voir le
@@ -817,12 +934,29 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   // (une View simple sans handler de tap, cf TimerCard). On n'accepte donc un
   // changement d'index que s'il suit un vrai geste de l'utilisateur.
   const draggingRef = useRef(false);
+  // Registre des « annuler le maintien du cercle » de chaque carte (voir TimerCard) :
+  // le glissé du carrousel les appelle tous. Un doigt posé sur le cercle déclenche
+  // le maintien (onPressIn) ; si l'événement « relâché/annulé » arrive en retard ou
+  // jamais (app chargée, carte qui n'est plus l'active), le compteur de 1,5 s allait
+  // au bout tout seul et ouvrait les stats en plein glissé.
+  const holdBusRef = useRef(null);
+  if (holdBusRef.current === null) holdBusRef.current = new Set();
+  // Vrai tant que le carrousel n'est pas posé EXACTEMENT sur une page. Lit la
+  // position réelle (fil d'interface) ; volontairement pas draggingRef, qui peut
+  // rester vrai si aucun « élan » n'est signalé en fin de glissé.
+  const isCarouselBusy = useCallback(() => {
+    const w = pageW.value || 1;
+    const p = scrollX.value / w;
+    return Math.abs(p - Math.round(p)) > 0.02;
+  }, []);
   // Heure de montage : le FlatList fait un saut au démarrage (initialScrollIndex),
   // on n'écoute pas la position avant qu'il soit posé.
   const mountedAtRef = useRef(Date.now());
   const hapticIndexRef = useRef(initialIndex);
   const handleScrollBeginDrag = useCallback(() => {
     draggingRef.current = true;
+    // Un glissé commence : plus aucun maintien du cercle ne doit pouvoir aboutir.
+    holdBusRef.current.forEach((cancelHold) => cancelHold());
     // Swiper le carrousel pendant que CoachNudgeSheet est ouverte compte
     // comme une interruption (demande utilisateur) : la popup se ferme et
     // repart sur le même délai de 7 jours que les autres fermetures.
@@ -1093,6 +1227,8 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
 
   const handleOpenStats = useCallback(() => {
     setStatsOpen(true);
+    // Elle a trouvé toute seule le maintien du cercle : l'astuce ne lui sert plus.
+    markHoldTipSeen();
   }, []);
 
   const handleGoPremium = useCallback(() => {
@@ -1134,9 +1270,11 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
         onStatHaptic={haptic.light}
         onOpenStats={handleOpenStats}
         onGoPremium={handleGoPremium}
+        holdBus={holdBusRef.current}
+        isCarouselBusy={isCarouselBusy}
       />
     ),
-    [settledIndex, rootW, heatMap, getCooldownStatus, handleStatPress, handleMixEdit, haptic, handleOpenStats, handleGoPremium]
+    [settledIndex, rootW, heatMap, getCooldownStatus, handleStatPress, handleMixEdit, haptic, handleOpenStats, handleGoPremium, isCarouselBusy]
   );
 
   if (!hydrated) {
@@ -1162,9 +1300,13 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
             le réglage « Aucune »). Motifs noirs quand le texte du mode actif est noir. */}
         <AmbianceBackdrop tone={active.textMode === 'dark' ? 'dark' : 'light'} />
 
-        {activeHeat >= STREAK_THRESHOLD && (
+        {activeHeat >= STREAK_THRESHOLD && lightLevel < 2 && (
           <Animated.View style={[StyleSheet.absoluteFill, emberReveal]} pointerEvents="none">
-            <EmberField key={active.id} color={active.color} heatCount={activeHeat} />
+            {/* Pas de `key` par mode : avec, les 6 à 16 braises (chacune une vue animée avec
+                un dégradé SVG) étaient DÉMONTÉES puis remontées à chaque changement de timer,
+                en plein glissé. Sans, elles restent en place et ne changent que de couleur
+                (invisible : le champ est éteint pendant le glissé, voir emberReveal). */}
+            <EmberField color={active.color} heatCount={activeHeat} slow={lightLevel === 1} />
           </Animated.View>
         )}
 
@@ -1175,6 +1317,7 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
               tag={active.tag}
               tokens={t}
               tone={active.textMode}
+              profileRef={profileRef}
               onProfile={() => router.push('/profile')}
               onHub={() => router.push('/hub')}
               onTapHaptic={haptic.light}
@@ -1196,6 +1339,11 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
             initialScrollIndex={initialIndex}
             renderItem={renderItem}
             getItemLayout={getItemLayout}
+            // Par défaut Android DÉTACHE de la vue native les cartes hors écran puis les
+            // RATTACHE en plein glissé (et jette leur dessin en cache) : la carte qui entre
+            // doit alors tout redessiner (anneau, 105 traits, textes…) pendant le geste.
+            // Seulement 5 cartes, déjà montées : on les laisse en place.
+            removeClippedSubviews={false}
             style={styles.list}
             scrollEnabled={!hideChrome}
           />
@@ -1306,11 +1454,11 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
           avale tous les appuis : rien ne se lance, rien ne se règle pendant le tour. */}
       {tourPhase === 'on' && (
         <SpotlightTips
-          steps={HOME_TOUR_STEPS}
+          steps={tourKind === 'hold' ? HOLD_TOUR_STEPS : HOME_TOUR_STEPS}
           measureTarget={measureTourTarget}
           onStepEnter={handleTourStepEnter}
           onDone={handleTourDone}
-          moreLabel="Voir la suite"
+          moreLabel={tourKind === 'hold' ? null : 'Voir la suite'}
         />
       )}
 
@@ -1330,6 +1478,14 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
           screenH={rootH}
           onDisable={handleSeasonNudgeDisable}
           onClose={handleSeasonNudgeClose}
+        />
+      )}
+
+      {showGamesNudge && (
+        <GamesNudgeSheet
+          screenH={rootH}
+          onOpen={handleGamesNudgeOpen}
+          onClose={handleGamesNudgeClose}
         />
       )}
 
@@ -1366,7 +1522,10 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
    pas d'écran noir, pas de couleur parasite. Au plus deux couches visibles
    à la fois (les autres sont à 0 ou entièrement recouvertes).
    ────────────────────────────────────────────────────────────────*/
-function ScrollInkBackground({ timers, scrollX, width }) {
+// Mémoïsés : l'accueil se re-rend à chaque changement de page (deux fois par glissé) ;
+// ces 5 fonds, eux, ne dépendent que de la position du doigt (fil d'interface) et de
+// leur mode — inutile de les refaire (5 dégradés) à chaque rendu de l'écran.
+const ScrollInkBackground = React.memo(function ScrollInkBackground({ timers, scrollX, width }) {
   const widthSV = useSharedValue(width || 1);
   useEffect(() => {
     widthSV.value = width || 1;
@@ -1379,9 +1538,9 @@ function ScrollInkBackground({ timers, scrollX, width }) {
       ))}
     </View>
   );
-}
+});
 
-function FadeLayer({ timer, index, scrollX, widthSV }) {
+const FadeLayer = React.memo(function FadeLayer({ timer, index, scrollX, widthSV }) {
   const style = useAnimatedStyle(() => {
     const p = scrollX.value / widthSV.value;
     // Recouverte par la page suivante, devenue pleine : inutile de la peindre.
@@ -1396,7 +1555,7 @@ function FadeLayer({ timer, index, scrollX, widthSV }) {
       <GradientBackground colors={timer.bgColors} textMode={timer.textMode} grain={false} inherit={false} />
     </Animated.View>
   );
-}
+});
 
 /* ─────────────────────────────────────────────────────────────────
    EmberField/Ember — braises ambiantes sur tout le fond, dès
@@ -1423,13 +1582,16 @@ const EMBER_DURATION_MIN = 3600;
 const EMBER_OPACITY_MIN = 0.28;
 const EMBER_OPACITY_MAX = 0.6;
 
-function EmberField({ color, heatCount }) {
+function EmberField({ color, heatCount, slow = false }) {
   const intensity = Math.min(
     Math.max(heatCount - STREAK_THRESHOLD, 0) / (EMBER_MAX_HEAT - STREAK_THRESHOLD),
     1
   );
-  const count = Math.round(EMBER_COUNT_MIN + intensity * (EMBER_COUNT_MAX - EMBER_COUNT_MIN));
-  const baseDuration = EMBER_DURATION_MAX - intensity * (EMBER_DURATION_MAX - EMBER_DURATION_MIN);
+  const fullCount = Math.round(EMBER_COUNT_MIN + intensity * (EMBER_COUNT_MAX - EMBER_COUNT_MIN));
+  // Mode allégé niveau 1 : deux fois moins de braises, deux fois plus lentes.
+  const count = slow ? Math.max(3, Math.ceil(fullCount / 2)) : fullCount;
+  const baseDuration =
+    (EMBER_DURATION_MAX - intensity * (EMBER_DURATION_MAX - EMBER_DURATION_MIN)) * (slow ? 2 : 1);
 
   const embers = useMemo(
     () =>
@@ -1535,22 +1697,28 @@ function Ember({ id, xPct, yPct, size, drift, duration, delay, peakOpacity, colo
 /* ─────────────────────────────────────────────────────────────────
    (B+C) Top bar — status + tag central + boutons ronds
    ────────────────────────────────────────────────────────────────*/
-function TopBar({ tag, tokens, tone, onProfile, onHub, onTapHaptic, isLaunching }) {
+function TopBar({ tag, tokens, tone, profileRef, onProfile, onHub, onTapHaptic, isLaunching }) {
   // (V) Fenêtre réduite : la ligne « FLEX TIMER » n'apporte rien, elle prend
   // ~22 dp qui reviennent au bouton Lancer (voir lib/responsive.js).
   const isReducedWindow = useLayoutLevel() !== 'full';
   const dotPulse = useSharedValue(0.4);
+  // Mode allégé : pulsation deux fois plus lente au niveau 1, fixe au niveau 2.
+  const dotFactor = slowFactor(useLightLevel());
   useEffect(() => {
+    if (dotFactor == null) {
+      dotPulse.value = withTiming(0.7, { duration: D.base });
+      return undefined;
+    }
     dotPulse.value = withRepeat(
       withSequence(
-        withTiming(1, { duration: 1000, easing: easeInOut }),
-        withTiming(0.4, { duration: 1000, easing: easeInOut })
+        withTiming(1, { duration: 1000 * dotFactor, easing: easeInOut }),
+        withTiming(0.4, { duration: 1000 * dotFactor, easing: easeInOut })
       ),
       -1,
       false
     );
     return () => cancelAnimation(dotPulse);
-  }, []);
+  }, [dotFactor]);
   const dotStyle = useAnimatedStyle(() => ({ opacity: dotPulse.value }));
 
   if (isLaunching) return null;
@@ -1597,14 +1765,16 @@ function TopBar({ tag, tokens, tone, onProfile, onHub, onTapHaptic, isLaunching 
         </Animated.Text>
 
         {/* Hub Profil : les Paramètres y sont accessibles par l'engrenage. */}
-        <IconButton
-          icon="user"
-          halo="right"
-          tone={tone}
-          onPress={onProfile}
-          haptic={onTapHaptic}
-          accessibilityLabel="Profil"
-        />
+        <View ref={profileRef} collapsable={false}>
+          <IconButton
+            icon="user"
+            halo="right"
+            tone={tone}
+            onPress={onProfile}
+            haptic={onTapHaptic}
+            accessibilityLabel="Profil"
+          />
+        </View>
       </Animated.View>
     </>
   );
@@ -1613,7 +1783,7 @@ function TopBar({ tag, tokens, tone, onProfile, onHub, onTapHaptic, isLaunching 
 /* ─────────────────────────────────────────────────────────────────
    TimerCard — orchestration des animations sur isActive
    ────────────────────────────────────────────────────────────────*/
-const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, heatCount, cooldown, ringRef, statsRef, onStatPress, onMixEdit, onStatHaptic, onOpenStats, onGoPremium }) {
+const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, heatCount, cooldown, ringRef, statsRef, onStatPress, onMixEdit, onStatHaptic, onOpenStats, onGoPremium, holdBus, isCarouselBusy }) {
   const t = getTokens(timer.textMode);
   const hero = getTimerHero(timer);
   const description = getTimerDescription(timer);
@@ -1622,7 +1792,32 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
   // du design. Ne se reduit qu'en fenetre flottante (voir lib/responsive.js).
   const ui = useUiScale();
   const isMix = timer.id === 'mix';
-  const { isPressing, progress, start, cancel } = useLongPress(onOpenStats, STATS_HOLD_MS);
+  // Maintien du cercle central (1,5 s → stats/trophées). Il ne doit JAMAIS aboutir
+  // pendant un glissé du carrousel, ni sur une carte qui n'est plus l'active : au
+  // moment d'aboutir on revérifie les deux (le doigt a pu partir sans que
+  // l'événement « relâché » ne nous parvienne à temps quand l'app est chargée).
+  const isActiveRef = useRef(isActive);
+  isActiveRef.current = isActive;
+  const guardedOpenStats = useCallback(() => {
+    if (!isActiveRef.current || isCarouselBusy?.()) return;
+    onOpenStats();
+  }, [onOpenStats, isCarouselBusy]);
+  const { isPressing, progress, start, cancel } = useLongPress(guardedOpenStats, STATS_HOLD_MS);
+  // `cancel` change d'identité à chaque rendu (il lit isPressing/progress) : on le
+  // garde par ref pour ne l'enregistrer qu'une fois auprès du carrousel.
+  const cancelRef = useRef(cancel);
+  cancelRef.current = cancel;
+  useEffect(() => {
+    if (!holdBus) return undefined;
+    const cancelHold = () => cancelRef.current();
+    holdBus.add(cancelHold);
+    return () => holdBus.delete(cancelHold);
+  }, [holdBus]);
+  // La carte cesse d'être l'active (page posée ailleurs) : ses poignées d'appui
+  // passent à undefined, plus rien n'annulerait un maintien resté en route.
+  useEffect(() => {
+    if (!isActive) cancelRef.current();
+  }, [isActive]);
 
   // Entrées animées (chiffre, nom, réglages, déroulé…) : elles ne jouent que
   // (a) au lancement de l'app pour la carte affichée, (b) quand une valeur
@@ -2182,13 +2377,16 @@ function StatChipContent({ stat, t, editable, compact }) {
    ────────────────────────────────────────────────────────────────*/
 function BreathingRing({ isActive, t, timerId, size = 320, gap = 24, innerRef, children }) {
   const scale = useSharedValue(1);
+  // Mode allégé (lib/lightMode.js) : respiration deux fois plus lente au niveau 1, arrêtée
+  // au niveau 2 (`null`). À 0,8 % d'amplitude, l'arrêt ne se voit pas.
+  const factor = slowFactor(useLightLevel());
 
   useEffect(() => {
-    if (isActive) {
+    if (isActive && factor != null) {
       scale.value = withRepeat(
         withSequence(
-          withTiming(1.008, { duration: 1750, easing: easeInOut }),
-          withTiming(1, { duration: 1750, easing: easeInOut })
+          withTiming(1.008, { duration: 1750 * factor, easing: easeInOut }),
+          withTiming(1, { duration: 1750 * factor, easing: easeInOut })
         ),
         -1,
         false
@@ -2197,7 +2395,7 @@ function BreathingRing({ isActive, t, timerId, size = 320, gap = 24, innerRef, c
       scale.value = withTiming(1, { duration: D.base });
     }
     return () => cancelAnimation(scale);
-  }, [isActive]);
+  }, [isActive, factor]);
 
   const animStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
@@ -2253,17 +2451,23 @@ function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onOp
 
   // (O) Flèche de lecture qui pulse horizontalement
   const arrowX = useSharedValue(0);
+  // Mode allégé : va-et-vient deux fois plus lent au niveau 1, flèche fixe au niveau 2.
+  const arrowFactor = slowFactor(useLightLevel());
   useEffect(() => {
+    if (arrowFactor == null) {
+      arrowX.value = withTiming(1, { duration: D.base });
+      return undefined;
+    }
     arrowX.value = withRepeat(
       withSequence(
-        withTiming(2, { duration: 750, easing: easeInOut }),
-        withTiming(0, { duration: 750, easing: easeInOut })
+        withTiming(2, { duration: 750 * arrowFactor, easing: easeInOut }),
+        withTiming(0, { duration: 750 * arrowFactor, easing: easeInOut })
       ),
       -1,
       false
     );
     return () => cancelAnimation(arrowX);
-  }, []);
+  }, [arrowFactor]);
   const arrowStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: arrowX.value }],
   }));

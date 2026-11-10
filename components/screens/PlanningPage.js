@@ -22,7 +22,7 @@ import ShineSweep from '../common/ShineSweep';
 import MiniToast from '../common/MiniToast';
 import { goBackSafe } from '../../lib/navigation';
 import { fonts } from '../../lib/fonts';
-import { categoryChip } from '../../lib/exercises';
+import { categoryChip, setCustomExerciseAnimation } from '../../lib/exercises';
 import { loadHistory } from '../../lib/history';
 import { buildMixFromBlock } from '../../lib/planningMix';
 import { useLongPress } from '../../hooks/useLongPress';
@@ -47,6 +47,7 @@ import {
   isBlockLaunchable,
   loadPlanning,
   moveBlock,
+  moveTag,
   removeBlock,
   removeTag,
   renameBlock,
@@ -118,6 +119,11 @@ function PlanningContent({
   // ferme, la fermeture doit attendre son résultat pour savoir quelle étiquette
   // ouvrir.
   const pendingDetailRef = useRef(null);
+  // Même principe à la création d'un bloc : la feuille « Nouveau bloc » se
+  // ferme, puis la bibliothèque d'exercices du bloc créé s'ouvre d'elle-même
+  // (sur le premier muscle touché). Rien d'imposé : on la ferme si on veut.
+  // Promesse de l'id du bloc créé (null = rien à ouvrir).
+  const pendingLibraryRef = useRef(null);
 
   // Dernière version du planning, lisible depuis une minuterie ou une feuille
   // sans tomber sur une copie périmée (la sauvegarde auto d'une note peut
@@ -269,6 +275,17 @@ function PlanningContent({
     }
     const detail = await pending;
     if (detail) openSheet(detail);
+    else closeSheet();
+  };
+  const closeBlockSheet = async () => {
+    const pending = pendingLibraryRef.current;
+    pendingLibraryRef.current = null;
+    if (!pending) {
+      closeSheet();
+      return;
+    }
+    const blockId = await pending;
+    if (blockId && mountedRef.current) openSheet({ type: 'library', blockId });
     else closeSheet();
   };
 
@@ -553,13 +570,28 @@ function PlanningContent({
               archived: !!target.archivedAt,
             };
           })}
-          onClose={closeSheet}
-          onSubmit={async (name) => {
-            setPlanning(
-              sheet.blockId
-                ? await renameBlock(planningRef.current, dayKey, sheet.blockId, name)
-                : await addBlock(planningRef.current, dayKey, name)
-            );
+          tags={sheet.blockId ? findBlock(sheet.blockId)?.tags ?? [] : []}
+          onMoveTag={async (tagId, delta) => {
+            const next = await moveTag(planningRef.current, dayKey, sheet.blockId, tagId, delta);
+            // Mise à jour immédiate de la référence : deux appuis rapprochés
+            // partent chacun de la dernière liste, pas d'une copie périmée.
+            planningRef.current = next;
+            setPlanning(next);
+          }}
+          onClose={closeBlockSheet}
+          onSubmit={async (name, groups) => {
+            if (sheet.blockId) {
+              setPlanning(await renameBlock(planningRef.current, dayKey, sheet.blockId, name));
+              return;
+            }
+            const created = (async () => {
+              const next = await addBlock(planningRef.current, dayKey, name, groups);
+              setPlanning(next);
+              const blocks = next[dayKey]?.blocks || [];
+              return blocks[blocks.length - 1]?.id ?? null;
+            })();
+            pendingLibraryRef.current = created;
+            await created;
           }}
           onMove={async (toKey) => {
             const current = planningRef.current;
@@ -602,6 +634,7 @@ function PlanningContent({
         <ExerciseLibrarySheet
           screenH={screenH}
           blockName={findBlock(sheet.blockId)?.name}
+          preferredCategory={findBlock(sheet.blockId)?.groups?.[0] ?? null}
           onClose={closeLibrarySheet}
           onPick={(exercise) => {
             const blockId = sheet.blockId;
@@ -625,7 +658,18 @@ function PlanningContent({
           dayLabel={day.long}
           onClose={closeSheet}
           onSave={async (values) => {
+            const before = findBlock(sheet.blockId)?.tags.find((t) => t.id === sheet.tagId);
             setPlanning(await updateTag(planning, dayKey, sheet.blockId, sheet.tagId, values));
+            // Animation choisie à la main sur un exercice CRÉÉ : retenue aussi
+            // dans la bibliothèque perso (sous son nom d'origine), pour les
+            // prochaines poses. Sans effet sur un exercice d'origine.
+            if (before && (values.animationId ?? null) !== (before.animationId ?? null)) {
+              setCustomExerciseAnimation({
+                label: before.label,
+                category: before.category,
+                animationId: values.animationId ?? null,
+              });
+            }
           }}
           onRemove={async () => {
             setPlanning(await removeTag(planning, dayKey, sheet.blockId, sheet.tagId));

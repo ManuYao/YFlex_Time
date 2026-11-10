@@ -129,7 +129,7 @@ export const ICON_NAMES = [
   'user', 'bar', 'swim', 'run',
   'star', 'star-fill', 'globe', 'flag', 'heart', 'heart-fill',
   'hub', 'expand', 'history', 'calendar', 'chat',
-  'edit', 'move', 'bulb', 'season',
+  'edit', 'move', 'bulb', 'season', 'up', 'down',
 ];
 
 export default function AppIcon({ name, size = 20, color = '#FFFFFF', opacity = 1, strokeWidth, style, accent }) {
@@ -630,6 +630,13 @@ export default function AppIcon({ name, size = 20, color = '#FFFFFF', opacity = 
       break;
     case 'plus':
       body = <Path {...line} strokeWidth={strokeWidth ?? 2.4} d="M12 5.5v13M5.5 12h13" />;
+      break;
+    // Chevrons haut / bas (réorganiser les exercices d'un bloc).
+    case 'up':
+      body = <Path {...line} strokeWidth={strokeWidth ?? 2.4} d="M5.5 14.5 12 8l6.5 6.5" />;
+      break;
+    case 'down':
+      body = <Path {...line} strokeWidth={strokeWidth ?? 2.4} d="M5.5 9.5 12 16l6.5-6.5" />;
       break;
     // Liste (bibliothèque des mix enregistrés).
     case 'list':

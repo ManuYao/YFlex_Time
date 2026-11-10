@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { BackHandler, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -14,23 +14,23 @@ import TickRing from '../components/common/TickRing';
 import WheelPicker from '../components/common/WheelPicker';
 import BottomSheet from '../components/common/BottomSheet';
 import GameScoreList from '../components/screens/GameScoreList';
+import GameTagOverlays from '../components/screens/GameTagOverlays';
+import HoldToTag from '../components/common/HoldToTag';
 import { useSettings } from '../contexts/SettingsContext';
 import { haptic } from '../hooks/useHaptic';
+import { useGameExerciseTag } from '../hooks/useGameExerciseTag';
 import { fonts } from '../lib/fonts';
 import { goBackSafe } from '../lib/navigation';
 import { playGameGo, preloadGameSounds } from '../lib/gameSounds';
 import { createNumberCaller } from '../lib/gameVoice';
-import { loadScores, saveScore, deleteScore } from '../lib/gameScores';
+import { loadScores, saveScore, deleteScore, setCountScoreExercises } from '../lib/gameScores';
+import { recordGameSession, setGameSessionExercises } from '../lib/gameHistory';
+import { exercisesLabel, shouldHalo } from '../lib/gameExercises';
 import {
-  DEFAULT_EXERCISE,
   DEFAULT_TEMPO,
-  EXERCISES,
   MAX_COUNT,
-  MUSCLE_GROUPS,
   TEMPOS,
   bestScore,
-  exercisesOf,
-  getExercise,
   newPlanner,
   planAfter,
   tempoMs,
@@ -54,7 +54,7 @@ const formatDay = (at) => {
 const scoreValue = (s) => s.count;
 
 /**
- * « Le chef d'orchestre » (pompes) — une voix compte 1, 2, 3… et, de temps en
+ * « Le chef d'orchestre » — une voix compte 1, 2, 3… et, de temps en
  * temps, se tait. Silence = on s'arrête, le compte reprend = on reprend. Celui
  * qui lâche appuie sur « J'ai lâché » : son score est le dernier chiffre dit.
  * Solo, sur la confiance : aucun capteur, aucun envoi, scores gardés sur le
@@ -67,7 +67,6 @@ export default function GameCount() {
 
   const [phase, setPhase] = useState('ready'); // ready | countdown | playing | done
   const [tempoId, setTempoId] = useState(DEFAULT_TEMPO);
-  const [exerciseId, setExerciseId] = useState(DEFAULT_EXERCISE);
   const [count, setCount] = useState(0);
   const [silent, setSilent] = useState(false);
   const [countdown, setCountdown] = useState(3);
@@ -81,16 +80,12 @@ export default function GameCount() {
   const countdownTimers = useRef([]);
   const scoresRef = useRef([]);
   const tempoRef = useRef(DEFAULT_TEMPO);
-  const exerciseRef = useRef(DEFAULT_EXERCISE);
   const selectedRef = useRef(0);
+  // Début réel du jeu (après le décompte) et fin (avant la roue de confirmation) :
+  // la partie est ajoutée à l'Historique avec son temps (lib/gameHistory.js).
+  const playStartRef = useRef(null);
+  const playEndRef = useRef(null);
   const [finalCount, setFinalCount] = useState(0);
-
-  const exercise = getExercise(exerciseId);
-
-  const chooseExercise = (id) => {
-    exerciseRef.current = id;
-    setExerciseId(id);
-  };
 
   const goPhase = (p) => {
     phaseRef.current = p;
@@ -131,17 +126,39 @@ export default function GameCount() {
   // Enregistre le score définitif (après la confirmation) et montre le résultat.
   const commitScore = async (value) => {
     if (phaseRef.current === 'done') return;
-    const gameId = exerciseRef.current;
-    const previousBest = bestScore(scoresRef.current, gameId);
+    const previousBest = bestScore(scoresRef.current);
     goPhase('done');
     setResult({ count: value, record: value > 0 && value > previousBest });
     haptic.success();
     if (value > 0) {
-      const list = await saveScore({ game: gameId, count: value, tempo: tempoRef.current });
+      // La partie entre dans l'Historique ; son id est gardé dans le score pour y noter
+      // l'exercice plus tard (si la personne le maintient).
+      const entry = await recordGameSession({
+        game: 'count',
+        startedAt: playStartRef.current,
+        endedAt: playEndRef.current ?? Date.now(),
+        reps: value,
+      });
+      const list = await saveScore({ count: value, tempo: tempoRef.current, historyId: entry?.id });
       scoresRef.current = list;
       setScores(list);
+      // Le score qu'on vient d'ajouter est toujours le premier de la liste.
+      setResult((r) => (r ? { ...r, scoreId: list[0]?.id } : r));
+      // La règle de la bulle (lib/gameTagTip.js) : si elle doit être montrée, ce sera sur le menu
+      // du jeu, dès qu'on y revient.
+      tag.noteGameFinished();
     }
   };
+
+  // Enregistre l'exercice noté : dans le score ET dans la séance JEU de l'Historique (appelé par
+  // le hook commun, hooks/useGameExerciseTag.js).
+  const saveExercises = useCallback(async (id, exercises) => {
+    const score = scoresRef.current.find((s) => s.id === id);
+    const list = await setCountScoreExercises(id, exercises);
+    scoresRef.current = list;
+    setScores(list);
+    if (score?.historyId) setGameSessionExercises(score.historyId, exercises);
+  }, []);
 
   // « J'ai lâché » : on ne peut pas toujours toucher le bouton pile à temps, donc
   // on demande de confirmer le score, ou de le corriger de 4 au plus vers le bas
@@ -149,6 +166,7 @@ export default function GameCount() {
   const finish = () => {
     if (phaseRef.current !== 'playing') return;
     const final = countRef.current;
+    playEndRef.current = Date.now();
     releaseGame();
     setSilent(false);
     if (final <= 0) {
@@ -162,13 +180,15 @@ export default function GameCount() {
   };
 
   const startPlaying = () => {
-    const stepMs = tempoMs(exerciseRef.current, tempoRef.current);
+    const stepMs = tempoMs(tempoRef.current);
     const caller = callerRef.current ?? createNumberCaller(settings.voiceGender);
     callerRef.current = caller;
-    const planner = newPlanner(Math.random, exerciseRef.current);
+    const planner = newPlanner(Math.random);
     countRef.current = 0;
     setCount(0);
     setSilent(false);
+    playStartRef.current = Date.now();
+    playEndRef.current = null;
     goPhase('playing');
     let nextAt = Date.now();
 
@@ -230,10 +250,27 @@ export default function GameCount() {
         cancelCountdown();
         return true;
       }
+      // Sur le résultat : retour au menu DE CE JEU, pas au menu des jeux.
+      if (phaseRef.current === 'done') {
+        backToMenu();
+        return true;
+      }
       return false;
     });
     return () => sub.remove();
   }, []);
+
+  // Du résultat au menu du jeu (la flèche en haut à gauche, et le retour d'Android).
+  const backToMenu = () => {
+    setResult(null);
+    goPhase('ready');
+  };
+
+  // « Rejouer » rejoue VRAIMENT : même vitesse, le décompte repart tout de suite.
+  const replay = () => {
+    setResult(null);
+    startGame();
+  };
 
   const handleDelete = async (id) => {
     haptic.warning();
@@ -248,16 +285,22 @@ export default function GameCount() {
     (_, i) => finalCount - (Math.min(CONFIRM_RANGE, finalCount + 1) - 1) + i
   );
 
-  const best = bestScore(scores, exercise.id);
-  const mine = useMemo(() => scores.filter((s) => EXERCISES[s.game]), [scores]);
+  const best = bestScore(scores);
+  const mine = scores;
+  // Noter l'exercice d'un score (maintien, fenêtre « Ton exercice », bulle du menu) : tout ce qui est
+  // commun aux jeux vit dans hooks/useGameExerciseTag.js et components/screens/GameTagOverlays.js.
+  const tag = useGameExerciseTag({ phase, scores: mine, saveExercises });
+  const doneScore = result?.scoreId ? mine.find((s) => s.id === result.scoreId) : null;
 
-  const renderTop = (title) => (
+  // `onBack` : la flèche en haut à gauche (par défaut : quitter le jeu, retour au menu des jeux ;
+  // sur l'écran de résultat : retour au menu DU JEU).
+  const renderTop = (title, onBack = () => goBackSafe(router)) => (
     <View style={styles.topBar}>
       <IconButton
         icon="back"
         halo="left"
         haptic={haptic.light}
-        onPress={() => goBackSafe(router)}
+        onPress={onBack}
         accessibilityLabel="Retour"
       />
       <Text style={styles.topTitle}>{title}</Text>
@@ -274,66 +317,18 @@ export default function GameCount() {
           <>
             {renderTop('Le chef d’orchestre')}
             <ScrollView
+              ref={tag.readyScrollRef}
               style={styles.flex}
               contentContainerStyle={styles.readyContent}
               showsVerticalScrollIndicator={false}
+              onScroll={tag.onReadyScroll}
+              scrollEventThrottle={32}
             >
-              <Text style={styles.tag}>JEU · {exercise.label.toUpperCase()}</Text>
+              <Text style={styles.tag}>JEU · RÉPÉTITIONS</Text>
               <Text style={styles.rules}>
                 Une voix compte à voix haute. Dès qu’elle se tait, tu t’arrêtes. Quand elle reprend, tu
                 reprends. Le premier qui lâche appuie sur le bouton.
               </Text>
-
-              <Text style={styles.sectionLabel}>GROUPE MUSCULAIRE</Text>
-              <View style={styles.chips}>
-                {Object.values(MUSCLE_GROUPS).map((g) => {
-                  const on = g.id === exercise.group;
-                  return (
-                    <PressTap
-                      key={g.id}
-                      onPress={() => {
-                        if (on) return;
-                        haptic.selection();
-                        chooseExercise(g.exercises[0]);
-                      }}
-                      tapScale={0.96}
-                      containerStyle={styles.chipWrap}
-                      style={[styles.chip, on && styles.chipOn]}
-                      accessibilityLabel={`Groupe ${g.label}`}
-                    >
-                      <Text style={[styles.chipText, on && styles.chipTextOn]}>{g.label}</Text>
-                    </PressTap>
-                  );
-                })}
-              </View>
-
-              {exercisesOf(exercise.group).length > 1 && (
-                <>
-                  <Text style={styles.sectionLabel}>EXERCICE</Text>
-                  <View style={styles.chips}>
-                    {exercisesOf(exercise.group).map((ex) => {
-                      const on = ex.id === exercise.id;
-                      return (
-                        <PressTap
-                          key={ex.id}
-                          onPress={() => {
-                            haptic.selection();
-                            chooseExercise(ex.id);
-                          }}
-                          tapScale={0.96}
-                          containerStyle={styles.chipWrap}
-                          style={[styles.chip, on && styles.chipSoftOn]}
-                          accessibilityLabel={`Exercice ${ex.label}`}
-                        >
-                          <Text style={[styles.chipText, on && styles.chipTextSoftOn]} numberOfLines={1}>
-                            {ex.label}
-                          </Text>
-                        </PressTap>
-                      );
-                    })}
-                  </View>
-                </>
-              )}
 
               <Text style={styles.sectionLabel}>RYTHME</Text>
               <View style={styles.chips}>
@@ -361,7 +356,7 @@ export default function GameCount() {
               <View style={styles.bestRow}>
                 <AppIcon name="trophies" size={18} color="#FFFFFF" />
                 <Text style={styles.bestText}>
-                  {best > 0 ? `Ton record : ${best} ${exercise.unit}` : 'Pas encore de record — à toi de jouer'}
+                  {best > 0 ? `Ton record : ${best} répétitions` : 'Pas encore de record — à toi de jouer'}
                 </Text>
               </View>
 
@@ -379,11 +374,26 @@ export default function GameCount() {
                 accent={ACCENT}
                 getValue={scoreValue}
                 renderRow={(s, inDay) => (
-                  <View style={styles.scoreRow}>
+                  // Maintenir 1 s une ligne = noter (ou changer) son exercice ; le halo
+                  // n'éclaire que le dernier score, tant qu'il n'a pas d'exercice.
+                  <HoldToTag
+                    ref={s.id === mine[0]?.id ? tag.firstRowRef : undefined}
+                    color={ACCENT}
+                    radius={16}
+                    invite={shouldHalo(s, mine[0])}
+                    onHold={() => tag.openTag(s.id)}
+                    style={styles.scoreRow}
+                    accessibilityLabel={`Score ${s.count}. Maintiens pour noter ton exercice.`}
+                  >
                     <Text style={styles.scoreCount}>{s.count}</Text>
                     <Text style={styles.scoreMeta}>
-                      {EXERCISES[s.game].label}
-                      {inDay ? '' : ` · ${formatDay(s.at)}`} · {TEMPOS[s.tempo]?.label ?? ''}
+                      {[
+                        inDay ? null : formatDay(s.at),
+                        TEMPOS[s.tempo]?.label,
+                        s.exercises?.length ? exercisesLabel(s.exercises) : null,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
                     </Text>
                     <PressTap
                       onPress={() => handleDelete(s.id)}
@@ -393,7 +403,7 @@ export default function GameCount() {
                     >
                       <AppIcon name="close" size={14} color="rgba(255,255,255,0.7)" />
                     </PressTap>
-                  </View>
+                  </HoldToTag>
                 )}
               />
             </ScrollView>
@@ -446,14 +456,30 @@ export default function GameCount() {
 
         {phase === 'done' && (
           <>
-            {renderTop('Le chef d’orchestre')}
+            {renderTop('Le chef d’orchestre', backToMenu)}
             <View style={styles.center}>
-              <Text style={styles.tag}>TON SCORE</Text>
-              <Text style={styles.bigNumber}>{result?.count ?? 0}</Text>
-              <Text style={styles.hint}>{exercise.unit}</Text>
+              {/* Le score : un halo l'entoure tant que l'exercice n'est pas noté, et le MAINTENIR
+                  1 s ouvre « Ton exercice ». Rien ne s'ouvre tout seul. */}
+              <HoldToTag
+                color={ACCENT}
+                radius={36}
+                invite={!!doneScore && !doneScore.exercises?.length}
+                onHold={() => tag.openTag(result?.scoreId)}
+                style={styles.resultBlock}
+                accessibilityLabel="Ton score. Maintiens pour noter ton exercice."
+              >
+                <Text style={styles.tag}>TON SCORE</Text>
+                <Text style={styles.bigNumber}>{result?.count ?? 0}</Text>
+                <Text style={styles.hint}>répétitions</Text>
+                {!!doneScore?.exercises?.length && (
+                  <Text style={styles.resultExo} numberOfLines={1}>
+                    {exercisesLabel(doneScore.exercises)}
+                  </Text>
+                )}
+              </HoldToTag>
               {result?.record && <Text style={styles.record}>NOUVEAU RECORD</Text>}
               {!result?.record && best > 0 && (
-                <Text style={styles.hint}>Ton record : {best} {exercise.unit}</Text>
+                <Text style={styles.hint}>Ton record : {best} répétitions</Text>
               )}
               <View style={styles.bottomBar}>
                 <Button
@@ -461,10 +487,7 @@ export default function GameCount() {
                   icon="reset"
                   label="Rejouer"
                   haptic={haptic.medium}
-                  onPress={() => {
-                    setResult(null);
-                    goPhase('ready');
-                  }}
+                  onPress={replay}
                   fullWidth
                 />
               </View>
@@ -472,6 +495,9 @@ export default function GameCount() {
           </>
         )}
       </SafeAreaView>
+
+      {/* « Ton exercice » (ouverte seulement quand on maintient un score) et la bulle du menu. */}
+      <GameTagOverlays tag={tag} phase={phase} screenH={height} accent={ACCENT} />
 
       {/* Même feuille que la roue de l'app : fermer sans valider garde le score. */}
       {phase === 'confirm' && (
@@ -564,11 +590,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.14)',
   },
-  chipOn: { backgroundColor: ACCENT, borderColor: ACCENT },
   chipText: { fontFamily: fonts.sansBold, fontSize: 13, color: '#FFFFFF' },
-  chipTextOn: { color: '#04121A' },
-  // Sélection douce (exercice, rythme) : fond blanc léger, pas de bleu plein,
-  // pour qu'un seul rang (le groupe) porte la couleur vive.
+  // Sélection douce (rythme) : fond blanc léger, pas de bleu plein.
   chipSoftOn: { backgroundColor: 'rgba(255,255,255,0.16)', borderColor: 'rgba(255,255,255,0.7)' },
   chipTextSoftOn: { color: '#FFFFFF' },
   bestRow: {
@@ -589,6 +612,21 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(77,216,232,0.07)',
     borderWidth: 1,
     borderColor: 'rgba(77,216,232,0.18)',
+  },
+  // Le score de l'écran de résultat : la zone que le halo entoure et qu'on maintient.
+  resultBlock: {
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 22,
+    paddingHorizontal: 40,
+    borderRadius: 36,
+  },
+  resultExo: {
+    fontFamily: fonts.sansBold,
+    fontSize: 16,
+    color: ACCENT,
+    textAlign: 'center',
+    marginTop: 2,
   },
   scoreCount: { fontFamily: fonts.monoBold, fontSize: 18, color: '#FFFFFF', minWidth: 44 },
   scoreMeta: { flex: 1, fontFamily: fonts.sansMedium, fontSize: 12, color: 'rgba(255,255,255,0.55)' },

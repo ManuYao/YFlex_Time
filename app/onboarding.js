@@ -21,6 +21,7 @@ import { useHaptic } from '../hooks/useHaptic';
 import PermissionPrimer from '../components/common/PermissionPrimer';
 import { shouldShowPermissionPrimer } from '../lib/permissionPrimer';
 import { markAppReady } from '../lib/appReady';
+import { markGamesNudgeNewUser } from '../lib/gamesNudge';
 
 const SLIDES = [
   {
@@ -112,6 +113,8 @@ export default function Onboarding() {
     try {
       await AsyncStorage.setItem('flexTimer_onboarded', '1');
     } catch {}
+    // Nouvelle personne : la proposition des jeux viendra à sa 5ᵉ ouverture (lib/gamesNudge.js).
+    await markGamesNudgeNewUser();
     // Page "chrono fiable" (lib/permissionPrimer.js) au lieu de la fenêtre
     // système brute : Android ne la montre que deux fois, on ne la
     // déclenche qu'après un "Activer" sur notre page.
