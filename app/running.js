@@ -58,11 +58,7 @@ import { useSound } from '../hooks/useSound';
 import { tickVoiceCoach, speakEnd, stopVoiceCoach, releaseVoiceSoon } from '../lib/voiceCoach';
 import { loadCooldownMap, saveCooldownMap, consumeLaunch } from '../lib/cooldown';
 import { loadIsPremium } from '../lib/premium';
-import MovementTab from '../components/common/MovementTab';
-import { useExerciseAnimation } from '../hooks/useExerciseAnimation';
-import { usePremium } from '../hooks/usePremium';
 import { haptic as hapticOnce } from '../hooks/useHaptic';
-import { prefetchAnimations } from '../lib/exerciseAnimationStore';
 
 // Une séance TABATA / MIX ne compte dans le quota gratuit de la semaine qu'après
 // 40 s de chrono : un retour brusque au tout début ne coûte rien.
@@ -391,56 +387,9 @@ export default function Running() {
     await setTagWeightByRef(weightBlock.planRef, kg);
   };
 
-  // Languette « Voir le mouvement » (étape 5 des animations, 18.2.0) : MIX
-  // seulement (les chronos simples n'ont pas de nom d'exercice). Pendant
-  // l'effort, l'exercice en cours ; pendant un bloc REPOS, le suivant. Le
-  // fichier n'est téléchargé que pour un Premium (pour les autres, la carte
-  // explique que c'est Premium). Reste ouverte d'un exercice à l'autre jusqu'à
-  // ce qu'on la replie.
-  const { isPremium, loaded: premiumLoaded } = usePremium();
-  const moveTarget = (() => {
-    if (!isMix || isTutorial || state.isComplete) return null;
-    const cur = mixBlocks[curBlockIdx];
-    if (!cur) return null;
-    if (cur.type === 'rest') {
-      const nxt = mixBlocks.slice(curBlockIdx + 1).find((b) => b.type !== 'rest');
-      return nxt ? { label: nxt.label || '', animationId: nxt.animationId ?? null, mode: 'next' } : null;
-    }
-    return { label: cur.label || '', animationId: cur.animationId ?? null, mode: 'now' };
-  })();
-  const moveAnim = useExerciseAnimation(moveTarget?.label ?? '', moveTarget?.animationId ?? null, {
-    download: isPremium,
-  });
-  const [moveOpen, setMoveOpen] = useState(false);
-  const toggleMove = useCallback(() => {
-    hapticOnce.light();
-    setMoveOpen((v) => !v);
-  }, []);
-  // `premiumLoaded` : avant la première lecture, `isPremium` vaut false par
-  // défaut — la pastille afficherait une couronne une fraction de seconde.
-  const moveVisible = premiumLoaded && !!moveTarget && !!moveAnim.entry && !isMini;
-  const moveExpanded = moveVisible && moveOpen;
-  // Carte compacte : le chrono doit rester lisible de loin. L'anneau rétrécit
-  // pendant qu'elle est dépliée (sinon tout se chevauche sur un écran moyen).
-  // Le rétrécissement est un ZOOM animé par l'interface native (valeur
-  // partagée `shrink`, voir plus bas), JAMAIS un changement de la taille de
-  // l'anneau : en 18.2.0 `size` changeait, ce qui recalculait et redessinait
-  // les 60 graduations d'un coup, avec un saut de mise en page, à l'ouverture
-  // comme à la fermeture (micro-freeze signalé le 08/11/2026).
+  // Animation d'exercice en séance : fonctionnalité retirée (10/11/2026).
+  const moveExpanded = false;
   const ringSmall = Math.min(ring, Math.round(Math.max(150, Math.min(230, winH * 0.27))));
-  const moveCardW = Math.min(winW - 40, 360);
-  const moveMaxAnimH = Math.round(winH * 0.22);
-
-  // Une coupure de réseau en pleine séance ne doit pas priver de la
-  // languette : on télécharge d'avance les animations de tout le MIX.
-  useEffect(() => {
-    if (!isMix || isTutorial || !isPremium) return;
-    prefetchAnimations(
-      mixBlocks
-        .filter((b) => b.type !== 'rest')
-        .map((b) => ({ label: b.label || '', animationId: b.animationId ?? null }))
-    );
-  }, [isPremium]);
 
   const handleReset = () => {
     haptic.warning();
@@ -934,19 +883,6 @@ export default function Running() {
           )}
         </View>
 
-        {moveVisible && (
-          <MovementTab
-            anim={moveAnim}
-            name={moveTarget.label}
-            mode={moveTarget.mode}
-            open={moveOpen}
-            onToggle={toggleMove}
-            isPremium={isPremium}
-            paused={isPaused}
-            cardWidth={moveCardW}
-            maxAnimHeight={moveMaxAnimH}
-          />
-        )}
 
         <BottomControls
           tokens={t}

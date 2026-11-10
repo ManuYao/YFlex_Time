@@ -243,12 +243,6 @@ export default function Settings() {
         'flexTimer_seasonRecapSeen',
         'flexTimer_customExercises',
         'flexTimer_customCategories',
-        // Animations d'exercices : catalogue en cache et liste de MES demandes
-        // (lib/exerciseAnimationStore.js, lib/animationRequests.js). Les
-        // fichiers téléchargés (documentDirectory/animations) se reconstruisent
-        // tout seuls à partir du catalogue.
-        'flexTimer_animCatalog',
-        'flexTimer_animRequests',
         // L'utilisateur repart de zéro : le rappel avant l'envoi d'un
         // mail redevient utile.
         'flexTimer_contactNoticeHidden',
@@ -281,6 +275,8 @@ export default function Settings() {
         'flexTimer_coachNudge',
         // Alerte « ambiance de saison » (lib/seasonNudge.js) : redevient proposable.
         'flexTimer_seasonNudge',
+        // Proposition annuelle « les fêtes, chacun à sa façon » (lib/feastNudge.js) : redevient proposable.
+        'flexTimer_feastNudge',
         // Proposition « Essaie les jeux » (lib/gamesNudge.js) : repart de zéro après un reset.
         'flexTimer_gamesNudge',
         // Astuce du maintien du cercle (lib/holdTip.js) : redevient à montrer.
