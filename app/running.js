@@ -16,7 +16,7 @@ import PhaseBar from '../components/common/PhaseBar';
 import { setTagWeightByRef } from '../lib/planning';
 import { useSettings } from '../contexts/SettingsContext';
 import { holdDurations } from '../lib/rainMode';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -93,6 +93,7 @@ export default function Running() {
   const { timerId, tutorial } = useLocalSearchParams();
   const haptic = useHaptic();
   const sound = useSound();
+  const insets = useSafeAreaInsets();
   const { timers } = useTimers();
 
   // Chrono de TEST du tutoriel (lib/tutorialShape.js) : le vrai écran, avec un
@@ -628,21 +629,16 @@ export default function Running() {
   const ringTicksLit = Math.floor(60 * Math.max(0, Math.min(1, state.ringProgress || 0)));
   const ringProgressQ = (ringTicksLit + 0.5) / 60;
   const timeText = formatDuration(displaySeconds);
-  // Bulle de charge : même élément tant que ses valeurs ne changent pas.
-  const hasWeightBlock = !!weightBlock;
-  const weightStrong = state.blockType === 'rest' && weightValue == null;
+  // Bulle de charge : seulement PENDANT l'exercice en cours (décision du 11/11/2026 : en repos
+  // elle ajoutait trop d'éléments à l'écran ; le poids PRÉVU du prochain exercice se règle
+  // depuis la carte « Ensuite »). Même élément tant que ses valeurs ne changent pas.
+  const hasWeightBlock = !!weightBlock && !inRest;
   const weightAccessory = useMemo(
     () =>
       hasWeightBlock && !isMini ? (
-        <WeightBubble
-          tokens={t}
-          value={weightValue}
-          strong={weightStrong}
-          caption={inRest ? 'FAIT' : null}
-          onPress={stable.onWeightPress}
-        />
+        <WeightBubble tokens={t} value={weightValue} strong={false} onPress={stable.onWeightPress} />
       ) : null,
-    [hasWeightBlock, isMini, t, weightValue, weightStrong, inRest, stable]
+    [hasWeightBlock, isMini, t, weightValue, stable]
   );
 
   // Decompte sonore des trois dernieres secondes d'une phase (sons 1/2/3
@@ -1011,6 +1007,18 @@ export default function Running() {
           accessory={weightAccessory}
         />
       </SafeAreaView>
+
+      {/* Rappel du geste « Ma séance », tout en bas sous les boutons, seulement pendant un
+          repos. Posé en absolu : il ne pousse ni le cercle ni les commandes. */}
+      {canReorder && !isReduced && (
+        <Text
+          pointerEvents="none"
+          style={[styles.reorderHint, { color: t.muted, bottom: insets.bottom + 2 }]}
+          numberOfLines={1}
+        >
+          Machine prise ? Maintiens le cercle 2 s
+        </Text>
+      )}
 
       {sessionSheet && isMix && (
         <MixSessionSheet
@@ -1919,6 +1927,15 @@ const styles = StyleSheet.create({
   },
   nextWeightLabel: { fontFamily: fonts.sansBold, fontSize: 9, letterSpacing: 2 },
   nextWeightValue: { fontFamily: fonts.sansExtraBold, fontSize: 14, letterSpacing: 1 },
+  reorderHint: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    fontFamily: fonts.sansMedium,
+    fontSize: 11,
+    letterSpacing: 0.5,
+    textAlign: 'center',
+  },
   nextMini: {
     fontFamily: fonts.sansBold,
     fontSize: 10,
