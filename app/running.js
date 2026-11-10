@@ -977,12 +977,6 @@ export default function Running() {
                   mini={isMini}
                 />
               )}
-              {/* Rappel discret du geste, seulement pendant un repos annoncé (là où il sert). */}
-              {showNextUp && !isReduced && !moveExpanded && (
-                <Text style={[styles.reorderHint, { color: t.muted }]} numberOfLines={1}>
-                  Machine prise ? Maintiens le cercle 2 s
-                </Text>
-              )}
               {/* Pendant un repos annoncé, le déroulé cède la place sur les
                   écrans un peu courts : « ENSUITE » est ce qu'on veut lire. */}
               {!isReduced && !moveExpanded && !(showNextUp && winH < 860) && (
@@ -1925,13 +1919,6 @@ const styles = StyleSheet.create({
   },
   nextWeightLabel: { fontFamily: fonts.sansBold, fontSize: 9, letterSpacing: 2 },
   nextWeightValue: { fontFamily: fonts.sansExtraBold, fontSize: 14, letterSpacing: 1 },
-  reorderHint: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 11,
-    letterSpacing: 0.5,
-    marginTop: 10,
-    textAlign: 'center',
-  },
   nextMini: {
     fontFamily: fonts.sansBold,
     fontSize: 10,
