@@ -81,6 +81,10 @@ import {
   updateTimerNotification,
 } from '../lib/timerNotification';
 
+// Maintien sur l'anneau pour ouvrir « Ma séance » : 2 s (même durée dans tous les modes
+// pluie, c'est un menu, pas une commande de séance).
+const SESSION_HOLD_MS = 2000;
+
 const easeImpact = Easing.bezier(0.22, 1, 0.36, 1);
 const springEnergetic = { stiffness: 380, damping: 22, mass: 1 };
 
@@ -973,6 +977,12 @@ export default function Running() {
                   mini={isMini}
                 />
               )}
+              {/* Rappel discret du geste, seulement pendant un repos annoncé (là où il sert). */}
+              {showNextUp && !isReduced && !moveExpanded && (
+                <Text style={[styles.reorderHint, { color: t.muted }]} numberOfLines={1}>
+                  Machine prise ? Maintiens le cercle 2 s
+                </Text>
+              )}
               {/* Pendant un repos annoncé, le déroulé cède la place sur les
                   écrans un peu courts : « ENSUITE » est ce qu'on veut lire. */}
               {!isReduced && !moveExpanded && !(showNextUp && winH < 860) && (
@@ -1135,21 +1145,14 @@ const RunCenter = memo(function RunCenter({
   ringStyle,
   onLongPress,
 }) {
-  // Appui long sur l'anneau (ou sur le temps en mode mini) : « Ma séance » (MIX seulement).
-  const wrap = (node) =>
-    onLongPress ? (
-      <Pressable onLongPress={onLongPress} delayLongPress={500} accessibilityLabel="Ma séance, maintenir">
-        {node}
-      </Pressable>
-    ) : (
-      node
-    );
+  // Maintenir l'anneau 2 s (ou le temps en mode mini) : « Ma séance » (MIX seulement). Même
+  // jauge que les autres maintiens de l'app (HoldOverlay) : l'anneau se remplit pendant l'appui.
   if (isMini) {
     /* (V) Mini — le temps, la phase, rien d'autre. L'anneau dit la
        même chose que la barre de progression déjà en haut, mais
        coûte toute la hauteur dont le chrono a besoin pour rester
        lisible à distance. */
-    return wrap(
+    return (
       <Animated.View style={[styles.miniCenter, timeStyle]}>
         <Animated.Text
           style={[
@@ -1174,10 +1177,13 @@ const RunCenter = memo(function RunCenter({
         <Text style={[styles.restantLabel, styles.miniRestantLabel, { color: t.tertiary }]} numberOfLines={1}>
           {centerLabel}
         </Text>
+        {onLongPress ? (
+          <HoldOverlay color={t.primary} radius={12} duration={SESSION_HOLD_MS} onComplete={onLongPress} />
+        ) : null}
       </Animated.View>
     );
   }
-  return wrap(
+  return (
     <Animated.View style={[{ width: ring }, ringBoxStyle]}>
       <Animated.View
         style={[{ width: ring, height: ring, transformOrigin: ['50%', 0, 0] }, ringZoomStyle]}
@@ -1215,6 +1221,9 @@ const RunCenter = memo(function RunCenter({
             </Animated.Text>
             <Text style={[styles.restantLabel, { color: t.tertiary }]}>{centerLabel}</Text>
           </View>
+          {onLongPress ? (
+            <HoldOverlay size={ring} color={t.primary} duration={SESSION_HOLD_MS} onComplete={onLongPress} />
+          ) : null}
         </Animated.View>
       </Animated.View>
     </Animated.View>
@@ -1916,6 +1925,13 @@ const styles = StyleSheet.create({
   },
   nextWeightLabel: { fontFamily: fonts.sansBold, fontSize: 9, letterSpacing: 2 },
   nextWeightValue: { fontFamily: fonts.sansExtraBold, fontSize: 14, letterSpacing: 1 },
+  reorderHint: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 11,
+    letterSpacing: 0.5,
+    marginTop: 10,
+    textAlign: 'center',
+  },
   nextMini: {
     fontFamily: fonts.sansBold,
     fontSize: 10,
