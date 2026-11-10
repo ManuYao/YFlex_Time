@@ -42,10 +42,23 @@ export default function ExerciseLibrarySheet({
   screenH,
   blockName,
   preferredCategory = null,
+  highlightCategories = [],
   onClose,
   onPick,
 }) {
-  const [categories, setCategories] = useState(getAllCategories);
+  const [allCategories, setCategories] = useState(getAllCategories);
+  // Les groupes choisis pour le bloc passent en tête de la rangée, côte à côte
+  // (dans l'ordre où ils ont été touchés) : on bascule de l'un à l'autre sans
+  // chercher. Les autres gardent leur ordre habituel derrière.
+  const highlightKey = highlightCategories.join('|');
+  const categories = useMemo(() => {
+    const ids = highlightKey ? highlightKey.split('|') : [];
+    const first = ids
+      .map((id) => allCategories.find((c) => c.id === id))
+      .filter(Boolean);
+    return [...first, ...allCategories.filter((c) => !ids.includes(c.id))];
+  }, [allCategories, highlightKey]);
+  const highlighted = highlightCategories;
   // Le rayon s'ouvre sur le premier groupe touché sur le corps à la création
   // du bloc (`preferredCategory`), sinon sur le groupe déduit du nom du bloc
   // ("Jambes" → JAMBES), au lieu du premier de la liste. Recalculé quand
@@ -128,7 +141,7 @@ export default function ExerciseLibrarySheet({
       ? filterExercisesByDisciplines(category.exercises, disciplineIds)
       : category.exercises
     ).map((label) => ({ label, custom: false })),
-    ...customInCategory.map((e) => ({ label: e.label, custom: true, animationId: e.animationId ?? null })),
+    ...customInCategory.map((e) => ({ label: e.label, custom: true })),
   ];
   const trimmed = customName.trim();
   const draftLabel = draft.label.trim();
@@ -330,6 +343,10 @@ export default function ExerciseLibrarySheet({
               >
                 {categories.map((c) => {
                   const isActive = c.id === categoryId;
+                  // Groupe du bloc mais pas ouvert : reste teinté à sa couleur
+                  // (version douce), l'actif est plein.
+                  const isChosen = !isActive && highlighted.includes(c.id);
+                  const softChip = isChosen ? categoryChip(c.id) : null;
                   return (
                     // PressTap ne relaie pas onLayout : la mesure vit sur une
                     // View neutre autour, sans effet sur le rendu du chip.
@@ -356,15 +373,29 @@ export default function ExerciseLibrarySheet({
                         style={[
                           styles.catChip,
                           {
-                            backgroundColor: isActive ? c.color : 'rgba(255,255,255,0.05)',
-                            borderColor: isActive ? c.color : 'rgba(255,255,255,0.12)',
+                            backgroundColor: isActive
+                              ? c.color
+                              : softChip
+                                ? softChip.bg
+                                : 'rgba(255,255,255,0.05)',
+                            borderColor: isActive
+                              ? c.color
+                              : softChip
+                                ? c.color
+                                : 'rgba(255,255,255,0.12)',
                           },
                         ]}
                       >
                         <Text
                           style={[
                             styles.catText,
-                            { color: isActive ? '#0A0A0A' : 'rgba(255,255,255,0.65)' },
+                            {
+                              color: isActive
+                                ? '#0A0A0A'
+                                : softChip
+                                  ? softChip.text
+                                  : 'rgba(255,255,255,0.65)',
+                            },
                           ]}
                         >
                           {c.label}
@@ -467,7 +498,7 @@ export default function ExerciseLibrarySheet({
                       key={ex.label}
                       onPress={() => {
                         haptic.medium();
-                        onPick({ label: ex.label, category: categoryId, animationId: ex.animationId ?? null });
+                        onPick({ label: ex.label, category: categoryId });
                         close();
                       }}
                       // Seuls les exercices créés se suppriment ainsi — ceux

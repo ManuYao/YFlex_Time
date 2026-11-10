@@ -22,7 +22,7 @@ import ShineSweep from '../common/ShineSweep';
 import MiniToast from '../common/MiniToast';
 import { goBackSafe } from '../../lib/navigation';
 import { fonts } from '../../lib/fonts';
-import { categoryChip, setCustomExerciseAnimation } from '../../lib/exercises';
+import { categoryChip } from '../../lib/exercises';
 import { loadHistory } from '../../lib/history';
 import { buildMixFromBlock } from '../../lib/planningMix';
 import { useLongPress } from '../../hooks/useLongPress';
@@ -635,6 +635,7 @@ function PlanningContent({
           screenH={screenH}
           blockName={findBlock(sheet.blockId)?.name}
           preferredCategory={findBlock(sheet.blockId)?.groups?.[0] ?? null}
+          highlightCategories={findBlock(sheet.blockId)?.groups ?? []}
           onClose={closeLibrarySheet}
           onPick={(exercise) => {
             const blockId = sheet.blockId;
@@ -658,18 +659,7 @@ function PlanningContent({
           dayLabel={day.long}
           onClose={closeSheet}
           onSave={async (values) => {
-            const before = findBlock(sheet.blockId)?.tags.find((t) => t.id === sheet.tagId);
             setPlanning(await updateTag(planning, dayKey, sheet.blockId, sheet.tagId, values));
-            // Animation choisie à la main sur un exercice CRÉÉ : retenue aussi
-            // dans la bibliothèque perso (sous son nom d'origine), pour les
-            // prochaines poses. Sans effet sur un exercice d'origine.
-            if (before && (values.animationId ?? null) !== (before.animationId ?? null)) {
-              setCustomExerciseAnimation({
-                label: before.label,
-                category: before.category,
-                animationId: values.animationId ?? null,
-              });
-            }
           }}
           onRemove={async () => {
             setPlanning(await removeTag(planning, dayKey, sheet.blockId, sheet.tagId));

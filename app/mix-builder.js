@@ -84,6 +84,8 @@ import { useLayoutLevel } from '../lib/responsive';
 import { useTimers } from '../contexts/TimersContext';
 import { useHaptic } from '../hooks/useHaptic';
 import { useMixLauncher } from '../hooks/useMixLauncher';
+import MixTutorialSheet from '../components/screens/MixTutorialSheet';
+import { loadMixTutorialSeen, markMixTutorialSeen, shouldShowMixTutorial } from '../lib/mixTutorial';
 import { usePremium } from '../hooks/usePremium';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -230,6 +232,29 @@ export default function MixBuilder() {
   // squelette respire sur le fil d'interface pendant ce temps, au lieu de
   // laisser l'écran vide et figé (hooks/useScreenReady.js).
   const { ready, skeletonGone, skeletonStyle } = useScreenReady({ dataReady: !!draft });
+
+  // Tutoriel du MIX (lib/mixTutorial.js) : s'ouvre une seule fois à la première
+  // arrivée ici, ou à la demande (Paramètres › Tutoriel, paramètre `tutorial=1`).
+  const [tutorialOpen, setTutorialOpen] = useState(false);
+  useEffect(() => {
+    if (!ready) return undefined;
+    let cancelled = false;
+    let timer = null;
+    loadMixTutorialSeen().then((seen) => {
+      if (cancelled || !shouldShowMixTutorial({ seen, forced: params.tutorial === '1' })) return;
+      timer = setTimeout(() => {
+        if (!cancelled) setTutorialOpen(true);
+      }, 700);
+    });
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [ready, params.tutorial]);
+  const closeTutorial = useCallback(() => {
+    setTutorialOpen(false);
+    markMixTutorialSeen();
+  }, []);
 
   if (!draft) {
     return (
@@ -1134,6 +1159,8 @@ export default function MixBuilder() {
           onEdit={handleEditFromFeed}
         />
       )}
+
+      {tutorialOpen && <MixTutorialSheet screenH={screenH} onDone={closeTutorial} />}
 
       {!!unsaved && (
         <UnsavedChangesSheet

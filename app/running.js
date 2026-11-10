@@ -5,6 +5,7 @@ import {
   StyleSheet,
   BackHandler,
   AppState,
+  Pressable,
 } from 'react-native';
 import { beginSessionDraft, saveSessionDraft, clearSessionDraft } from '../lib/sessionDraft';
 import { goHomeClean } from '../lib/navigation';
@@ -45,6 +46,15 @@ import TutorialCoach from '../components/common/TutorialCoach';
 import { useTimers } from '../contexts/TimersContext';
 import { buildTutorialTimer, coachStepFor } from '../lib/tutorialShape';
 import { computeState, skipToNextPhaseElapsed } from '../lib/timer-engine';
+import {
+  applyOrder,
+  buildSessionRows,
+  canReorderNow,
+  moveUpcoming,
+  orderOf,
+} from '../lib/mixReorder';
+import MixSessionSheet from '../components/common/MixSessionSheet';
+import { voiceSnapshot } from '../lib/voiceCues';
 import { getTokens } from '../lib/tokens';
 import { fonts } from '../lib/fonts';
 import { formatDuration } from '../lib/formatters';
@@ -55,14 +65,10 @@ import { useUiScale, scaled, useLayoutLevel, useWindowSize } from '../lib/respon
 import { useHaptic } from '../hooks/useHaptic';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { useSound } from '../hooks/useSound';
-import { tickVoiceCoach, speakEnd, stopVoiceCoach, releaseVoiceSoon } from '../lib/voiceCoach';
+import { tickVoiceCoach, speakEnd, speakCues, stopVoiceCoach, releaseVoiceSoon } from '../lib/voiceCoach';
 import { loadCooldownMap, saveCooldownMap, consumeLaunch } from '../lib/cooldown';
 import { loadIsPremium } from '../lib/premium';
-import MovementTab from '../components/common/MovementTab';
-import { useExerciseAnimation } from '../hooks/useExerciseAnimation';
-import { usePremium } from '../hooks/usePremium';
 import { haptic as hapticOnce } from '../hooks/useHaptic';
-import { prefetchAnimations } from '../lib/exerciseAnimationStore';
 
 // Une séance TABATA / MIX ne compte dans le quota gratuit de la semaine qu'après
 // 40 s de chrono : un retour brusque au tout début ne coûte rien.
@@ -91,10 +97,19 @@ export default function Running() {
   // guidé au lieu de l'écran de fin.
   const isTutorial = tutorial === '1';
   const baseTimer = timers.find((t) => t.id === timerId) ?? timers[0];
-  const timer = useMemo(
-    () => (isTutorial ? buildTutorialTimer(baseTimer) : baseTimer),
-    [isTutorial, baseTimer]
-  );
+  // MIX réorganisé en séance (« Ma séance », lib/mixReorder.js) : liste d'ids dans l'ordre
+  // joué, ou null tant que rien n'a bougé. Les blocs d'avant le bloc courant ne changent
+  // jamais, donc le temps écoulé reste exact pour le moteur.
+  const [mixOrder, setMixOrder] = useState(null);
+  const timer = useMemo(() => {
+    if (isTutorial) return buildTutorialTimer(baseTimer);
+    if (mixOrder && baseTimer?.id === 'mix' && baseTimer._mix) {
+      const original = baseTimer._mix.blocks || [];
+      const blocks = applyOrder(original, mixOrder);
+      if (blocks !== original) return { ...baseTimer, _mix: { ...baseTimer._mix, blocks } };
+    }
+    return baseTimer;
+  }, [isTutorial, baseTimer, mixOrder]);
   // Mémoïsé : getTokens renvoie un objet NEUF à chaque appel, ce qui défaisait la
   // protection (React.memo) de tous les enfants qui le reçoivent. L'écran se
   // redessine 10 fois par seconde (tick de 100 ms) : voir RunBackdrop, RunCenter,
@@ -314,7 +329,7 @@ export default function Running() {
           ...(timer.id === 'basic'
             ? { ctx: JSON.stringify({ restTriggers }) }
             : isMix
-            ? { ctx: JSON.stringify({ basicTriggers: mixBasicTriggers }) }
+            ? { ctx: JSON.stringify({ basicTriggers: mixBasicTriggers, ...(mixOrder ? { mixOrder } : {}) }) }
             : {}),
         },
       });
@@ -374,9 +389,12 @@ export default function Running() {
   // Charge saisie en séance : MIX lancé depuis le Planning (blocs portant
   // `planRef`). Pendant un repos, la bulle vise l'exercice qui vient de finir.
   const [savedWeights, setSavedWeights] = useState({});
-  const [weightSheet, setWeightSheet] = useState(false);
+  // Feuille de charge ouverte : { kind: 'done' | 'next', block } — le bloc visé est
+  // figé à l'ouverture (si le repos finit pendant la saisie, on ne change pas de cible).
+  const [weightSheet, setWeightSheet] = useState(null);
   const mixBlocks = isMix ? timer._mix?.blocks || [] : [];
   const curBlockIdx = mixBlocks.findIndex((b) => b.id === state.blockId);
+  const inRest = mixBlocks[curBlockIdx]?.type === 'rest';
   const weightBlock = (() => {
     let b = mixBlocks[curBlockIdx];
     if (b?.type === 'rest') b = curBlockIdx > 0 ? mixBlocks[curBlockIdx - 1] : null;
@@ -385,62 +403,29 @@ export default function Running() {
   const weightValue = weightBlock
     ? savedWeights[weightBlock.planRef.tagId] ?? weightBlock.weight ?? null
     : null;
+  // Pendant un repos : le PROCHAIN exercice (charge prévue, modifiable si le bloc
+  // vient du Planning, donc a un endroit où enregistrer).
+  const nextPlanBlock = (() => {
+    if (!inRest) return null;
+    const b = mixBlocks[curBlockIdx + 1];
+    return b && b.type !== 'rest' ? b : null;
+  })();
+  const nextEditable = !!nextPlanBlock?.planRef;
+  const nextWeight = nextPlanBlock
+    ? (nextPlanBlock.planRef ? savedWeights[nextPlanBlock.planRef.tagId] : undefined) ??
+      nextPlanBlock.weight ??
+      0
+    : 0;
   const handleSaveWeight = async (kg) => {
-    if (!weightBlock) return;
-    setSavedWeights((prev) => ({ ...prev, [weightBlock.planRef.tagId]: kg }));
-    await setTagWeightByRef(weightBlock.planRef, kg);
+    const target = weightSheet?.block;
+    if (!target?.planRef) return;
+    setSavedWeights((prev) => ({ ...prev, [target.planRef.tagId]: kg }));
+    await setTagWeightByRef(target.planRef, kg);
   };
 
-  // Languette « Voir le mouvement » (étape 5 des animations, 18.2.0) : MIX
-  // seulement (les chronos simples n'ont pas de nom d'exercice). Pendant
-  // l'effort, l'exercice en cours ; pendant un bloc REPOS, le suivant. Le
-  // fichier n'est téléchargé que pour un Premium (pour les autres, la carte
-  // explique que c'est Premium). Reste ouverte d'un exercice à l'autre jusqu'à
-  // ce qu'on la replie.
-  const { isPremium, loaded: premiumLoaded } = usePremium();
-  const moveTarget = (() => {
-    if (!isMix || isTutorial || state.isComplete) return null;
-    const cur = mixBlocks[curBlockIdx];
-    if (!cur) return null;
-    if (cur.type === 'rest') {
-      const nxt = mixBlocks.slice(curBlockIdx + 1).find((b) => b.type !== 'rest');
-      return nxt ? { label: nxt.label || '', animationId: nxt.animationId ?? null, mode: 'next' } : null;
-    }
-    return { label: cur.label || '', animationId: cur.animationId ?? null, mode: 'now' };
-  })();
-  const moveAnim = useExerciseAnimation(moveTarget?.label ?? '', moveTarget?.animationId ?? null, {
-    download: isPremium,
-  });
-  const [moveOpen, setMoveOpen] = useState(false);
-  const toggleMove = useCallback(() => {
-    hapticOnce.light();
-    setMoveOpen((v) => !v);
-  }, []);
-  // `premiumLoaded` : avant la première lecture, `isPremium` vaut false par
-  // défaut — la pastille afficherait une couronne une fraction de seconde.
-  const moveVisible = premiumLoaded && !!moveTarget && !!moveAnim.entry && !isMini;
-  const moveExpanded = moveVisible && moveOpen;
-  // Carte compacte : le chrono doit rester lisible de loin. L'anneau rétrécit
-  // pendant qu'elle est dépliée (sinon tout se chevauche sur un écran moyen).
-  // Le rétrécissement est un ZOOM animé par l'interface native (valeur
-  // partagée `shrink`, voir plus bas), JAMAIS un changement de la taille de
-  // l'anneau : en 18.2.0 `size` changeait, ce qui recalculait et redessinait
-  // les 60 graduations d'un coup, avec un saut de mise en page, à l'ouverture
-  // comme à la fermeture (micro-freeze signalé le 08/11/2026).
+  // Animation d'exercice en séance : fonctionnalité retirée (10/11/2026).
+  const moveExpanded = false;
   const ringSmall = Math.min(ring, Math.round(Math.max(150, Math.min(230, winH * 0.27))));
-  const moveCardW = Math.min(winW - 40, 360);
-  const moveMaxAnimH = Math.round(winH * 0.22);
-
-  // Une coupure de réseau en pleine séance ne doit pas priver de la
-  // languette : on télécharge d'avance les animations de tout le MIX.
-  useEffect(() => {
-    if (!isMix || isTutorial || !isPremium) return;
-    prefetchAnimations(
-      mixBlocks
-        .filter((b) => b.type !== 'rest')
-        .map((b) => ({ label: b.label || '', animationId: b.animationId ?? null }))
-    );
-  }, [isPremium]);
 
   const handleReset = () => {
     haptic.warning();
@@ -449,7 +434,12 @@ export default function Running() {
     skippedRef.current = 0;
     voicePrevRef.current = null;
     if (timer.id === 'basic') setRestTriggers([]);
-    if (isMix) setMixBasicTriggers({});
+    if (isMix) {
+      setMixBasicTriggers({});
+      // On recommence : le MIX retrouve son ordre d'origine.
+      setMixOrder(null);
+      setSessionSheet(false);
+    }
     // Reset = on recommence : l'ancien brouillon n'a plus de sens.
     clearSessionDraft();
     beginSessionDraft();
@@ -543,10 +533,45 @@ export default function Running() {
         ...(timer.id === 'basic'
           ? { ctx: JSON.stringify({ restTriggers }) }
           : isMix
-          ? { ctx: JSON.stringify({ basicTriggers: mixBasicTriggers }) }
+          ? { ctx: JSON.stringify({ basicTriggers: mixBasicTriggers, ...(mixOrder ? { mixOrder } : {}) }) }
           : {}),
       },
     });
+  };
+
+  // ── « Ma séance » : réorganiser les exercices à venir PENDANT UN REPOS (lib/mixReorder.js) ──
+  // Appui long sur l'anneau central. Hors repos la feuille s'ouvre en lecture seule (rien ne
+  // se déplace en plein effort) et devient modifiable dès que le repos commence.
+  const [sessionSheet, setSessionSheet] = useState(false);
+  const canReorder = isMix && !isTutorial && canReorderNow(state);
+  const sessionRows = useMemo(
+    () => (isMix ? buildSessionRows(mixBlocks, curBlockIdx) : []),
+    [isMix, mixBlocks, curBlockIdx]
+  );
+  const restText = formatDuration(Math.ceil(state.phaseSecondsLeft || 0));
+  const handleMixMove = (blockId, where) => {
+    if (!isMix || isTutorial || navigatedRef.current || !canReorder) return;
+    const next = moveUpcoming(mixBlocks, curBlockIdx, blockId, where);
+    if (next === mixBlocks) return;
+    setMixOrder(orderOf(next));
+    haptic.success();
+    // Entre deux exercices, la voix redit le NOUVEAU « Ensuite » (la phrase d'origine
+    // annonçait l'ancien) ; la photo du coach est recalée sur le nouvel ordre.
+    if (state.blockType === 'rest') {
+      const nextState = computeState({ ...timer, _mix: { ...timer._mix, blocks: next } }, secondsElapsed, ctx);
+      if (nextState) {
+        const cur = voiceSnapshot(nextState, secondsElapsed);
+        if (nextState.nextBlock && nextState.nextBlock.type !== 'rest') {
+          speakCues(['next_block'], { prev: voicePrevRef.current, cur, mode: timer.id });
+        }
+        voicePrevRef.current = cur;
+      }
+    }
+  };
+  const handleRingLongPress = () => {
+    if (!isMix || isTutorial || navigatedRef.current) return;
+    haptic.medium();
+    setSessionSheet(true);
   };
 
   // Commandes à identité STABLE : chaque bouton appelle toujours la DERNIÈRE
@@ -561,6 +586,14 @@ export default function Running() {
     onSkip: handleSkip,
     onEndWork: isLastEmomRound ? handleFinish : isLastMixEmomRound ? handleSkip : handleEndWork,
     onFinish: handleStop,
+    onRingLongPress: handleRingLongPress,
+    onMixMove: handleMixMove,
+    onWeightPress: (kind) => {
+      const block = kind === 'next' ? nextPlanBlock : weightBlock;
+      if (!block) return;
+      haptic.light();
+      setWeightSheet({ kind, block });
+    },
   };
   const stable = useMemo(
     () => ({
@@ -570,10 +603,10 @@ export default function Running() {
       onSkip: () => latest.current.onSkip(),
       onEndWork: () => latest.current.onEndWork(),
       onFinish: () => latest.current.onFinish(),
-      onWeightPress: () => {
-        haptic.light();
-        setWeightSheet(true);
-      },
+      onWeightPress: () => latest.current.onWeightPress('done'),
+      onNextWeightPress: () => latest.current.onWeightPress('next'),
+      onRingLongPress: () => latest.current.onRingLongPress(),
+      onMixMove: (id, where) => latest.current.onMixMove(id, where),
     }),
     []
   );
@@ -597,9 +630,15 @@ export default function Running() {
   const weightAccessory = useMemo(
     () =>
       hasWeightBlock && !isMini ? (
-        <WeightBubble tokens={t} value={weightValue} strong={weightStrong} onPress={stable.onWeightPress} />
+        <WeightBubble
+          tokens={t}
+          value={weightValue}
+          strong={weightStrong}
+          caption={inRest ? 'FAIT' : null}
+          onPress={stable.onWeightPress}
+        />
       ) : null,
-    [hasWeightBlock, isMini, t, weightValue, weightStrong, stable]
+    [hasWeightBlock, isMini, t, weightValue, weightStrong, inRest, stable]
   );
 
   // Decompte sonore des trois dernieres secondes d'une phase (sons 1/2/3
@@ -905,6 +944,7 @@ export default function Running() {
             ringBoxStyle={ringBoxStyle}
             ringZoomStyle={ringZoomStyle}
             ringStyle={ringStyle}
+            onLongPress={isMix && !isTutorial ? stable.onRingLongPress : null}
           />
 
           {/* Le déroulé des phases est un repère de confort : premier bloc
@@ -923,7 +963,15 @@ export default function Running() {
               {/* Languette dépliée : elle dit déjà « ENSUITE » et occupe la
                   place, la carte « Ensuite » et le déroulé s'effacent. */}
               {showNextUp && !moveExpanded && (
-                <NextUp next={state.nextBlock} tokens={t} compact={isReduced} mini={isMini} />
+                <NextUp
+                  next={state.nextBlock}
+                  weight={nextWeight}
+                  editable={nextEditable}
+                  onWeightPress={stable.onNextWeightPress}
+                  tokens={t}
+                  compact={isReduced}
+                  mini={isMini}
+                />
               )}
               {/* Pendant un repos annoncé, le déroulé cède la place sur les
                   écrans un peu courts : « ENSUITE » est ce qu'on veut lire. */}
@@ -934,19 +982,6 @@ export default function Running() {
           )}
         </View>
 
-        {moveVisible && (
-          <MovementTab
-            anim={moveAnim}
-            name={moveTarget.label}
-            mode={moveTarget.mode}
-            open={moveOpen}
-            onToggle={toggleMove}
-            isPremium={isPremium}
-            paused={isPaused}
-            cardWidth={moveCardW}
-            maxAnimHeight={moveMaxAnimH}
-          />
-        )}
 
         <BottomControls
           tokens={t}
@@ -973,14 +1008,29 @@ export default function Running() {
         />
       </SafeAreaView>
 
-      {weightSheet && weightBlock && (
+      {sessionSheet && isMix && (
+        <MixSessionSheet
+          screenH={winH}
+          rows={sessionRows}
+          canReorder={canReorder}
+          restText={restText}
+          color={timer.color}
+          onMove={stable.onMixMove}
+          onClose={() => setSessionSheet(false)}
+        />
+      )}
+
+      {weightSheet && (
         <QuickWeightSheet
           screenH={winH}
-          label={weightBlock.label || 'Exercice'}
-          initial={weightValue}
+          kicker={weightSheet.kind === 'next' ? 'POIDS PRÉVU · SUIVANT' : 'POIDS FAIT'}
+          label={weightSheet.block.label || 'Exercice'}
+          initial={
+            (weightSheet.kind === 'next' ? nextWeight : weightValue) ?? weightSheet.block.weight ?? null
+          }
           color={timer.color}
           onSave={handleSaveWeight}
-          onClose={() => setWeightSheet(false)}
+          onClose={() => setWeightSheet(null)}
         />
       )}
 
@@ -1083,13 +1133,23 @@ const RunCenter = memo(function RunCenter({
   ringBoxStyle,
   ringZoomStyle,
   ringStyle,
+  onLongPress,
 }) {
+  // Appui long sur l'anneau (ou sur le temps en mode mini) : « Ma séance » (MIX seulement).
+  const wrap = (node) =>
+    onLongPress ? (
+      <Pressable onLongPress={onLongPress} delayLongPress={500} accessibilityLabel="Ma séance, maintenir">
+        {node}
+      </Pressable>
+    ) : (
+      node
+    );
   if (isMini) {
     /* (V) Mini — le temps, la phase, rien d'autre. L'anneau dit la
        même chose que la barre de progression déjà en haut, mais
        coûte toute la hauteur dont le chrono a besoin pour rester
        lisible à distance. */
-    return (
+    return wrap(
       <Animated.View style={[styles.miniCenter, timeStyle]}>
         <Animated.Text
           style={[
@@ -1117,7 +1177,7 @@ const RunCenter = memo(function RunCenter({
       </Animated.View>
     );
   }
-  return (
+  return wrap(
     <Animated.View style={[{ width: ring }, ringBoxStyle]}>
       <Animated.View
         style={[{ width: ring, height: ring, transformOrigin: ['50%', 0, 0] }, ringZoomStyle]}
@@ -1282,7 +1342,7 @@ const NEXT_MODE_NAMES = { amrap: 'AMRAP', emom: 'EMOM', tabata: 'TABATA', basic:
 // noir sur blanc (nom, format, tours, charge). La voix le dit déjà, mais
 // quand on ne retient pas ce qu'on vient d'entendre il faut pouvoir le lire.
 // Rien si le bloc suivant est lui-même un repos, ou s'il n'y en a plus.
-const NextUp = memo(function NextUp({ next, tokens, compact, mini }) {
+const NextUp = memo(function NextUp({ next, weight = 0, editable, onWeightPress, tokens, compact, mini }) {
   const typed = (next.label || '').trim();
   const mode = NEXT_MODE_NAMES[next.type];
   const name = typed || mode || 'Exercice';
@@ -1290,12 +1350,14 @@ const NextUp = memo(function NextUp({ next, tokens, compact, mini }) {
   if (typed && mode) parts.push(mode);
   if (next.type === 'amrap' && next.seconds > 0) parts.push(`${Math.max(1, Math.round(next.seconds / 60))} MIN`);
   else if (next.rounds > 1) parts.push(`${next.rounds} TOURS`);
-  if (next.weight > 0) parts.push(`${String(next.weight).replace('.', ',')} KG`);
+  // Charge prévue : toujours dite (50 KG, ou « Poids de corps »), pour préparer
+  // la machine pendant le repos.
+  const weightText = weight > 0 ? `${String(weight).replace('.', ',')} KG` : 'POIDS DE CORPS';
 
   if (mini) {
     return (
       <Text style={[styles.nextMini, { color: tokens.secondary }]} numberOfLines={1}>
-        ENSUITE · {name}
+        ENSUITE · {name} · {weightText}
       </Text>
     );
   }
@@ -1320,10 +1382,29 @@ const NextUp = memo(function NextUp({ next, tokens, compact, mini }) {
           {parts.join(' · ')}
         </Text>
       )}
+      {editable ? (
+        <PressTap
+          onPress={onWeightPress}
+          tapScale={0.95}
+          accessibilityLabel={`Poids prévu : ${weightText}. Modifier`}
+          containerStyle={styles.nextWeightWrap}
+          style={[styles.nextWeightChip, { borderColor: tokens.primary }]}
+        >
+          <Text style={[styles.nextWeightLabel, { color: tokens.muted }]}>PRÉVU</Text>
+          <Text style={[styles.nextWeightValue, { color: tokens.primary }]}>{weightText}</Text>
+          <AppIcon name="edit" size={13} color={tokens.primary} />
+        </PressTap>
+      ) : (
+        <Text style={[styles.nextMeta, { color: tokens.primary }]} numberOfLines={1}>
+          {weightText}
+        </Text>
+      )}
     </Animated.View>
   );
 }, (a, b) =>
-  a.tokens === b.tokens && a.compact === b.compact && a.mini === b.mini && sameNext(a.next, b.next)
+  a.tokens === b.tokens && a.compact === b.compact && a.mini === b.mini &&
+  a.weight === b.weight && a.editable === b.editable && a.onWeightPress === b.onWeightPress &&
+  sameNext(a.next, b.next)
 );
 
 const PhasesPills = memo(function PhasesPills({ phases, tokens }) {
@@ -1602,10 +1683,19 @@ const BottomControls = memo(function BottomControls({
 // Petite bulle à droite : « + kg » tant qu'aucune charge n'est renseignée, la
 // charge sinon. Discrète en effort, bien visible en repos (c'est le moment où
 // les mains sont libres).
-function WeightBubble({ tokens, value, strong, onPress }) {
+function WeightBubble({ tokens, value, strong, caption, onPress }) {
   const filled = value != null;
   return (
     <View pointerEvents="box-none">
+      {caption ? (
+        <Text
+          pointerEvents="none"
+          style={[styles.weightCaption, { color: tokens.muted }]}
+          numberOfLines={1}
+        >
+          {`POIDS ${caption}`}
+        </Text>
+      ) : null}
       <PressTap
         onPress={onPress}
         tapScale={0.92}
@@ -1656,6 +1746,17 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  // Légende posée au-dessus de la bulle (hors flux : ne change pas sa taille).
+  weightCaption: {
+    position: 'absolute',
+    top: -14,
+    left: -20,
+    width: WEIGHT_BUBBLE_SIZE + 40,
+    textAlign: 'center',
+    fontFamily: fonts.sansBold,
+    fontSize: 8,
+    letterSpacing: 1.2,
   },
   weightMain: { fontFamily: fonts.monoExtraBold, fontSize: 16, lineHeight: 20 },
   weightUnit: { fontFamily: fonts.sansBold, fontSize: 9, letterSpacing: 1 },
@@ -1803,6 +1904,18 @@ const styles = StyleSheet.create({
     letterSpacing: 1.8,
     marginTop: 4,
   },
+  nextWeightWrap: { marginTop: 8 },
+  nextWeightChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1.5,
+  },
+  nextWeightLabel: { fontFamily: fonts.sansBold, fontSize: 9, letterSpacing: 2 },
+  nextWeightValue: { fontFamily: fonts.sansExtraBold, fontSize: 14, letterSpacing: 1 },
   nextMini: {
     fontFamily: fonts.sansBold,
     fontSize: 10,

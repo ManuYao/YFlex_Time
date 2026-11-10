@@ -193,7 +193,7 @@ export default function Diagnostic() {
                 <Text style={[styles.cardBody, styles.perfHint]}>
                   Téléphone chaud : effets ralentis (niveau 1), puis coupés s'il chauffe vraiment ou
                   si la batterie est à 20 % ou moins (niveau 2). On monte vite ; on redescend après
-                  10 minutes au frais (batterie : 20 minutes à 25 % ou plus). Les flammes restent.
+                  10 minutes au frais (batterie : 3 minutes à 25 % ou plus). Les flammes restent.
                   Ce n'est pas un réglage : on ne peut pas le forcer dans l'autre sens.
                 </Text>
                 <Button

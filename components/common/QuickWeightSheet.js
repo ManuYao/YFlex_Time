@@ -20,7 +20,7 @@ const WEIGHT_VALUES = Array.from({ length: 201 }, (_, i) => i);
  * que la fiche d'un exercice, mais seule. Le chrono continue de tourner
  * derrière ; fermer sans valider ne change rien.
  */
-function QuickWeightSheetBase({ screenH, label, initial, color = '#FFFFFF', onSave, onClose }) {
+function QuickWeightSheetBase({ screenH, kicker = 'CHARGE', label, initial, color = '#FFFFFF', onSave, onClose }) {
   const haptic = useHaptic();
   const values = WEIGHT_VALUES;
   // La charge choisie n'est lue qu'au « OK » : une ref, pas un état. Un état
@@ -43,7 +43,7 @@ function QuickWeightSheetBase({ screenH, label, initial, color = '#FFFFFF', onSa
     <BottomSheet screenH={screenH} onClose={closeStable} zIndex={140}>
       {({ close }) => (
         <View>
-          <Text style={styles.kicker}>CHARGE</Text>
+          <Text style={styles.kicker}>{kicker}</Text>
           <Text style={styles.title} numberOfLines={1}>{label}</Text>
           <WheelPicker
             values={values}
@@ -85,7 +85,7 @@ function QuickWeightSheetBase({ screenH, label, initial, color = '#FFFFFF', onSa
 export default memo(
   QuickWeightSheetBase,
   (a, b) =>
-    a.screenH === b.screenH && a.label === b.label && a.initial === b.initial && a.color === b.color
+    a.screenH === b.screenH && a.kicker === b.kicker && a.label === b.label && a.initial === b.initial && a.color === b.color
 );
 
 const styles = StyleSheet.create({

@@ -1,9 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TextInput, StyleSheet, Linking } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { View, Text, TextInput, StyleSheet } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
-import { useRouter } from 'expo-router';
-import Constants from 'expo-constants';
-import * as MailComposer from 'expo-mail-composer';
 
 import BottomSheet from './BottomSheet';
 import PressTap from './PressTap';
@@ -12,15 +9,7 @@ import Button from './Button';
 import IconButton from './IconButton';
 import AppIcon from './AppIcon';
 import TouchShield from './TouchShield';
-import ExerciseAnimation from './ExerciseAnimation';
 import { fonts } from '../../lib/fonts';
-import { searchCatalog } from '../../lib/exerciseAnimations';
-import { useExerciseAnimation } from '../../hooks/useExerciseAnimation';
-import { useAuth } from '../../contexts/AuthContext';
-import { loadRequests, markRequestSeen, submitRequest } from '../../lib/animationRequests';
-import { isRequestable, requestMail, requestState } from '../../lib/animationRequestsShape';
-
-const APP_VERSION = Constants.expoConfig?.version ?? '';
 import { formatValue, formatSecondsCompact } from '../../lib/formatters';
 import { getCategory } from '../../lib/exercises';
 import { BLOCK_TYPES, getBlockType, getRangesForType } from '../../lib/mix-blocks';
@@ -116,83 +105,9 @@ export default function ExerciseDetailSheet({
     weight: tag.weight,
     sets: tag.sets,
     rest: tag.rest,
-    // Animation choisie à la main (exercice perso, ou mauvaise animation
-    // trouvée par le nom). null = choix automatique par le nom.
-    animationId: tag.animationId ?? null,
   }));
-  // Choix d'une animation : vue à part dans la même feuille.
-  const [choosing, setChoosing] = useState(false);
-  const [animQuery, setAnimQuery] = useState('');
-  const anim = useExerciseAnimation(draft.label, draft.animationId);
-
-  // Demande d'animation (étape 6) : autre vue de la même feuille. Connecté,
-  // l'envoi part dans Supabase ; sinon connexion ou mail pré-rempli. Le
-  // téléphone garde la liste de SES demandes pour dire « Demande envoyée » puis
-  // « Ajoutée suite à ta demande ! » (une fois).
-  const router = useRouter();
-  const { user } = useAuth();
-  const [requesting, setRequesting] = useState(false);
-  const [reqPhase, setReqPhase] = useState('form'); // 'form' | 'sending' | 'done'
-  const [reqError, setReqError] = useState(null);
-  const [requests, setRequests] = useState(null);
-  const afterCloseRef = useRef(null);
-  useEffect(() => {
-    let alive = true;
-    loadRequests().then((r) => {
-      if (alive) setRequests(r);
-    });
-    return () => {
-      alive = false;
-    };
-  }, []);
-  const hasExact = !!anim.entry && anim.entry.exact;
-  const reqState = requestState(requests, draft.label, hasExact);
-  const [celebrated, setCelebrated] = useState(false);
-  useEffect(() => {
-    if (reqState !== 'added' || celebrated) return;
-    setCelebrated(true);
-    markRequestSeen(draft.label);
-  }, [reqState]);
   const handleClose = () => {
     onClose();
-    const next = afterCloseRef.current;
-    afterCloseRef.current = null;
-    if (next) next();
-  };
-  const openRequest = () => {
-    haptic.light();
-    setReqPhase('form');
-    setReqError(null);
-    setRequesting(true);
-  };
-  const sendRequest = async () => {
-    if (reqPhase === 'sending') return;
-    haptic.medium();
-    setReqPhase('sending');
-    setReqError(null);
-    const res = await submitRequest({ label: draft.label, userId: user?.id });
-    if (res.ok) {
-      setRequests(await loadRequests());
-      setReqPhase('done');
-      haptic.success();
-    } else {
-      setReqPhase('form');
-      setReqError(res.reason);
-      haptic.warning();
-    }
-  };
-  const mailRequest = async () => {
-    haptic.light();
-    const mail = requestMail(draft.label, APP_VERSION);
-    try {
-      if (await MailComposer.isAvailableAsync()) {
-        await MailComposer.composeAsync(mail);
-        return;
-      }
-    } catch {}
-    Linking.openURL(
-      `mailto:${mail.recipients[0]}?subject=${encodeURIComponent(mail.subject)}&body=${encodeURIComponent(mail.body)}`
-    ).catch(() => {});
   };
   const [editing, setEditing] = useState(null);
   // Renommage de l'exercice : vue à part dans la même feuille (comme les roues),
@@ -310,7 +225,7 @@ export default function ExerciseDetailSheet({
               <Text style={styles.title} numberOfLines={1}>{draft.label}</Text>
               {/* Renommer : visible sur la fiche principale seulement, pas
                   pendant le réglage d'une roue. */}
-              {!field && !timerEditing && !renaming && !choosing && !requesting && (
+              {!field && !timerEditing && !renaming && (
                 <IconButton
                   icon="edit"
                   variant="ghost"
@@ -332,191 +247,7 @@ export default function ExerciseDetailSheet({
             </Text>
           </View>
 
-          {requesting ? (
-            <View>
-              <View style={styles.editHeader}>
-                <IconButton
-                  icon="back"
-                  size={ROUND_SIZE.sheet}
-                  onPress={() => {
-                    haptic.light();
-                    setRequesting(false);
-                  }}
-                  accessibilityLabel="Retour"
-                />
-                <Text style={styles.editLabel}>DEMANDER UNE ANIMATION</Text>
-              </View>
-
-              {reqPhase === 'done' ? (
-                <View style={styles.reqDone}>
-                  <View style={styles.reqCheck}>
-                    <AppIcon name="check" size={22} color="#0A0A0A" />
-                  </View>
-                  <Text style={styles.reqTitle}>Demande envoyée, merci !</Text>
-                  <Text style={styles.reqText}>
-                    Les animations les plus demandées arrivent en premier. Quand celle de « {draft.label} » sera
-                    prête, tu le verras ici.
-                  </Text>
-                  <Button
-                    variant="solid"
-                    fullWidth
-                    label="OK"
-                    onPress={() => {
-                      haptic.light();
-                      setRequesting(false);
-                    }}
-                    style={styles.cta}
-                  />
-                </View>
-              ) : (
-                <View>
-                  <Text style={styles.reqText}>
-                    « {draft.label} » n’a pas encore son animation. Dis-nous que tu la veux : on les fabrique
-                    petit à petit, en commençant par celles que tout le monde demande.
-                  </Text>
-
-                  {!isRequestable(draft.label) ? (
-                    <Text style={styles.reqError}>Donne d’abord un nom à cet exercice.</Text>
-                  ) : user ? (
-                    <Button
-                      variant="solid"
-                      fullWidth
-                      label="Envoyer ma demande"
-                      loading={reqPhase === 'sending'}
-                      onPress={sendRequest}
-                      style={styles.cta}
-                    />
-                  ) : (
-                    <View>
-                      <Text style={styles.reqText}>
-                        Pour l’envoyer depuis l’appli, connecte-toi (gratuit, facultatif). Sinon, écris-nous un
-                        mail déjà prêt.
-                      </Text>
-                      <Button
-                        variant="solid"
-                        fullWidth
-                        label="Me connecter"
-                        onPress={() => {
-                          haptic.light();
-                          afterCloseRef.current = () => router.push('/login');
-                          close();
-                        }}
-                        style={styles.cta}
-                      />
-                    </View>
-                  )}
-
-                  {!!reqError && (
-                    <Text style={styles.reqError}>
-                      {reqError === 'limit'
-                        ? 'Tu as déjà 30 demandes en attente : on en traite quelques-unes avant d’en prendre d’autres.'
-                        : reqError === 'unavailable'
-                        ? 'L’envoi depuis l’appli n’est pas disponible pour l’instant. Tu peux nous écrire par mail.'
-                        : 'Pas de connexion pour le moment. Réessaie plus tard, ou écris-nous par mail.'}
-                    </Text>
-                  )}
-
-                  {isRequestable(draft.label) && (
-                    <Button
-                      variant={user ? 'ghost' : 'glass'}
-                      fullWidth={!user}
-                      size={user ? 'md' : undefined}
-                      icon={user ? undefined : 'note'}
-                      label="Plutôt par mail"
-                      onPress={mailRequest}
-                      style={user ? styles.removeLink : styles.reqMailBtn}
-                    />
-                  )}
-                </View>
-              )}
-            </View>
-          ) : choosing ? (
-            <View>
-              <View style={styles.editHeader}>
-                <IconButton
-                  icon="back"
-                  size={ROUND_SIZE.sheet}
-                  onPress={() => {
-                    haptic.light();
-                    setChoosing(false);
-                  }}
-                  accessibilityLabel="Retour"
-                />
-                <Text style={styles.editLabel}>CHOISIR UNE ANIMATION</Text>
-              </View>
-
-              <TextInput
-                value={animQuery}
-                onChangeText={setAnimQuery}
-                placeholder="Chercher un mouvement"
-                placeholderTextColor="rgba(255,255,255,0.30)"
-                selectionColor="#FFFFFF"
-                maxLength={40}
-                returnKeyType="search"
-                style={styles.nameInput}
-              />
-
-              <View style={styles.animList}>
-                {searchCatalog(anim.catalog, animQuery).map((e) => {
-                  const selected = anim.entry?.id === e.id;
-                  return (
-                    <PressTap
-                      key={e.id}
-                      onPress={() => {
-                        haptic.selection();
-                        setDraft((prev) => ({ ...prev, animationId: e.id }));
-                        setChoosing(false);
-                      }}
-                      tapScale={0.97}
-                      style={[styles.animRow, selected && styles.animRowSelected]}
-                    >
-                      <View style={[styles.animDot, { backgroundColor: getCategory(e.groupId).color }]} />
-                      <Text style={styles.animRowText} numberOfLines={1}>
-                        {e.names[0] || e.id}
-                      </Text>
-                      {selected && <AppIcon name="check" size={14} color="#FFFFFF" />}
-                    </PressTap>
-                  );
-                })}
-                {searchCatalog(anim.catalog, animQuery).length === 0 && (
-                  <Text style={styles.animEmpty}>
-                    Aucun mouvement ne correspond. De nouvelles animations arrivent au fil des semaines.
-                  </Text>
-                )}
-              </View>
-
-              {/* Pas le bon mouvement, ou pas de mouvement du tout : la demande
-                  se fait d'ici aussi (c'est là qu'on cherche). */}
-              {reqState === 'requested' ? (
-                <Text style={styles.animEmpty}>Demande envoyée pour « {draft.label} » ✓</Text>
-              ) : (
-                <Button
-                  variant="ghost"
-                  size="md"
-                  label={`Demander une animation pour « ${draft.label} »`}
-                  onPress={() => {
-                    setChoosing(false);
-                    openRequest();
-                  }}
-                  style={styles.removeLink}
-                />
-              )}
-
-              {!!draft.animationId && (
-                <Button
-                  variant="ghost"
-                  size="md"
-                  label="Revenir au choix automatique"
-                  onPress={() => {
-                    haptic.light();
-                    setDraft((prev) => ({ ...prev, animationId: null }));
-                    setChoosing(false);
-                  }}
-                  style={styles.removeLink}
-                />
-              )}
-            </View>
-          ) : renaming ? (
+          {renaming ? (
             <View>
               <View style={styles.editHeader}>
                 <IconButton
@@ -656,81 +387,6 @@ export default function ExerciseDetailSheet({
             </View>
           ) : (
             <View>
-              {/* Animation du mouvement (catalogue en ligne, voir
-                  lib/exerciseAnimationStore.js). Rien tant que le catalogue
-                  n'est pas lu ; rien du tout s'il est vide (première ouverture
-                  sans réseau). Gratuit pour tous dans le planning. */}
-              {anim.entry ? (
-                <View style={styles.animBlock}>
-                  <ExerciseAnimation
-                    entry={anim.entry}
-                    uri={anim.uri}
-                    failed={anim.status === 'error'}
-                    label={draft.label}
-                    // Une animation en hauteur (tractions, barre fixe…) a besoin
-                    // de plus de place qu'une animation à l'horizontale (pompes),
-                    // sinon l'exercice apparaît tout petit au milieu de la carte.
-                    maxHeight={anim.entry.width / anim.entry.height < 0.8 ? 300 : 220}
-                  />
-                  <View style={styles.animCaption}>
-                    {celebrated ? (
-                      <View style={styles.animAdded}>
-                        <AppIcon name="check" size={12} color="#2ECC71" />
-                        <Text style={styles.animAddedText}>AJOUTÉE SUITE À TA DEMANDE</Text>
-                      </View>
-                    ) : (
-                      <Text style={styles.animCaptionLabel}>
-                        {anim.entry.exact ? 'MOUVEMENT' : 'MOUVEMENT PROCHE'}
-                      </Text>
-                    )}
-                    <PressTap
-                      onPress={() => {
-                        haptic.light();
-                        setAnimQuery('');
-                        setChoosing(true);
-                      }}
-                      tapScale={0.95}
-                      hitSlop={10}
-                    >
-                      <Text style={styles.animLink}>Changer</Text>
-                    </PressTap>
-                  </View>
-                </View>
-              ) : anim.status === 'none' && anim.catalog.length > 0 ? (
-                <View style={styles.animNone}>
-                  {reqState === 'requested' ? (
-                    <View style={styles.animAdded}>
-                      <AppIcon name="check" size={12} color="#2ECC71" />
-                      <Text style={styles.animNoneText} numberOfLines={2}>
-                        Demande envoyée. Merci !
-                      </Text>
-                    </View>
-                  ) : (
-                    <Text style={styles.animNoneText} numberOfLines={2}>
-                      Pas encore d’animation pour cet exercice.
-                    </Text>
-                  )}
-                  <View style={styles.animLinks}>
-                    {reqState !== 'requested' && (
-                      <PressTap onPress={openRequest} tapScale={0.95} hitSlop={10}>
-                        <Text style={styles.animLink}>Demander</Text>
-                      </PressTap>
-                    )}
-                    <PressTap
-                      onPress={() => {
-                        haptic.light();
-                        setAnimQuery('');
-                        setChoosing(true);
-                      }}
-                      tapScale={0.95}
-                      hitSlop={10}
-                    >
-                      <Text style={styles.animLink}>Choisir</Text>
-                    </PressTap>
-                  </View>
-                </View>
-              ) : null}
-
               <View style={styles.grid}>
                 {FIELDS.map((f) => (
                   // PressTap applique `style` à sa vue interne, pas au
@@ -909,141 +565,6 @@ export default function ExerciseDetailSheet({
 const styles = StyleSheet.create({
   header: {
     marginBottom: 18,
-  },
-  animBlock: {
-    marginBottom: 16,
-  },
-  animCaption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 8,
-    paddingHorizontal: 2,
-  },
-  animCaptionLabel: {
-    fontFamily: fonts.monoBold,
-    fontSize: 9,
-    letterSpacing: 1.6,
-    color: 'rgba(255,255,255,0.32)',
-  },
-  animLink: {
-    fontFamily: fonts.sansSemibold,
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.70)',
-    textDecorationLine: 'underline',
-  },
-  animNone: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-    marginBottom: 16,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    backgroundColor: 'rgba(255,255,255,0.03)',
-  },
-  animNoneText: {
-    flex: 1,
-    fontFamily: fonts.sansMedium,
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.45)',
-  },
-  animLinks: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
-  },
-  animAdded: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  animAddedText: {
-    fontFamily: fonts.monoBold,
-    fontSize: 9,
-    letterSpacing: 1.4,
-    color: '#7EE0A5',
-  },
-  reqDone: {
-    alignItems: 'center',
-    paddingTop: 6,
-  },
-  reqCheck: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#2ECC71',
-    marginBottom: 12,
-  },
-  reqTitle: {
-    fontFamily: fonts.sansBold,
-    fontSize: 16,
-    color: '#FFFFFF',
-    textAlign: 'center',
-    marginBottom: 6,
-  },
-  reqText: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 13,
-    lineHeight: 19,
-    color: 'rgba(255,255,255,0.62)',
-    textAlign: 'center',
-    marginBottom: 4,
-  },
-  reqError: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 12,
-    lineHeight: 17,
-    color: '#FCA5A5',
-    textAlign: 'center',
-    marginTop: 10,
-  },
-  reqMailBtn: {
-    marginTop: 10,
-  },
-  animList: {
-    marginTop: 12,
-    gap: 6,
-  },
-  animRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.09)',
-    backgroundColor: 'rgba(255,255,255,0.04)',
-  },
-  animRowSelected: {
-    borderColor: 'rgba(255,255,255,0.45)',
-    backgroundColor: 'rgba(255,255,255,0.08)',
-  },
-  animDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  animRowText: {
-    flex: 1,
-    fontFamily: fonts.sansSemibold,
-    fontSize: 14,
-    color: '#FFFFFF',
-  },
-  animEmpty: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 12,
-    lineHeight: 17,
-    color: 'rgba(255,255,255,0.40)',
-    textAlign: 'center',
-    marginTop: 6,
   },
   titleRow: {
     flexDirection: 'row',
