@@ -370,9 +370,12 @@ export default function Running() {
   // Charge saisie en séance : MIX lancé depuis le Planning (blocs portant
   // `planRef`). Pendant un repos, la bulle vise l'exercice qui vient de finir.
   const [savedWeights, setSavedWeights] = useState({});
-  const [weightSheet, setWeightSheet] = useState(false);
+  // Feuille de charge ouverte : { kind: 'done' | 'next', block } — le bloc visé est
+  // figé à l'ouverture (si le repos finit pendant la saisie, on ne change pas de cible).
+  const [weightSheet, setWeightSheet] = useState(null);
   const mixBlocks = isMix ? timer._mix?.blocks || [] : [];
   const curBlockIdx = mixBlocks.findIndex((b) => b.id === state.blockId);
+  const inRest = mixBlocks[curBlockIdx]?.type === 'rest';
   const weightBlock = (() => {
     let b = mixBlocks[curBlockIdx];
     if (b?.type === 'rest') b = curBlockIdx > 0 ? mixBlocks[curBlockIdx - 1] : null;
@@ -381,10 +384,24 @@ export default function Running() {
   const weightValue = weightBlock
     ? savedWeights[weightBlock.planRef.tagId] ?? weightBlock.weight ?? null
     : null;
+  // Pendant un repos : le PROCHAIN exercice (charge prévue, modifiable si le bloc
+  // vient du Planning, donc a un endroit où enregistrer).
+  const nextPlanBlock = (() => {
+    if (!inRest) return null;
+    const b = mixBlocks[curBlockIdx + 1];
+    return b && b.type !== 'rest' ? b : null;
+  })();
+  const nextEditable = !!nextPlanBlock?.planRef;
+  const nextWeight = nextPlanBlock
+    ? (nextPlanBlock.planRef ? savedWeights[nextPlanBlock.planRef.tagId] : undefined) ??
+      nextPlanBlock.weight ??
+      0
+    : 0;
   const handleSaveWeight = async (kg) => {
-    if (!weightBlock) return;
-    setSavedWeights((prev) => ({ ...prev, [weightBlock.planRef.tagId]: kg }));
-    await setTagWeightByRef(weightBlock.planRef, kg);
+    const target = weightSheet?.block;
+    if (!target?.planRef) return;
+    setSavedWeights((prev) => ({ ...prev, [target.planRef.tagId]: kg }));
+    await setTagWeightByRef(target.planRef, kg);
   };
 
   // Animation d'exercice en séance : fonctionnalité retirée (10/11/2026).
@@ -510,6 +527,12 @@ export default function Running() {
     onSkip: handleSkip,
     onEndWork: isLastEmomRound ? handleFinish : isLastMixEmomRound ? handleSkip : handleEndWork,
     onFinish: handleStop,
+    onWeightPress: (kind) => {
+      const block = kind === 'next' ? nextPlanBlock : weightBlock;
+      if (!block) return;
+      haptic.light();
+      setWeightSheet({ kind, block });
+    },
   };
   const stable = useMemo(
     () => ({
@@ -519,10 +542,8 @@ export default function Running() {
       onSkip: () => latest.current.onSkip(),
       onEndWork: () => latest.current.onEndWork(),
       onFinish: () => latest.current.onFinish(),
-      onWeightPress: () => {
-        haptic.light();
-        setWeightSheet(true);
-      },
+      onWeightPress: () => latest.current.onWeightPress('done'),
+      onNextWeightPress: () => latest.current.onWeightPress('next'),
     }),
     []
   );
@@ -546,9 +567,15 @@ export default function Running() {
   const weightAccessory = useMemo(
     () =>
       hasWeightBlock && !isMini ? (
-        <WeightBubble tokens={t} value={weightValue} strong={weightStrong} onPress={stable.onWeightPress} />
+        <WeightBubble
+          tokens={t}
+          value={weightValue}
+          strong={weightStrong}
+          caption={inRest ? 'FAIT' : null}
+          onPress={stable.onWeightPress}
+        />
       ) : null,
-    [hasWeightBlock, isMini, t, weightValue, weightStrong, stable]
+    [hasWeightBlock, isMini, t, weightValue, weightStrong, inRest, stable]
   );
 
   // Decompte sonore des trois dernieres secondes d'une phase (sons 1/2/3
@@ -872,7 +899,15 @@ export default function Running() {
               {/* Languette dépliée : elle dit déjà « ENSUITE » et occupe la
                   place, la carte « Ensuite » et le déroulé s'effacent. */}
               {showNextUp && !moveExpanded && (
-                <NextUp next={state.nextBlock} tokens={t} compact={isReduced} mini={isMini} />
+                <NextUp
+                  next={state.nextBlock}
+                  weight={nextWeight}
+                  editable={nextEditable}
+                  onWeightPress={stable.onNextWeightPress}
+                  tokens={t}
+                  compact={isReduced}
+                  mini={isMini}
+                />
               )}
               {/* Pendant un repos annoncé, le déroulé cède la place sur les
                   écrans un peu courts : « ENSUITE » est ce qu'on veut lire. */}
@@ -909,14 +944,17 @@ export default function Running() {
         />
       </SafeAreaView>
 
-      {weightSheet && weightBlock && (
+      {weightSheet && (
         <QuickWeightSheet
           screenH={winH}
-          label={weightBlock.label || 'Exercice'}
-          initial={weightValue}
+          kicker={weightSheet.kind === 'next' ? 'POIDS PRÉVU · SUIVANT' : 'POIDS FAIT'}
+          label={weightSheet.block.label || 'Exercice'}
+          initial={
+            (weightSheet.kind === 'next' ? nextWeight : weightValue) ?? weightSheet.block.weight ?? null
+          }
           color={timer.color}
           onSave={handleSaveWeight}
-          onClose={() => setWeightSheet(false)}
+          onClose={() => setWeightSheet(null)}
         />
       )}
 
@@ -1218,7 +1256,7 @@ const NEXT_MODE_NAMES = { amrap: 'AMRAP', emom: 'EMOM', tabata: 'TABATA', basic:
 // noir sur blanc (nom, format, tours, charge). La voix le dit déjà, mais
 // quand on ne retient pas ce qu'on vient d'entendre il faut pouvoir le lire.
 // Rien si le bloc suivant est lui-même un repos, ou s'il n'y en a plus.
-const NextUp = memo(function NextUp({ next, tokens, compact, mini }) {
+const NextUp = memo(function NextUp({ next, weight = 0, editable, onWeightPress, tokens, compact, mini }) {
   const typed = (next.label || '').trim();
   const mode = NEXT_MODE_NAMES[next.type];
   const name = typed || mode || 'Exercice';
@@ -1226,12 +1264,14 @@ const NextUp = memo(function NextUp({ next, tokens, compact, mini }) {
   if (typed && mode) parts.push(mode);
   if (next.type === 'amrap' && next.seconds > 0) parts.push(`${Math.max(1, Math.round(next.seconds / 60))} MIN`);
   else if (next.rounds > 1) parts.push(`${next.rounds} TOURS`);
-  if (next.weight > 0) parts.push(`${String(next.weight).replace('.', ',')} KG`);
+  // Charge prévue : toujours dite (50 KG, ou « Poids de corps »), pour préparer
+  // la machine pendant le repos.
+  const weightText = weight > 0 ? `${String(weight).replace('.', ',')} KG` : 'POIDS DE CORPS';
 
   if (mini) {
     return (
       <Text style={[styles.nextMini, { color: tokens.secondary }]} numberOfLines={1}>
-        ENSUITE · {name}
+        ENSUITE · {name} · {weightText}
       </Text>
     );
   }
@@ -1256,10 +1296,29 @@ const NextUp = memo(function NextUp({ next, tokens, compact, mini }) {
           {parts.join(' · ')}
         </Text>
       )}
+      {editable ? (
+        <PressTap
+          onPress={onWeightPress}
+          tapScale={0.95}
+          accessibilityLabel={`Poids prévu : ${weightText}. Modifier`}
+          containerStyle={styles.nextWeightWrap}
+          style={[styles.nextWeightChip, { borderColor: tokens.primary }]}
+        >
+          <Text style={[styles.nextWeightLabel, { color: tokens.muted }]}>PRÉVU</Text>
+          <Text style={[styles.nextWeightValue, { color: tokens.primary }]}>{weightText}</Text>
+          <AppIcon name="edit" size={13} color={tokens.primary} />
+        </PressTap>
+      ) : (
+        <Text style={[styles.nextMeta, { color: tokens.primary }]} numberOfLines={1}>
+          {weightText}
+        </Text>
+      )}
     </Animated.View>
   );
 }, (a, b) =>
-  a.tokens === b.tokens && a.compact === b.compact && a.mini === b.mini && sameNext(a.next, b.next)
+  a.tokens === b.tokens && a.compact === b.compact && a.mini === b.mini &&
+  a.weight === b.weight && a.editable === b.editable && a.onWeightPress === b.onWeightPress &&
+  sameNext(a.next, b.next)
 );
 
 const PhasesPills = memo(function PhasesPills({ phases, tokens }) {
@@ -1538,10 +1597,19 @@ const BottomControls = memo(function BottomControls({
 // Petite bulle à droite : « + kg » tant qu'aucune charge n'est renseignée, la
 // charge sinon. Discrète en effort, bien visible en repos (c'est le moment où
 // les mains sont libres).
-function WeightBubble({ tokens, value, strong, onPress }) {
+function WeightBubble({ tokens, value, strong, caption, onPress }) {
   const filled = value != null;
   return (
     <View pointerEvents="box-none">
+      {caption ? (
+        <Text
+          pointerEvents="none"
+          style={[styles.weightCaption, { color: tokens.muted }]}
+          numberOfLines={1}
+        >
+          {`POIDS ${caption}`}
+        </Text>
+      ) : null}
       <PressTap
         onPress={onPress}
         tapScale={0.92}
@@ -1592,6 +1660,17 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  // Légende posée au-dessus de la bulle (hors flux : ne change pas sa taille).
+  weightCaption: {
+    position: 'absolute',
+    top: -14,
+    left: -20,
+    width: WEIGHT_BUBBLE_SIZE + 40,
+    textAlign: 'center',
+    fontFamily: fonts.sansBold,
+    fontSize: 8,
+    letterSpacing: 1.2,
   },
   weightMain: { fontFamily: fonts.monoExtraBold, fontSize: 16, lineHeight: 20 },
   weightUnit: { fontFamily: fonts.sansBold, fontSize: 9, letterSpacing: 1 },
@@ -1739,6 +1818,18 @@ const styles = StyleSheet.create({
     letterSpacing: 1.8,
     marginTop: 4,
   },
+  nextWeightWrap: { marginTop: 8 },
+  nextWeightChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1.5,
+  },
+  nextWeightLabel: { fontFamily: fonts.sansBold, fontSize: 9, letterSpacing: 2 },
+  nextWeightValue: { fontFamily: fonts.sansExtraBold, fontSize: 14, letterSpacing: 1 },
   nextMini: {
     fontFamily: fonts.sansBold,
     fontSize: 10,
