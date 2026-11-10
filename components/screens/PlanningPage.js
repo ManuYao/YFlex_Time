@@ -635,6 +635,7 @@ function PlanningContent({
           screenH={screenH}
           blockName={findBlock(sheet.blockId)?.name}
           preferredCategory={findBlock(sheet.blockId)?.groups?.[0] ?? null}
+          highlightCategories={findBlock(sheet.blockId)?.groups ?? []}
           onClose={closeLibrarySheet}
           onPick={(exercise) => {
             const blockId = sheet.blockId;

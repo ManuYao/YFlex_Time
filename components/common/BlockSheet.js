@@ -228,7 +228,7 @@ export default function BlockSheet({
                       bodyHeight={bodyHeightFor(screenH)}
                       selected={groups}
                       onToggle={toggleMuscle}
-                      others={[getCategory('cardio'), ...customGroups]}
+                      others={customGroups}
                     />
                   </View>
                 )}
