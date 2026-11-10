@@ -667,6 +667,10 @@ export default function ExerciseDetailSheet({
                     uri={anim.uri}
                     failed={anim.status === 'error'}
                     label={draft.label}
+                    // Une animation en hauteur (tractions, barre fixe…) a besoin
+                    // de plus de place qu'une animation à l'horizontale (pompes),
+                    // sinon l'exercice apparaît tout petit au milieu de la carte.
+                    maxHeight={anim.entry.width / anim.entry.height < 0.8 ? 300 : 220}
                   />
                   <View style={styles.animCaption}>
                     {celebrated ? (
