@@ -121,6 +121,7 @@ import { useTimerHeat } from '../hooks/useTimerHeat';
 import { useScreenReady } from '../hooks/useScreenReady';
 import { resolveStartIndex } from '../lib/smartStart';
 import { useLongPress } from '../hooks/useLongPress';
+import { useEcoApplied } from '../lib/batteryEco';
 import { useCooldown } from '../hooks/useCooldown';
 import { usePremium } from '../hooks/usePremium';
 
@@ -484,6 +485,9 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
 
   const active = timers[activeIndex];
   const activeHeat = heatMap[active.id] || 0;
+  // Économie de batterie (lib/batteryEco.js) : les braises (décor) sont coupées ; les
+  // flammes de série, elles, restent.
+  const ecoApplied = useEcoApplied();
   const t = getTokens(active.textMode);
   const activeCooldown = getCooldownStatus(active.id);
   // TopBar/BottomBar doivent s'effacer aussi bien pendant le morph de
@@ -1296,7 +1300,7 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
             le réglage « Aucune »). Motifs noirs quand le texte du mode actif est noir. */}
         <AmbianceBackdrop tone={active.textMode === 'dark' ? 'dark' : 'light'} />
 
-        {activeHeat >= STREAK_THRESHOLD && (
+        {activeHeat >= STREAK_THRESHOLD && !ecoApplied && (
           <Animated.View style={[StyleSheet.absoluteFill, emberReveal]} pointerEvents="none">
             {/* Pas de `key` par mode : avec, les 6 à 16 braises (chacune une vue animée avec
                 un dégradé SVG) étaient DÉMONTÉES puis remontées à chaque changement de timer,

@@ -11,6 +11,7 @@ import {
   normalizeAmbianceMode,
   seasonDrift,
 } from '../lib/ambiance';
+import { useEcoApplied } from '../lib/batteryEco';
 
 /**
  * L'ambiance du moment : { mode, id, ambiance } — `ambiance` vaut null quand il n'y en a
@@ -37,7 +38,7 @@ const ambianceFor = (mode, today) => {
   return value;
 };
 
-export default function useAmbiance() {
+function useBaseAmbiance() {
   const { settings } = useSettings();
   const mode = normalizeAmbianceMode(settings.ambianceMode);
   const [today, setToday] = useState(() => new Date());
@@ -54,6 +55,21 @@ export default function useAmbiance() {
   }, []);
 
   return useMemo(() => ambianceFor(mode, today), [mode, today]);
+}
+
+/**
+ * L'ambiance à afficher : celle du moment, SAUF en économie de batterie (20 % ou moins,
+ * lib/batteryEco.js) où `ambiance` vaut null — comme avec le réglage « Aucune », donc
+ * tous les écrans retombent sur leur rendu sans décor. `mode` et `id` ne changent pas
+ * (l'icône de l'app, elle, suit toujours la saison). Forcé : aucun réglage n'y change rien.
+ */
+export default function useAmbiance() {
+  const value = useBaseAmbiance();
+  const eco = useEcoApplied();
+  return useMemo(
+    () => (eco && value.ambiance ? { ...value, ambiance: null, eco: true } : value),
+    [value, eco]
+  );
 }
 
 /**

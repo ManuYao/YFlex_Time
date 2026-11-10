@@ -32,6 +32,7 @@ import { SettingsProvider } from '../contexts/SettingsContext';
 import { AuthProvider } from '../contexts/AuthContext';
 import LibraryLimitGate from '../components/common/LibraryLimitGate';
 import MemoryBadge from '../components/common/MemoryBadge';
+import BatteryEcoGate from '../components/common/BatteryEcoGate';
 
 // Hydrate le cache des catégories perso avant que le premier écran du
 // planning ne rende ses chips : getCategory() est synchrone et lit ce cache.
@@ -202,6 +203,8 @@ export default function RootLayout() {
                 <LibraryLimitGate />
                 {/* Compteur de mémoire (Paramètres › Mémoire) : rien tant que le réglage est coupé. */}
                 <MemoryBadge />
+                {/* Économie de batterie : coupe les décors animés à 20 % (lib/batteryEco.js). */}
+                <BatteryEcoGate />
 
                 {splashCleared && !apk.isBlockedByForcedUpdate && apk.isMaintenance && !bannerClosed && (
                   <MaintenanceBanner

@@ -17,6 +17,7 @@ import {
   resetNativeBaseline,
 } from '../lib/nativeMemory';
 import { describeNative, diagnoseNative } from '../lib/nativeMemoryShape';
+import { getEcoDebug, subscribeEcoDebug, setEcoSimulation } from '../lib/batteryEco';
 import {
   isMemoryReadable,
   subscribeMemory,
@@ -39,6 +40,7 @@ export default function Diagnostic() {
   const [badgeOn, setBadgeOn] = useState(false);
   const [perf, setPerf] = useState(null);
   const [track, setTrack] = useState(null);
+  const [eco, setEco] = useState(getEcoDebug());
   const readable = isMemoryReadable();
   // Mémoire NATIVE, chauffe, processeur par fil : seulement avec le module natif
   // de l'APK récent (sinon rien n'est affiché ni mesuré).
@@ -47,6 +49,10 @@ export default function Diagnostic() {
   useEffect(() => subscribeMemory(setStats), []);
   useEffect(() => (nativeOn ? subscribeNativeMemory(setTrack) : undefined), [nativeOn]);
   useEffect(() => subscribePerf(setPerf), []);
+  useEffect(() => {
+    setEco(getEcoDebug());
+    return subscribeEcoDebug(() => setEco(getEcoDebug()));
+  }, []);
   useEffect(() => {
     loadMemoryBadge();
     return subscribeMemoryBadge(setBadgeOn);
@@ -138,6 +144,55 @@ export default function Diagnostic() {
               ))}
             </View>
           ) : null}
+
+          <View style={styles.card}>
+            <Text style={styles.cardKicker}>ÉCONOMIE DE BATTERIE</Text>
+            {!eco.available ? (
+              <Text style={[styles.cardBody, styles.perfHint]}>
+                Disponible avec l'APK 18.6.0 ou plus récent (lecture de la batterie).
+              </Text>
+            ) : (
+              <>
+                <View style={styles.nativeRow}>
+                  <Text style={styles.nativeLabel}>Batterie</Text>
+                  <Text style={styles.nativeValue}>
+                    {eco.pct == null ? '—' : `${Math.round(eco.pct)} %`}
+                    {eco.simulating ? '  (simulée)' : ''}
+                  </Text>
+                </View>
+                <View style={styles.nativeRow}>
+                  <Text style={styles.nativeLabel}>Décors animés</Text>
+                  <Text style={styles.nativeValue}>{eco.applied ? 'COUPÉS' : 'actifs'}</Text>
+                </View>
+                {eco.target !== eco.applied ? (
+                  <Text style={[styles.diagRow, { color: '#FFC933' }]}>
+                    {eco.target
+                      ? 'Coupure prévue au prochain changement d’écran.'
+                      : 'Retour des décors prévu au prochain changement d’écran.'}
+                  </Text>
+                ) : null}
+                {eco.target && eco.minutesLeft != null ? (
+                  <Text style={[styles.cardBody, styles.perfHint]}>
+                    {`Retour des décors dans environ ${eco.minutesLeft} min (batterie à 25 % ou plus).`}
+                  </Text>
+                ) : null}
+                <Text style={[styles.cardBody, styles.perfHint]}>
+                  Coupés dès 20 %, de retour après 20 minutes à 25 % ou plus. Les flammes restent.
+                  Ce n'est pas un réglage : on ne peut pas le forcer dans l'autre sens.
+                </Text>
+                <Button
+                  variant="glass"
+                  size="md"
+                  label={eco.simulating ? 'Fin de la simulation' : 'Simuler 19 % de batterie'}
+                  onPress={() => {
+                    haptic.light();
+                    setEcoSimulation(eco.simulating ? null : 19);
+                  }}
+                  style={[styles.cta, { marginTop: 12 }]}
+                />
+              </>
+            )}
+          </View>
 
           <View style={styles.card}>
             <Text style={styles.cardKicker}>FLUIDITÉ</Text>
