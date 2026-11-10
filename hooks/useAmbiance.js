@@ -11,7 +11,7 @@ import {
   normalizeAmbianceMode,
   seasonDrift,
 } from '../lib/ambiance';
-import { useEcoApplied } from '../lib/batteryEco';
+import { useLightLevel } from '../lib/lightMode';
 
 /**
  * L'ambiance du moment : { mode, id, ambiance } — `ambiance` vaut null quand il n'y en a
@@ -58,17 +58,19 @@ function useBaseAmbiance() {
 }
 
 /**
- * L'ambiance à afficher : celle du moment, SAUF en économie de batterie (20 % ou moins,
- * lib/batteryEco.js) où `ambiance` vaut null — comme avec le réglage « Aucune », donc
- * tous les écrans retombent sur leur rendu sans décor. `mode` et `id` ne changent pas
- * (l'icône de l'app, elle, suit toujours la saison). Forcé : aucun réglage n'y change rien.
+ * L'ambiance à afficher : celle du moment, SAUF au niveau 2 du mode allégé (téléphone chaud
+ * ou batterie à 20 % ou moins, voir lib/lightMode.js) où `ambiance` vaut null — comme avec
+ * le réglage « Aucune », donc tous les écrans retombent sur leur rendu sans décor. Au
+ * niveau 1 l'ambiance reste, mais ses animations vont deux fois plus lentement
+ * (AmbianceBackdrop). `mode` et `id` ne changent pas (l'icône de l'app, elle, suit toujours
+ * la saison). Forcé : aucun réglage n'y change rien.
  */
 export default function useAmbiance() {
   const value = useBaseAmbiance();
-  const eco = useEcoApplied();
+  const level = useLightLevel();
   return useMemo(
-    () => (eco && value.ambiance ? { ...value, ambiance: null, eco: true } : value),
-    [value, eco]
+    () => (level >= 2 && value.ambiance ? { ...value, ambiance: null, eco: true } : value),
+    [value, level]
   );
 }
 

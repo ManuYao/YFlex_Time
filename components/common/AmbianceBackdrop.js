@@ -15,6 +15,7 @@ import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 import useAmbiance, { useAmbianceActive } from '../../hooks/useAmbiance';
 import { getAmbiance, nextRareDelayMs } from '../../lib/ambiance';
 import { ambianceWind } from '../../lib/ambianceMotion';
+import { useLightLevel, slowFactor } from '../../lib/lightMode';
 import AmbianceShape from './AmbianceShapes';
 
 /**
@@ -101,9 +102,13 @@ function layoutMotifs(ambiance, w, h) {
  * `halfMs` pour un aller. Démarre/s'arrête avec `active` ; à la reprise, il repart de là
  * où il s'était arrêté (aucun saut) : il rejoint d'abord 0 à la même vitesse, puis boucle.
  */
-function useOscillator(active, halfMs, start) {
+function useOscillator(active, baseHalfMs, start) {
   const sv = useSharedValue(start);
   const startedRef = useRef(false);
+  // Mode allégé niveau 1 (téléphone qui chauffe) : deux fois plus lent. Le niveau ne change
+  // qu'à un changement d'écran, et l'oscillateur repart de là où il était (aucun saut).
+  const k = slowFactor(useLightLevel()) || 1;
+  const halfMs = baseHalfMs * k;
 
   useEffect(() => {
     if (!active) return undefined;
@@ -115,7 +120,7 @@ function useOscillator(active, halfMs, start) {
       withRepeat(withTiming(1, { duration: halfMs, easing: SOFT }), -1, true)
     );
     return () => cancelAnimation(sv);
-  }, [active]);
+  }, [active, k]);
 
   return sv;
 }
@@ -125,9 +130,12 @@ function useOscillator(active, halfMs, start) {
  * instantané à 0 (le motif est alors hors de l'écran) et on recommence. À la reprise
  * après une pause, finit d'abord le trajet en cours (vitesse constante).
  */
-function useFall(active, durationMs, start) {
+function useFall(active, baseDurationMs, start) {
   const sv = useSharedValue(start);
   const startedRef = useRef(false);
+  // Mode allégé niveau 1 : deux fois plus lent (voir useOscillator).
+  const k = slowFactor(useLightLevel()) || 1;
+  const durationMs = baseDurationMs * k;
 
   useEffect(() => {
     if (!active) return undefined;
@@ -145,7 +153,7 @@ function useFall(active, durationMs, start) {
       )
     );
     return () => cancelAnimation(sv);
-  }, [active]);
+  }, [active, k]);
 
   return sv;
 }
@@ -331,6 +339,8 @@ const HALO_SIZE = RARE_SIZE * 2.4;
 function RarePass({ kind, ink, accent, w, h, active }) {
   const progress = useSharedValue(0);
   const startY = useSharedValue(h * 0.15);
+  // Mode allégé niveau 1 : traversée deux fois plus lente et passages deux fois plus rares.
+  const k = slowFactor(useLightLevel()) || 1;
 
   useEffect(() => {
     if (!active) return undefined;
@@ -338,16 +348,16 @@ function RarePass({ kind, ink, accent, w, h, active }) {
     const fire = () => {
       startY.value = h * (0.06 + Math.random() * 0.22);
       progress.value = 0;
-      progress.value = withTiming(1, { duration: RARE_MS, easing: LINEAR });
-      timer = setTimeout(fire, RARE_MS + nextRareDelayMs());
+      progress.value = withTiming(1, { duration: RARE_MS * k, easing: LINEAR });
+      timer = setTimeout(fire, (RARE_MS + nextRareDelayMs()) * k);
     };
-    timer = setTimeout(fire, RARE_FIRST_MIN_MS + Math.random() * RARE_FIRST_SPREAD_MS);
+    timer = setTimeout(fire, (RARE_FIRST_MIN_MS + Math.random() * RARE_FIRST_SPREAD_MS) * k);
     return () => {
       clearTimeout(timer);
       cancelAnimation(progress);
       progress.value = 0; // hors pause, le motif ne reste jamais figé à l'écran
     };
-  }, [active, h]);
+  }, [active, h, k]);
 
   const style = useAnimatedStyle(() => {
     const p = progress.value;

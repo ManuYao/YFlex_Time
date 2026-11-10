@@ -8,57 +8,80 @@ import AppIcon from './AppIcon';
 import PressTap from './PressTap';
 import { fonts } from '../../lib/fonts';
 import { useHaptic } from '../../hooks/useHaptic';
-import { startBatteryEco, applyEcoPending, subscribeEcoNotice } from '../../lib/batteryEco';
+import { subscribeEcoNotice } from '../../lib/batteryEco';
+import { applyLightPending, subscribeLightNotice } from '../../lib/lightMode';
+import { startDeviceWatch } from '../../lib/deviceWatch';
 
 // Écrans où l'on ne montre PAS le message (séance, décompte, démarrage…) : il attend le
 // retour sur un écran calme.
 const QUIET_ROUTES = ['/running', '/countdown', '/onboarding', '/tutorial', '/season-recap'];
 const NOTICE_MS = 8000;
 
+const NOTICES = {
+  battery: {
+    title: 'Économie de batterie',
+    body: 'Batterie faible : les décors animés sont coupés temporairement.',
+  },
+  'heat-slow': {
+    title: 'Téléphone chaud',
+    body: 'Les effets sont ralentis pour le laisser souffler.',
+  },
+  'heat-off': {
+    title: 'Téléphone très chaud',
+    body: 'Les effets sont coupés temporairement pour le laisser refroidir.',
+  },
+};
+
 /**
- * Économie de batterie (lib/batteryEco.js) : démarre le suivi de la batterie, applique le
- * changement à chaque CHANGEMENT D'ÉCRAN (jamais pendant qu'on regarde) et affiche un
- * petit message SEMI-TRANSPARENT (plus que les autres fenêtres) quand les décors viennent
- * d'être coupés. Il disparaît tout seul au bout de quelques secondes, ou au toucher.
+ * Mode allégé (lib/lightMode.js, lib/batteryEco.js) : démarre la surveillance de la batterie
+ * et de la chauffe, applique le changement à chaque CHANGEMENT D'ÉCRAN (jamais pendant qu'on
+ * regarde) et affiche un petit message SEMI-TRANSPARENT (plus que les autres fenêtres) quand
+ * les effets viennent d'être ralentis ou coupés. Il disparaît tout seul, ou au toucher.
  */
 export default function BatteryEcoGate() {
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
   const haptic = useHaptic();
   const first = useRef(true);
-  const [wantNotice, setWantNotice] = useState(false);
-  const [shown, setShown] = useState(false);
+  const [wantNotice, setWantNotice] = useState(null); // 'battery' | 'heat-slow' | 'heat-off'
+  const [shown, setShown] = useState(null);
 
   useEffect(() => {
-    startBatteryEco();
-    return subscribeEcoNotice(() => setWantNotice(true));
+    startDeviceWatch();
+    const offBattery = subscribeEcoNotice(() => setWantNotice('battery'));
+    const offHeat = subscribeLightNotice((kind) => setWantNotice(kind));
+    return () => {
+      offBattery();
+      offHeat();
+    };
   }, []);
 
   // Un changement d'écran = le bon moment pour rattraper l'état voulu (le premier rendu
-  // ne compte pas : le démarrage est géré par startBatteryEco).
+  // ne compte pas : le démarrage est géré par startDeviceWatch).
   useEffect(() => {
     if (first.current) {
       first.current = false;
       return;
     }
-    applyEcoPending();
+    applyLightPending();
   }, [pathname]);
 
   // Le message attend un écran calme, puis disparaît tout seul.
   const quiet = !QUIET_ROUTES.includes(pathname);
   useEffect(() => {
     if (wantNotice && quiet) {
-      setWantNotice(false);
-      setShown(true);
+      setShown(wantNotice);
+      setWantNotice(null);
     }
   }, [wantNotice, quiet]);
   useEffect(() => {
     if (!shown) return undefined;
-    const id = setTimeout(() => setShown(false), NOTICE_MS);
+    const id = setTimeout(() => setShown(null), NOTICE_MS);
     return () => clearTimeout(id);
   }, [shown]);
 
-  if (!shown) return null;
+  const notice = shown ? NOTICES[shown] : null;
+  if (!notice) return null;
   return (
     <View pointerEvents="box-none" style={[styles.layer, { bottom: insets.bottom + 72 }]}>
       <Animated.View
@@ -70,16 +93,14 @@ export default function BatteryEcoGate() {
           <AppIcon name="bolt" size={16} color="rgba(255,255,255,0.9)" />
         </View>
         <View style={styles.textWrap}>
-          <Text style={styles.title}>Économie de batterie</Text>
-          <Text style={styles.body}>
-            Batterie faible : les décors animés sont coupés temporairement.
-          </Text>
+          <Text style={styles.title}>{notice.title}</Text>
+          <Text style={styles.body}>{notice.body}</Text>
         </View>
         <PressTap
           tapScale={0.94}
           hitSlop={12}
           onHapticIn={haptic.light}
-          onPress={() => setShown(false)}
+          onPress={() => setShown(null)}
           accessibilityLabel="Fermer le message"
         >
           <Text style={styles.ok}>OK</Text>

@@ -121,7 +121,7 @@ import { useTimerHeat } from '../hooks/useTimerHeat';
 import { useScreenReady } from '../hooks/useScreenReady';
 import { resolveStartIndex } from '../lib/smartStart';
 import { useLongPress } from '../hooks/useLongPress';
-import { useEcoApplied } from '../lib/batteryEco';
+import { useLightLevel, slowFactor } from '../lib/lightMode';
 import { useCooldown } from '../hooks/useCooldown';
 import { usePremium } from '../hooks/usePremium';
 
@@ -485,9 +485,9 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
 
   const active = timers[activeIndex];
   const activeHeat = heatMap[active.id] || 0;
-  // Économie de batterie (lib/batteryEco.js) : les braises (décor) sont coupées ; les
-  // flammes de série, elles, restent.
-  const ecoApplied = useEcoApplied();
+  // Mode allégé (lib/lightMode.js) : braises (décor) ralenties au niveau 1, coupées au
+  // niveau 2 (téléphone chaud ou batterie à 20 % ou moins). Les flammes de série restent.
+  const lightLevel = useLightLevel();
   const t = getTokens(active.textMode);
   const activeCooldown = getCooldownStatus(active.id);
   // TopBar/BottomBar doivent s'effacer aussi bien pendant le morph de
@@ -1300,13 +1300,13 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
             le réglage « Aucune »). Motifs noirs quand le texte du mode actif est noir. */}
         <AmbianceBackdrop tone={active.textMode === 'dark' ? 'dark' : 'light'} />
 
-        {activeHeat >= STREAK_THRESHOLD && !ecoApplied && (
+        {activeHeat >= STREAK_THRESHOLD && lightLevel < 2 && (
           <Animated.View style={[StyleSheet.absoluteFill, emberReveal]} pointerEvents="none">
             {/* Pas de `key` par mode : avec, les 6 à 16 braises (chacune une vue animée avec
                 un dégradé SVG) étaient DÉMONTÉES puis remontées à chaque changement de timer,
                 en plein glissé. Sans, elles restent en place et ne changent que de couleur
                 (invisible : le champ est éteint pendant le glissé, voir emberReveal). */}
-            <EmberField color={active.color} heatCount={activeHeat} />
+            <EmberField color={active.color} heatCount={activeHeat} slow={lightLevel === 1} />
           </Animated.View>
         )}
 
@@ -1582,13 +1582,16 @@ const EMBER_DURATION_MIN = 3600;
 const EMBER_OPACITY_MIN = 0.28;
 const EMBER_OPACITY_MAX = 0.6;
 
-function EmberField({ color, heatCount }) {
+function EmberField({ color, heatCount, slow = false }) {
   const intensity = Math.min(
     Math.max(heatCount - STREAK_THRESHOLD, 0) / (EMBER_MAX_HEAT - STREAK_THRESHOLD),
     1
   );
-  const count = Math.round(EMBER_COUNT_MIN + intensity * (EMBER_COUNT_MAX - EMBER_COUNT_MIN));
-  const baseDuration = EMBER_DURATION_MAX - intensity * (EMBER_DURATION_MAX - EMBER_DURATION_MIN);
+  const fullCount = Math.round(EMBER_COUNT_MIN + intensity * (EMBER_COUNT_MAX - EMBER_COUNT_MIN));
+  // Mode allégé niveau 1 : deux fois moins de braises, deux fois plus lentes.
+  const count = slow ? Math.max(3, Math.ceil(fullCount / 2)) : fullCount;
+  const baseDuration =
+    (EMBER_DURATION_MAX - intensity * (EMBER_DURATION_MAX - EMBER_DURATION_MIN)) * (slow ? 2 : 1);
 
   const embers = useMemo(
     () =>
@@ -1699,17 +1702,23 @@ function TopBar({ tag, tokens, tone, profileRef, onProfile, onHub, onTapHaptic, 
   // ~22 dp qui reviennent au bouton Lancer (voir lib/responsive.js).
   const isReducedWindow = useLayoutLevel() !== 'full';
   const dotPulse = useSharedValue(0.4);
+  // Mode allégé : pulsation deux fois plus lente au niveau 1, fixe au niveau 2.
+  const dotFactor = slowFactor(useLightLevel());
   useEffect(() => {
+    if (dotFactor == null) {
+      dotPulse.value = withTiming(0.7, { duration: D.base });
+      return undefined;
+    }
     dotPulse.value = withRepeat(
       withSequence(
-        withTiming(1, { duration: 1000, easing: easeInOut }),
-        withTiming(0.4, { duration: 1000, easing: easeInOut })
+        withTiming(1, { duration: 1000 * dotFactor, easing: easeInOut }),
+        withTiming(0.4, { duration: 1000 * dotFactor, easing: easeInOut })
       ),
       -1,
       false
     );
     return () => cancelAnimation(dotPulse);
-  }, []);
+  }, [dotFactor]);
   const dotStyle = useAnimatedStyle(() => ({ opacity: dotPulse.value }));
 
   if (isLaunching) return null;
@@ -2368,13 +2377,16 @@ function StatChipContent({ stat, t, editable, compact }) {
    ────────────────────────────────────────────────────────────────*/
 function BreathingRing({ isActive, t, timerId, size = 320, gap = 24, innerRef, children }) {
   const scale = useSharedValue(1);
+  // Mode allégé (lib/lightMode.js) : respiration deux fois plus lente au niveau 1, arrêtée
+  // au niveau 2 (`null`). À 0,8 % d'amplitude, l'arrêt ne se voit pas.
+  const factor = slowFactor(useLightLevel());
 
   useEffect(() => {
-    if (isActive) {
+    if (isActive && factor != null) {
       scale.value = withRepeat(
         withSequence(
-          withTiming(1.008, { duration: 1750, easing: easeInOut }),
-          withTiming(1, { duration: 1750, easing: easeInOut })
+          withTiming(1.008, { duration: 1750 * factor, easing: easeInOut }),
+          withTiming(1, { duration: 1750 * factor, easing: easeInOut })
         ),
         -1,
         false
@@ -2383,7 +2395,7 @@ function BreathingRing({ isActive, t, timerId, size = 320, gap = 24, innerRef, c
       scale.value = withTiming(1, { duration: D.base });
     }
     return () => cancelAnimation(scale);
-  }, [isActive]);
+  }, [isActive, factor]);
 
   const animStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
@@ -2439,17 +2451,23 @@ function BottomBar({ ctaRef, timers, activeIndex, active, tokens, cooldown, onOp
 
   // (O) Flèche de lecture qui pulse horizontalement
   const arrowX = useSharedValue(0);
+  // Mode allégé : va-et-vient deux fois plus lent au niveau 1, flèche fixe au niveau 2.
+  const arrowFactor = slowFactor(useLightLevel());
   useEffect(() => {
+    if (arrowFactor == null) {
+      arrowX.value = withTiming(1, { duration: D.base });
+      return undefined;
+    }
     arrowX.value = withRepeat(
       withSequence(
-        withTiming(2, { duration: 750, easing: easeInOut }),
-        withTiming(0, { duration: 750, easing: easeInOut })
+        withTiming(2, { duration: 750 * arrowFactor, easing: easeInOut }),
+        withTiming(0, { duration: 750 * arrowFactor, easing: easeInOut })
       ),
       -1,
       false
     );
     return () => cancelAnimation(arrowX);
-  }, []);
+  }, [arrowFactor]);
   const arrowStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: arrowX.value }],
   }));

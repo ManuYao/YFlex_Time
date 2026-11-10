@@ -18,6 +18,9 @@ import {
 } from '../lib/nativeMemory';
 import { describeNative, diagnoseNative } from '../lib/nativeMemoryShape';
 import { getEcoDebug, subscribeEcoDebug, setEcoSimulation } from '../lib/batteryEco';
+import { getLightDebug, subscribeLightDebug, setHeatSimulation } from '../lib/lightMode';
+
+const LIGHT_LABELS = ['Normaux', 'Ralentis', 'Coupés'];
 import {
   isMemoryReadable,
   subscribeMemory,
@@ -41,6 +44,7 @@ export default function Diagnostic() {
   const [perf, setPerf] = useState(null);
   const [track, setTrack] = useState(null);
   const [eco, setEco] = useState(getEcoDebug());
+  const [light, setLight] = useState(getLightDebug());
   const readable = isMemoryReadable();
   // Mémoire NATIVE, chauffe, processeur par fil : seulement avec le module natif
   // de l'APK récent (sinon rien n'est affiché ni mesuré).
@@ -52,6 +56,10 @@ export default function Diagnostic() {
   useEffect(() => {
     setEco(getEcoDebug());
     return subscribeEcoDebug(() => setEco(getEcoDebug()));
+  }, []);
+  useEffect(() => {
+    setLight(getLightDebug());
+    return subscribeLightDebug(() => setLight(getLightDebug()));
   }, []);
   useEffect(() => {
     loadMemoryBadge();
@@ -146,7 +154,7 @@ export default function Diagnostic() {
           ) : null}
 
           <View style={styles.card}>
-            <Text style={styles.cardKicker}>ÉCONOMIE DE BATTERIE</Text>
+            <Text style={styles.cardKicker}>MODE ALLÉGÉ · BATTERIE ET CHAUFFE</Text>
             {!eco.available ? (
               <Text style={[styles.cardBody, styles.perfHint]}>
                 Disponible avec l'APK 18.6.0 ou plus récent (lecture de la batterie).
@@ -161,14 +169,20 @@ export default function Diagnostic() {
                   </Text>
                 </View>
                 <View style={styles.nativeRow}>
-                  <Text style={styles.nativeLabel}>Décors animés</Text>
-                  <Text style={styles.nativeValue}>{eco.applied ? 'COUPÉS' : 'actifs'}</Text>
+                  <Text style={styles.nativeLabel}>Chauffe</Text>
+                  <Text style={styles.nativeValue}>
+                    {light.thermalStatus == null ? 'statut —' : `statut ${light.thermalStatus}`}
+                    {light.batteryTempC == null ? '' : `  ${light.batteryTempC.toFixed(1)} °C`}
+                    {light.simulating ? '  (simulée)' : ''}
+                  </Text>
                 </View>
-                {eco.target !== eco.applied ? (
+                <View style={styles.nativeRow}>
+                  <Text style={styles.nativeLabel}>Effets de décor</Text>
+                  <Text style={styles.nativeValue}>{LIGHT_LABELS[light.applied] || '—'}</Text>
+                </View>
+                {light.target !== light.applied ? (
                   <Text style={[styles.diagRow, { color: '#FFC933' }]}>
-                    {eco.target
-                      ? 'Coupure prévue au prochain changement d’écran.'
-                      : 'Retour des décors prévu au prochain changement d’écran.'}
+                    {`Changement prévu au prochain changement d’écran : ${(LIGHT_LABELS[light.target] || '').toLowerCase()}.`}
                   </Text>
                 ) : null}
                 {eco.target && eco.minutesLeft != null ? (
@@ -177,19 +191,53 @@ export default function Diagnostic() {
                   </Text>
                 ) : null}
                 <Text style={[styles.cardBody, styles.perfHint]}>
-                  Coupés dès 20 %, de retour après 20 minutes à 25 % ou plus. Les flammes restent.
+                  Téléphone chaud : effets ralentis (niveau 1), puis coupés s'il chauffe vraiment ou
+                  si la batterie est à 20 % ou moins (niveau 2). On monte vite ; on redescend après
+                  10 minutes au frais (batterie : 20 minutes à 25 % ou plus). Les flammes restent.
                   Ce n'est pas un réglage : on ne peut pas le forcer dans l'autre sens.
                 </Text>
                 <Button
                   variant="glass"
                   size="md"
-                  label={eco.simulating ? 'Fin de la simulation' : 'Simuler 19 % de batterie'}
+                  label={eco.simulating ? 'Fin de la simulation batterie' : 'Simuler 19 % de batterie'}
                   onPress={() => {
                     haptic.light();
                     setEcoSimulation(eco.simulating ? null : 19);
                   }}
                   style={[styles.cta, { marginTop: 12 }]}
                 />
+                <Button
+                  variant="glass"
+                  size="md"
+                  label="Simuler : téléphone chaud (ralenti)"
+                  onPress={() => {
+                    haptic.light();
+                    setHeatSimulation(1);
+                  }}
+                  style={[styles.cta, { marginTop: 8 }]}
+                />
+                <Button
+                  variant="glass"
+                  size="md"
+                  label="Simuler : téléphone très chaud (coupé)"
+                  onPress={() => {
+                    haptic.light();
+                    setHeatSimulation(2);
+                  }}
+                  style={[styles.cta, { marginTop: 8 }]}
+                />
+                {light.simulating ? (
+                  <Button
+                    variant="glass"
+                    size="md"
+                    label="Fin de la simulation chaleur"
+                    onPress={() => {
+                      haptic.light();
+                      setHeatSimulation(null);
+                    }}
+                    style={[styles.cta, { marginTop: 8 }]}
+                  />
+                ) : null}
               </>
             )}
           </View>

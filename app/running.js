@@ -40,6 +40,7 @@ import LongPressButton from '../components/common/LongPressButton';
 import AppIcon from '../components/common/AppIcon';
 import IconButton from '../components/common/IconButton';
 import PulseGlow from '../components/common/PulseGlow';
+import { useLightLevel, slowFactor, applyLightPending } from '../lib/lightMode';
 import TutorialCoach from '../components/common/TutorialCoach';
 import { useTimers } from '../contexts/TimersContext';
 import { buildTutorialTimer, coachStepFor } from '../lib/tutorialShape';
@@ -696,42 +697,72 @@ export default function Running() {
     []
   );
 
+  // Mode allégé (lib/lightMode.js) : trois niveaux pour les EFFETS DE DÉCOR de la séance
+  // (pulse plein écran, respiration de l'anneau, point du haut, lueur du bouton central).
+  // Niveau 1 = mêmes mouvements deux fois plus lents ; niveau 2 = plus aucune boucle, valeur
+  // figée (atteinte par un fondu court). Au niveau 0 rien ne change. `slow` vaut 1, 2 ou null.
+  // Ce que la séance AFFICHE (chiffre, anneau de progression, barre, boutons) n'est jamais coupé.
+  const slow = slowFactor(useLightLevel());
+
+  // Le niveau appliqué ne change qu'à des moments où l'œil ne voit pas de saut : au changement
+  // de phase / de tour / de bloc (jamais à chaque tick de 100 ms) et à la reprise après une
+  // pause (les boucles repartent de toute façon). Voir applyLightPending.
+  const lightMountedRef = useRef(false);
+  const lightPhaseKey = `${state.blockId ?? ''}|${state.currentRound ?? ''}|${state.phaseLabel}`;
+  useEffect(() => {
+    if (!lightMountedRef.current) {
+      lightMountedRef.current = true;
+      return;
+    }
+    applyLightPending();
+  }, [lightPhaseKey]);
+  const wasPausedRef = useRef(isPaused);
+  useEffect(() => {
+    if (wasPausedRef.current && !isPaused) applyLightPending();
+    wasPausedRef.current = isPaused;
+  }, [isPaused]);
+
   // Pulse ambiant — overlay LinearGradient timer.bgColors, opacity 0→0.15→0 cycle 2s
+  // (niveau 1 : 4 s ; niveau 2 : figé à la valeur médiane 0,075).
   const pulseOpacity = useSharedValue(0);
   useEffect(() => {
     if (isPaused) {
       cancelAnimation(pulseOpacity);
       pulseOpacity.value = withTiming(0, { duration: 300 });
+    } else if (slow == null) {
+      cancelAnimation(pulseOpacity);
+      pulseOpacity.value = withTiming(0.075, { duration: 400 });
     } else {
       pulseOpacity.value = withRepeat(
         withSequence(
-          withTiming(0.15, { duration: 1000, easing: Easing.inOut(Easing.ease) }),
-          withTiming(0, { duration: 1000, easing: Easing.inOut(Easing.ease) })
+          withTiming(0.15, { duration: 1000 * slow, easing: Easing.inOut(Easing.ease) }),
+          withTiming(0, { duration: 1000 * slow, easing: Easing.inOut(Easing.ease) })
         ),
         -1
       );
     }
     return () => cancelAnimation(pulseOpacity);
-  }, [isPaused]);
+  }, [isPaused, slow]);
   const pulseStyle = useAnimatedStyle(() => ({ opacity: pulseOpacity.value }));
 
   // Ring breathing — scale [1, 1.012, 1] cycle 1s quand running
+  // (niveau 1 : 2 s ; niveau 2 : l'anneau reste à sa taille normale).
   const ringScale = useSharedValue(1);
   useEffect(() => {
-    if (isPaused) {
+    if (isPaused || slow == null) {
       cancelAnimation(ringScale);
-      ringScale.value = withTiming(1, { duration: 300 });
+      ringScale.value = withTiming(1, { duration: isPaused ? 300 : 400 });
     } else {
       ringScale.value = withRepeat(
         withSequence(
-          withTiming(1.012, { duration: 500, easing: Easing.inOut(Easing.ease) }),
-          withTiming(1, { duration: 500, easing: Easing.inOut(Easing.ease) })
+          withTiming(1.012, { duration: 500 * slow, easing: Easing.inOut(Easing.ease) }),
+          withTiming(1, { duration: 500 * slow, easing: Easing.inOut(Easing.ease) })
         ),
         -1
       );
     }
     return () => cancelAnimation(ringScale);
-  }, [isPaused]);
+  }, [isPaused, slow]);
   const ringStyle = useAnimatedStyle(() => ({
     transform: [{ scale: ringScale.value }],
   }));
@@ -1133,24 +1164,32 @@ const RunCenter = memo(function RunCenter({
 const TopBar = memo(function TopBar({ tokens, tone, name, tag, roundLabel, onReturn, progress, markers, isPaused }) {
   const dotScale = useSharedValue(1);
   const dotOpacity = useSharedValue(0.6);
+  // Mode allégé (lib/lightMode.js), lu ICI (TopBar est mémoïsée) : niveau 1 = deux fois plus
+  // lent ; niveau 2 = point fixe (opaque en cours, plus pâle en pause : l'info reste lisible).
+  const slow = slowFactor(useLightLevel());
   useEffect(() => {
     if (isPaused) {
       cancelAnimation(dotScale);
       cancelAnimation(dotOpacity);
       dotScale.value = withTiming(1, { duration: 300 });
       dotOpacity.value = withTiming(0.5, { duration: 300 });
+    } else if (slow == null) {
+      cancelAnimation(dotScale);
+      cancelAnimation(dotOpacity);
+      dotScale.value = withTiming(1, { duration: 400 });
+      dotOpacity.value = withTiming(0.9, { duration: 400 });
     } else {
       dotScale.value = withRepeat(
         withSequence(
-          withTiming(1.3, { duration: 500, easing: Easing.inOut(Easing.ease) }),
-          withTiming(1, { duration: 500, easing: Easing.inOut(Easing.ease) })
+          withTiming(1.3, { duration: 500 * slow, easing: Easing.inOut(Easing.ease) }),
+          withTiming(1, { duration: 500 * slow, easing: Easing.inOut(Easing.ease) })
         ),
         -1
       );
       dotOpacity.value = withRepeat(
         withSequence(
-          withTiming(1, { duration: 500, easing: Easing.inOut(Easing.ease) }),
-          withTiming(0.4, { duration: 500, easing: Easing.inOut(Easing.ease) })
+          withTiming(1, { duration: 500 * slow, easing: Easing.inOut(Easing.ease) }),
+          withTiming(0.4, { duration: 500 * slow, easing: Easing.inOut(Easing.ease) })
         ),
         -1
       );
@@ -1159,7 +1198,7 @@ const TopBar = memo(function TopBar({ tokens, tone, name, tag, roundLabel, onRet
       cancelAnimation(dotScale);
       cancelAnimation(dotOpacity);
     };
-  }, [isPaused]);
+  }, [isPaused, slow]);
   const dotStyle = useAnimatedStyle(() => ({
     transform: [{ scale: dotScale.value }],
     opacity: dotOpacity.value,

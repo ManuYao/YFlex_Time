@@ -13,6 +13,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { easeImpact } from '../../lib/animations';
+import { useLightLevel, slowFactor } from '../../lib/lightMode';
 
 /**
  * ShineSweep — un reflet de lumière qui traverse un bouton en diagonale, puis
@@ -48,7 +49,10 @@ export default function ShineSweep({
   const reduceMotion = useReducedMotion();
   const progress = useSharedValue(0);
   const band = Math.max(36, height * 1.2);
-  const run = active && !reduceMotion && width > 0;
+  // Mode allégé (lib/lightMode.js) : niveau 1 = reflet deux fois plus lent et deux fois
+  // plus rare ; niveau 2 = plus de reflet. `slow` vaut 1 (normal), 2 (ralenti) ou null (coupé).
+  const slow = slowFactor(useLightLevel());
+  const run = active && !reduceMotion && width > 0 && slow != null;
 
   useEffect(() => {
     if (!run) {
@@ -58,18 +62,18 @@ export default function ShineSweep({
     }
     progress.value = 0;
     progress.value = withDelay(
-      delay,
+      delay * slow,
       withRepeat(
         withSequence(
-          withTiming(1, { duration: SWEEP_MS, easing: easeImpact }),
-          withDelay(every, withTiming(0, { duration: 0 }))
+          withTiming(1, { duration: SWEEP_MS * slow, easing: easeImpact }),
+          withDelay(every * slow, withTiming(0, { duration: 0 }))
         ),
         -1,
         false
       )
     );
     return () => cancelAnimation(progress);
-  }, [run, delay, every]);
+  }, [run, delay, every, slow]);
 
   const bandStyle = useAnimatedStyle(() => ({
     opacity: progress.value > 0 && progress.value < 1 ? 1 : 0,
