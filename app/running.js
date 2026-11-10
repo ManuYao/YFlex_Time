@@ -5,6 +5,7 @@ import {
   StyleSheet,
   BackHandler,
   AppState,
+  Pressable,
 } from 'react-native';
 import { beginSessionDraft, saveSessionDraft, clearSessionDraft } from '../lib/sessionDraft';
 import { goHomeClean } from '../lib/navigation';
@@ -45,6 +46,15 @@ import TutorialCoach from '../components/common/TutorialCoach';
 import { useTimers } from '../contexts/TimersContext';
 import { buildTutorialTimer, coachStepFor } from '../lib/tutorialShape';
 import { computeState, skipToNextPhaseElapsed } from '../lib/timer-engine';
+import {
+  applyOrder,
+  buildSessionRows,
+  canReorderNow,
+  moveUpcoming,
+  orderOf,
+} from '../lib/mixReorder';
+import MixSessionSheet from '../components/common/MixSessionSheet';
+import { voiceSnapshot } from '../lib/voiceCues';
 import { getTokens } from '../lib/tokens';
 import { fonts } from '../lib/fonts';
 import { formatDuration } from '../lib/formatters';
@@ -55,7 +65,7 @@ import { useUiScale, scaled, useLayoutLevel, useWindowSize } from '../lib/respon
 import { useHaptic } from '../hooks/useHaptic';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { useSound } from '../hooks/useSound';
-import { tickVoiceCoach, speakEnd, stopVoiceCoach, releaseVoiceSoon } from '../lib/voiceCoach';
+import { tickVoiceCoach, speakEnd, speakCues, stopVoiceCoach, releaseVoiceSoon } from '../lib/voiceCoach';
 import { loadCooldownMap, saveCooldownMap, consumeLaunch } from '../lib/cooldown';
 import { loadIsPremium } from '../lib/premium';
 import { haptic as hapticOnce } from '../hooks/useHaptic';
@@ -87,10 +97,19 @@ export default function Running() {
   // guidé au lieu de l'écran de fin.
   const isTutorial = tutorial === '1';
   const baseTimer = timers.find((t) => t.id === timerId) ?? timers[0];
-  const timer = useMemo(
-    () => (isTutorial ? buildTutorialTimer(baseTimer) : baseTimer),
-    [isTutorial, baseTimer]
-  );
+  // MIX réorganisé en séance (« Ma séance », lib/mixReorder.js) : liste d'ids dans l'ordre
+  // joué, ou null tant que rien n'a bougé. Les blocs d'avant le bloc courant ne changent
+  // jamais, donc le temps écoulé reste exact pour le moteur.
+  const [mixOrder, setMixOrder] = useState(null);
+  const timer = useMemo(() => {
+    if (isTutorial) return buildTutorialTimer(baseTimer);
+    if (mixOrder && baseTimer?.id === 'mix' && baseTimer._mix) {
+      const original = baseTimer._mix.blocks || [];
+      const blocks = applyOrder(original, mixOrder);
+      if (blocks !== original) return { ...baseTimer, _mix: { ...baseTimer._mix, blocks } };
+    }
+    return baseTimer;
+  }, [isTutorial, baseTimer, mixOrder]);
   // Mémoïsé : getTokens renvoie un objet NEUF à chaque appel, ce qui défaisait la
   // protection (React.memo) de tous les enfants qui le reçoivent. L'écran se
   // redessine 10 fois par seconde (tick de 100 ms) : voir RunBackdrop, RunCenter,
@@ -310,7 +329,7 @@ export default function Running() {
           ...(timer.id === 'basic'
             ? { ctx: JSON.stringify({ restTriggers }) }
             : isMix
-            ? { ctx: JSON.stringify({ basicTriggers: mixBasicTriggers }) }
+            ? { ctx: JSON.stringify({ basicTriggers: mixBasicTriggers, ...(mixOrder ? { mixOrder } : {}) }) }
             : {}),
         },
       });
@@ -415,7 +434,12 @@ export default function Running() {
     skippedRef.current = 0;
     voicePrevRef.current = null;
     if (timer.id === 'basic') setRestTriggers([]);
-    if (isMix) setMixBasicTriggers({});
+    if (isMix) {
+      setMixBasicTriggers({});
+      // On recommence : le MIX retrouve son ordre d'origine.
+      setMixOrder(null);
+      setSessionSheet(false);
+    }
     // Reset = on recommence : l'ancien brouillon n'a plus de sens.
     clearSessionDraft();
     beginSessionDraft();
@@ -509,10 +533,45 @@ export default function Running() {
         ...(timer.id === 'basic'
           ? { ctx: JSON.stringify({ restTriggers }) }
           : isMix
-          ? { ctx: JSON.stringify({ basicTriggers: mixBasicTriggers }) }
+          ? { ctx: JSON.stringify({ basicTriggers: mixBasicTriggers, ...(mixOrder ? { mixOrder } : {}) }) }
           : {}),
       },
     });
+  };
+
+  // ── « Ma séance » : réorganiser les exercices à venir PENDANT UN REPOS (lib/mixReorder.js) ──
+  // Appui long sur l'anneau central. Hors repos la feuille s'ouvre en lecture seule (rien ne
+  // se déplace en plein effort) et devient modifiable dès que le repos commence.
+  const [sessionSheet, setSessionSheet] = useState(false);
+  const canReorder = isMix && !isTutorial && canReorderNow(state);
+  const sessionRows = useMemo(
+    () => (isMix ? buildSessionRows(mixBlocks, curBlockIdx) : []),
+    [isMix, mixBlocks, curBlockIdx]
+  );
+  const restText = formatDuration(Math.ceil(state.phaseSecondsLeft || 0));
+  const handleMixMove = (blockId, where) => {
+    if (!isMix || isTutorial || navigatedRef.current || !canReorder) return;
+    const next = moveUpcoming(mixBlocks, curBlockIdx, blockId, where);
+    if (next === mixBlocks) return;
+    setMixOrder(orderOf(next));
+    haptic.success();
+    // Entre deux exercices, la voix redit le NOUVEAU « Ensuite » (la phrase d'origine
+    // annonçait l'ancien) ; la photo du coach est recalée sur le nouvel ordre.
+    if (state.blockType === 'rest') {
+      const nextState = computeState({ ...timer, _mix: { ...timer._mix, blocks: next } }, secondsElapsed, ctx);
+      if (nextState) {
+        const cur = voiceSnapshot(nextState, secondsElapsed);
+        if (nextState.nextBlock && nextState.nextBlock.type !== 'rest') {
+          speakCues(['next_block'], { prev: voicePrevRef.current, cur, mode: timer.id });
+        }
+        voicePrevRef.current = cur;
+      }
+    }
+  };
+  const handleRingLongPress = () => {
+    if (!isMix || isTutorial || navigatedRef.current) return;
+    haptic.medium();
+    setSessionSheet(true);
   };
 
   // Commandes à identité STABLE : chaque bouton appelle toujours la DERNIÈRE
@@ -527,6 +586,8 @@ export default function Running() {
     onSkip: handleSkip,
     onEndWork: isLastEmomRound ? handleFinish : isLastMixEmomRound ? handleSkip : handleEndWork,
     onFinish: handleStop,
+    onRingLongPress: handleRingLongPress,
+    onMixMove: handleMixMove,
     onWeightPress: (kind) => {
       const block = kind === 'next' ? nextPlanBlock : weightBlock;
       if (!block) return;
@@ -544,6 +605,8 @@ export default function Running() {
       onFinish: () => latest.current.onFinish(),
       onWeightPress: () => latest.current.onWeightPress('done'),
       onNextWeightPress: () => latest.current.onWeightPress('next'),
+      onRingLongPress: () => latest.current.onRingLongPress(),
+      onMixMove: (id, where) => latest.current.onMixMove(id, where),
     }),
     []
   );
@@ -881,6 +944,7 @@ export default function Running() {
             ringBoxStyle={ringBoxStyle}
             ringZoomStyle={ringZoomStyle}
             ringStyle={ringStyle}
+            onLongPress={isMix && !isTutorial ? stable.onRingLongPress : null}
           />
 
           {/* Le déroulé des phases est un repère de confort : premier bloc
@@ -943,6 +1007,18 @@ export default function Running() {
           accessory={weightAccessory}
         />
       </SafeAreaView>
+
+      {sessionSheet && isMix && (
+        <MixSessionSheet
+          screenH={winH}
+          rows={sessionRows}
+          canReorder={canReorder}
+          restText={restText}
+          color={timer.color}
+          onMove={stable.onMixMove}
+          onClose={() => setSessionSheet(false)}
+        />
+      )}
 
       {weightSheet && (
         <QuickWeightSheet
@@ -1057,13 +1133,23 @@ const RunCenter = memo(function RunCenter({
   ringBoxStyle,
   ringZoomStyle,
   ringStyle,
+  onLongPress,
 }) {
+  // Appui long sur l'anneau (ou sur le temps en mode mini) : « Ma séance » (MIX seulement).
+  const wrap = (node) =>
+    onLongPress ? (
+      <Pressable onLongPress={onLongPress} delayLongPress={500} accessibilityLabel="Ma séance, maintenir">
+        {node}
+      </Pressable>
+    ) : (
+      node
+    );
   if (isMini) {
     /* (V) Mini — le temps, la phase, rien d'autre. L'anneau dit la
        même chose que la barre de progression déjà en haut, mais
        coûte toute la hauteur dont le chrono a besoin pour rester
        lisible à distance. */
-    return (
+    return wrap(
       <Animated.View style={[styles.miniCenter, timeStyle]}>
         <Animated.Text
           style={[
@@ -1091,7 +1177,7 @@ const RunCenter = memo(function RunCenter({
       </Animated.View>
     );
   }
-  return (
+  return wrap(
     <Animated.View style={[{ width: ring }, ringBoxStyle]}>
       <Animated.View
         style={[{ width: ring, height: ring, transformOrigin: ['50%', 0, 0] }, ringZoomStyle]}

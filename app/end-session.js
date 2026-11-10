@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -34,6 +34,7 @@ import {
 } from '../lib/notificationPrompt';
 import { useTimers } from '../contexts/TimersContext';
 import { computeSessionStats } from '../lib/timer-engine';
+import { applyOrder } from '../lib/mixReorder';
 import { buildHistoryEntry, clearSessionDraft } from '../lib/sessionDraft';
 import { goHomeClean } from '../lib/navigation';
 import { formatDuration } from '../lib/formatters';
@@ -55,7 +56,7 @@ export default function EndSession() {
   const router = useRouter();
   const { timerId, elapsed, ctx: ctxParam } = useLocalSearchParams();
   const { timers } = useTimers();
-  const timer = timers.find((t) => t.id === timerId);
+  const baseTimer = timers.find((t) => t.id === timerId);
   const elapsedNum = Number(elapsed) || 0;
   const savedRef = useRef(false);
   const { height: screenH } = useWindowDimensions();
@@ -137,6 +138,20 @@ export default function EndSession() {
       ctx = JSON.parse(ctxParam);
     } catch {}
   }
+
+  // MIX réorganisé en cours de séance (lib/mixReorder.js) : les stats se calculent sur
+  // l'ordre réellement joué, pas sur l'ordre d'origine du MIX.
+  const timer = useMemo(
+    () =>
+      baseTimer && baseTimer.id === 'mix' && baseTimer._mix && ctx?.mixOrder
+        ? {
+            ...baseTimer,
+            _mix: { ...baseTimer._mix, blocks: applyOrder(baseTimer._mix.blocks || [], ctx.mixOrder) },
+          }
+        : baseTimer,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [baseTimer, ctxParam]
+  );
 
   const [badgeQueue, setBadgeQueue] = useState([]);
   const badgeTotalRef = useRef(0);

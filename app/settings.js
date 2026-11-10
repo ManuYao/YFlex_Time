@@ -283,6 +283,8 @@ export default function Settings() {
         'flexTimer_holdTip',
         // Bulles d'explication du menu (lib/hubTips.js) : redeviennent à montrer.
         'flexTimer_hubTips',
+        // Tutoriel du MIX (lib/mixTutorial.js) : redevient à montrer.
+        'flexTimer_mixTutorialSeen',
         // Tutoriel de démarrage (lib/tutorial.js) : après un reset la personne
         // repart de zéro, le pop-up qui le propose peut revenir.
         'flexTimer_tutorial',
@@ -644,6 +646,15 @@ export default function Settings() {
                   onPress={() => {
                     haptic.light();
                     router.push({ pathname: '/tutorial', params: { step: 'menu' } });
+                  }}
+                />
+                <LinkRow
+                  nested
+                  label="Le constructeur MIX"
+                  sub="Blocs, repos, kg et réorganisation"
+                  onPress={() => {
+                    haptic.light();
+                    router.push({ pathname: '/mix-builder', params: { tutorial: '1' } });
                   }}
                 />
                 <LinkRow
