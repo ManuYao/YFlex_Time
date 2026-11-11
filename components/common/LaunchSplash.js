@@ -15,6 +15,7 @@ import Animated, {
 import LaunchRing, { FineCrown, RadialGlow } from './LaunchRing';
 import SpaceBackdrop from './SpaceBackdrop';
 import useAmbiance from '../../hooks/useAmbiance';
+import { getAmbiance } from '../../lib/ambiance';
 import useArmed from '../../hooks/useArmed';
 import { useSettings } from '../../contexts/SettingsContext';
 import { fonts } from '../../lib/fonts';
@@ -121,7 +122,12 @@ export default function LaunchSplash({ onDone }) {
 
 function SplashShow({ onDone }) {
   const reduced = useReducedMotion();
-  const { ambiance } = useAmbiance();
+  // Couleur BRUTE du calendrier, jamais mélangée à la saison suivante : l'intro doit
+  // basculer EXACTEMENT le même jour que l'icône du téléphone (hooks/useSeasonIcon.js lit
+  // la même valeur `id`, non mélangée), jamais à mi-chemin. Le glissement progressif
+  // (lib/ambiance.js, blendAmbiance) reste pour le reste de l'appli (accueil, menu…).
+  const { id: ambianceId, eco } = useAmbiance();
+  const ambiance = eco ? null : getAmbiance(ambianceId);
   const look = useMemo(() => splashLookFor(ambiance?.id), [ambiance?.id]);
   const armed = useArmed();
 
