@@ -23,6 +23,7 @@ function rowCaption({ count, badges }) {
 
 export default function ProfileGamification({ badgeCounts, onOpenModeStats, hasData }) {
   const customTargetRef = useRef(null);
+  const trophyTargetRef = useRef(null);
   const ROWS = React.useMemo(
     () =>
       TIMERS.map((timer) => {
@@ -44,6 +45,10 @@ export default function ProfileGamification({ badgeCounts, onOpenModeStats, hasD
       {/* ─── TROPHÉES ─── */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Trophées</Text>
+        <Text style={styles.sectionHint}>Section en travaux : de nouveaux trophées arrivent (objectifs, jeux…).</Text>
+        {/* Flouté pendant les travaux (11/11/2026) : contenu gardé, intouchable. */}
+        <View style={styles.blurZone}>
+        <BlurTargetView ref={trophyTargetRef} pointerEvents="none">
         <View style={styles.card}>
           <View style={styles.summary}>
             <AppIcon name="trophies" size={22} />
@@ -106,6 +111,24 @@ export default function ProfileGamification({ badgeCounts, onOpenModeStats, hasD
               </PressTap>
             );
           })}
+        </View>
+        </BlurTargetView>
+          <BlurView
+            blurTarget={trophyTargetRef}
+            intensity={100}
+            tint="dark"
+            blurMethod="dimezisBlurView"
+            blurReductionFactor={4}
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
+          />
+          <View style={[StyleSheet.absoluteFill, styles.blurVeil]} />
+          <View style={[StyleSheet.absoluteFill, styles.blurCenter]} pointerEvents="none">
+            <View style={styles.soonBadge}>
+              <AppIcon name="lock" size={14} opacity={0.9} />
+              <Text style={styles.soonBadgeText}>EN TRAVAUX</Text>
+            </View>
+          </View>
         </View>
       </View>
 
