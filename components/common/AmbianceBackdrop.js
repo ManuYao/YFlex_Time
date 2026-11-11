@@ -395,6 +395,51 @@ function RarePass({ kind, ink, accent, w, h, active }) {
   );
 }
 
+// ─── Minimum (mode allégé niveau 2 : batterie à 20 % ou téléphone chaud) ───
+
+/**
+ * Le strict minimum : la lueur de la saison, FIGÉE (trois taches, aucune animation, aucun
+ * motif, aucun passage). Elle garde le fond aux couleurs de la saison quand tout le reste est
+ * coupé pour économiser la batterie (demande de l'utilisateur, 11/11/2026).
+ */
+function StaticGlow({ ambiance, w, h }) {
+  const color = toHex(ambiance.glow);
+  return (
+    <>
+      {GLOW_BLOBS.map((blob, i) => {
+        const d = blob.size * w;
+        const gid = `ambEcoGlow${i}`;
+        return (
+          <View
+            key={i}
+            pointerEvents="none"
+            style={[
+              styles.fixed,
+              {
+                left: blob.fx * w - d / 2,
+                top: blob.fy * h - d / 2,
+                width: d,
+                height: d,
+                opacity: blob.opacity * ambiance.glowK,
+              },
+            ]}
+          >
+            <Svg width={d} height={d}>
+              <Defs>
+                <RadialGradient id={gid} cx="50%" cy="50%" rx="50%" ry="50%">
+                  <Stop offset="0" stopColor={color} stopOpacity="1" />
+                  <Stop offset="0.93" stopColor={color} stopOpacity="0" />
+                </RadialGradient>
+              </Defs>
+              <Rect width="100%" height="100%" fill={`url(#${gid})`} />
+            </Svg>
+          </View>
+        );
+      })}
+    </>
+  );
+}
+
 // ─── Assemblage ────────────────────────────────────────────────────────────
 
 function Scene({ ambiance, ink, w, h, active }) {
@@ -440,8 +485,10 @@ function Scene({ ambiance, ink, w, h, active }) {
 
 // `ambianceId` : impose une ambiance précise (bilan de saison) au lieu de celle du jour.
 export default function AmbianceBackdrop({ tone = 'light', ambianceId = null }) {
-  const current = useAmbiance().ambiance;
+  const { ambiance: current, ecoAmbiance } = useAmbiance();
   const ambiance = ambianceId ? getAmbiance(ambianceId) : current;
+  // Mode allégé niveau 2 : on ne garde que la lueur de la saison, figée (voir StaticGlow).
+  const ecoOnly = !ambiance && !ambianceId && ecoAmbiance ? ecoAmbiance : null;
   const active = useAmbianceActive();
   const [size, setSize] = useState({ w: 0, h: 0 });
 
@@ -453,9 +500,17 @@ export default function AmbianceBackdrop({ tone = 'light', ambianceId = null }) 
   }, []);
 
   // Réglage « Aucune » : rien du tout (les hooks ci-dessus sont appelés quand même).
-  if (!ambiance) return null;
+  if (!ambiance && !ecoOnly) return null;
 
   const ink = tone === 'dark' ? INK.dark : INK.light;
+
+  if (ecoOnly) {
+    return (
+      <View style={styles.root} pointerEvents="none" onLayout={handleLayout}>
+        {size.w > 0 && size.h > 0 ? <StaticGlow ambiance={ecoOnly} w={size.w} h={size.h} /> : null}
+      </View>
+    );
+  }
 
   return (
     <View style={styles.root} pointerEvents="none" onLayout={handleLayout}>

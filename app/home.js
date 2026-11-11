@@ -73,7 +73,7 @@ import PermissionPrimer from '../components/common/PermissionPrimer';
 import { shouldShowPermissionPrimer } from '../lib/permissionPrimer';
 import { pendingBadges, markBadgeSeen } from '../lib/badgeCelebration';
 import { loadHistory, countSessionsByTimer } from '../lib/history';
-import { ensureSessionRecovered } from '../lib/sessionDraft';
+import { ensureSessionRecovered, takeRecoveredNotice } from '../lib/sessionDraft';
 import MiniToast from '../components/common/MiniToast';
 import { formatDuration } from '../lib/formatters';
 import { getTimerHero, getTimerDescription, getTimerBar } from '../lib/timers-config';
@@ -459,15 +459,18 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   }, [previewParam, hydrated, router]);
 
   // Séance interrompue au dernier lancement (batterie vide, plantage) :
-  // récupérée depuis le brouillon (lib/sessionDraft.js), annoncée par un petit
-  // message qui disparaît tout seul. La promesse est mémorisée : la même pour
-  // _layout.js et pour les rattrapages de trophées plus bas.
+  // récupérée depuis le brouillon (lib/sessionDraft.js), annoncée UNE seule fois
+  // (takeRecoveredNotice vide l'annonce dès qu'elle est prise : avant, la promesse
+  // mémorisée rendait la même séance à chaque retour à l'accueil, donc le message
+  // revenait après chaque séance).
   const [recoveredSession, setRecoveredSession] = useState(null);
   useEffect(() => {
     let cancelled = false;
     let hideTimer = null;
-    ensureSessionRecovered().then((entry) => {
-      if (cancelled || !entry) return;
+    ensureSessionRecovered().then(() => {
+      if (cancelled) return; // l'annonce reste pour la prochaine ouverture de l'accueil
+      const entry = takeRecoveredNotice();
+      if (!entry) return;
       setRecoveredSession(entry);
       // Assez long pour passer le splash éventuel (il recouvre l'accueil).
       hideTimer = setTimeout(() => setRecoveredSession(null), 8000);

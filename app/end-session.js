@@ -337,8 +337,9 @@ export default function EndSession() {
       textMode="light"
       ambient
     >
-      {/* Décor de la saison derrière le bilan (rien si l'ambiance est désactivée) */}
-      {ambiance ? <AmbianceBackdrop tone="light" /> : null}
+      {/* Décor de la saison derrière le bilan (rien si l'ambiance est désactivée ; en mode
+          allégé, seulement la lueur de la saison, figée) */}
+      <AmbianceBackdrop tone="light" />
       <Confetti colors={confettiColors} />
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.statusBar}>

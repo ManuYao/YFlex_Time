@@ -46,7 +46,7 @@ function MixSessionSheetBase({ screenH, rows, canReorder, restText, color = '#FF
           <Text style={styles.sub}>
             {canReorder
               ? `Repos ${restText} · touche un exercice à venir`
-              : 'On change l’ordre pendant un repos, jamais en plein effort.'}
+              : 'Pour changer l’ordre : maintiens le cercle 2 s pendant un repos.'}
           </Text>
 
           <View style={styles.list}>
@@ -119,6 +119,33 @@ function MixSessionSheetBase({ screenH, rows, canReorder, restText, color = '#FF
                         haptic={haptic.light}
                         onPress={() => move(r.id, 'end')}
                       />
+                      {/* D'un seul cran : utile quand il reste plus de deux exercices. */}
+                      <View style={styles.pair}>
+                        <View style={styles.pairItem}>
+                          <Button
+                            variant="glass"
+                            size="sm"
+                            fullWidth
+                            icon="up"
+                            label="Avant"
+                            disabled={r.isNext}
+                            haptic={haptic.light}
+                            onPress={() => move(r.id, 'up')}
+                          />
+                        </View>
+                        <View style={styles.pairItem}>
+                          <Button
+                            variant="glass"
+                            size="sm"
+                            fullWidth
+                            icon="down"
+                            label="Après"
+                            disabled={r.lastTodo}
+                            haptic={haptic.light}
+                            onPress={() => move(r.id, 'down')}
+                          />
+                        </View>
+                      </View>
                     </View>
                   )}
                 </View>
@@ -186,4 +213,6 @@ const styles = StyleSheet.create({
   metaDone: { color: 'rgba(255,255,255,0.4)' },
   tag: { fontFamily: fonts.sansBold, fontSize: 10, letterSpacing: 1.5, color: 'rgba(255,255,255,0.45)' },
   actions: { gap: 8, paddingHorizontal: 12, paddingBottom: 12 },
+  pair: { flexDirection: 'row', gap: 8 },
+  pairItem: { flex: 1 },
 });
