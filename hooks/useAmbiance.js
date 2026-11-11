@@ -12,6 +12,7 @@ import {
   seasonDrift,
 } from '../lib/ambiance';
 import { useLightLevel } from '../lib/lightMode';
+import { useEcoCritApplied } from '../lib/batteryEco';
 
 /**
  * L'ambiance du moment : { mode, id, ambiance } — `ambiance` vaut null quand il n'y en a
@@ -68,9 +69,15 @@ function useBaseAmbiance() {
 export default function useAmbiance() {
   const value = useBaseAmbiance();
   const level = useLightLevel();
+  const crit = useEcoCritApplied(); // batterie à 10 % ou moins : même la lueur est coupée
   return useMemo(
-    () => (level >= 2 && value.ambiance ? { ...value, ambiance: null, eco: true } : value),
-    [value, level]
+    // `ecoAmbiance` : ambiance gardée pour que AmbianceBackdrop dessine au minimum la lueur de la
+    // saison, FIXE, quand tout le reste est coupé (sauf batterie critique, ≤ 10 % : rien du tout).
+    () =>
+      level >= 2 && value.ambiance
+        ? { ...value, ambiance: null, eco: true, ecoAmbiance: crit ? null : value.ambiance }
+        : value,
+    [value, level, crit]
   );
 }
 
