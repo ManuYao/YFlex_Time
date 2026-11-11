@@ -42,9 +42,10 @@ import {
   buildSets,
   getFormat,
   plannedSeconds,
-  repStepMs,
   repsDone,
   restSeconds,
+  seriesLevel,
+  seriesStepMs,
   totalReps,
 } from '../lib/gamePyramid';
 
@@ -286,9 +287,11 @@ export default function GamePyramid() {
     const target = setsRef.current[i];
     const baseMs = PYRAMID_REP_MS; // un seul rythme pour tous les exercices
     // Répétitions déjà faites avant cette série, et total prévu : la voix ralentit
-    // peu à peu avec la fatigue (voir FATIGUE_SLOWDOWN dans lib/gamePyramid.js).
+    // par paliers avec la fatigue (voir seriesLevel dans lib/gamePyramid.js). Le pas
+    // est le même pour toute la série : c'est celui de sa bande-son.
     const doneBefore = repsDone(setsRef.current, i);
     const plannedTotal = totalReps(setsRef.current);
+    const stepMs = seriesStepMs(baseMs, seriesLevel(doneBefore, target, plannedTotal));
     const caller = callerRef.current;
     if (!caller) return;
     setIndexRef.current = i;
@@ -303,14 +306,17 @@ export default function GamePyramid() {
     }
     goPhase('set');
     let nextAt = Date.now();
+    // UN seul ordre de lecture pour toute la série (« 1, 2, 3… n ») ; sans bande-son
+    // (voix absente, série trop longue) on dit les chiffres un par un.
+    const withSeries = caller.playSeries(target, seriesLevel(doneBefore, target, plannedTotal), stepMs);
 
     const tick = () => {
       if (phaseRef.current !== 'set') return;
       const n = countRef.current + 1;
       countRef.current = n;
-      caller.say(n);
+      if (!withSeries) caller.say(n);
       setCount(n);
-      nextAt += repStepMs(baseMs, doneBefore + n, plannedTotal);
+      nextAt += stepMs;
       // Après la dernière répétition, on laisse le temps de la finir avant le repos.
       loopTimer.current = setTimeout(n >= target ? endSet : tick, Math.max(0, nextAt - Date.now()));
     };
@@ -365,8 +371,19 @@ export default function GamePyramid() {
     preloadGameSounds();
     // Un lecteur par chiffre de la pyramide, créé pendant le décompte (décodage
     // des MP3) puis jamais rechargé : voir lib/gameVoice.js.
-    callerRef.current = createFixedNumberCaller(settings.voiceGender, Math.max(...planned));
-    callerRef.current.preload(1, Math.max(...planned));
+    const caller = createFixedNumberCaller(settings.voiceGender, Math.max(...planned));
+    callerRef.current = caller;
+    // Une bande-son par série (créée pendant le décompte) ; les chiffres isolés ne
+    // servent plus que de secours, pour une série qui n'en aurait pas.
+    const needed = [];
+    let done = 0;
+    const planTotal = totalReps(planned);
+    planned.forEach((r) => {
+      needed.push({ n: r, level: seriesLevel(done, r, planTotal) });
+      done += r;
+    });
+    caller.preloadSeries(needed);
+    if (needed.some(({ n, level }) => !caller.hasSeries(n, level))) caller.preload(1, Math.max(...planned));
     setSetIndex(0);
     goPhase('countdown');
     setCountdown(3);
