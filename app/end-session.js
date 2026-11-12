@@ -37,7 +37,7 @@ import { computeSessionStats } from '../lib/timer-engine';
 import { applyOrder } from '../lib/mixReorder';
 import { buildHistoryEntry, clearSessionDraft } from '../lib/sessionDraft';
 import { goHomeClean } from '../lib/navigation';
-import { formatDuration } from '../lib/formatters';
+import { formatClock } from '../lib/formatters';
 import { fonts } from '../lib/fonts';
 import { BOTTOM_GAP, PAIR_GAP, SIDE_GAP } from '../lib/buttonTokens';
 import { useUiScale, scaled, useLayoutLevel } from '../lib/responsive';
@@ -84,7 +84,11 @@ export default function EndSession() {
   // de la place réelle : 5 caractères de mono à ~0,6 em, dans le diamètre
   // utile (~72 % du cercle). Plafonné à 56 pour que le plein écran ne bouge
   // pas d'un pixel.
-  const durationSize = Math.min(56, Math.round(ring * 0.22));
+  // Au-delà d'une heure l'horloge a 8 caractères (HH:MM:SS) au lieu de 5.
+  const durationSize = Math.min(
+    elapsedNum >= 3600 ? 38 : 56,
+    Math.round(ring * (elapsedNum >= 3600 ? 0.15 : 0.22))
+  );
   // Idem pour "DURÉE TOTALE" : à 10 px avec 3 px d'interlettrage, le libellé
   // dépassait le cercle et se coupait en deux lignes.
   const durationLabelSize = ring < 210 ? 9 : 10;
@@ -232,8 +236,8 @@ export default function EndSession() {
   }
 
   const dateLabel = formatDateLabel(new Date());
-  const restValue = stats.restTotal > 0 ? formatDuration(stats.restTotal) : '—';
-  const workValue = formatDuration(stats.workTotal);
+  const restValue = stats.restTotal > 0 ? formatClock(stats.restTotal) : '—';
+  const workValue = formatClock(stats.workTotal);
 
   // SÉANCE TERMINÉE pulse opacity 0.5↔1
   const statusOpacity = useSharedValue(0.5);
@@ -409,7 +413,7 @@ export default function EndSession() {
                 { fontSize: durationSize, lineHeight: Math.round(durationSize * 1.1) },
               ]}
             >
-              {formatDuration(elapsedNum)}
+              {formatClock(elapsedNum)}
             </Text>
             {/* Le tag du mode est de l'informatif : c'est ce qui saute en
                 premier quand le cercle devient trop petit pour tout loger. */}
