@@ -84,11 +84,7 @@ export default function EndSession() {
   // de la place réelle : 5 caractères de mono à ~0,6 em, dans le diamètre
   // utile (~72 % du cercle). Plafonné à 56 pour que le plein écran ne bouge
   // pas d'un pixel.
-  // Au-delà d'une heure l'horloge a 8 caractères (HH:MM:SS) au lieu de 5.
-  const durationSize = Math.min(
-    elapsedNum >= 3600 ? 38 : 56,
-    Math.round(ring * (elapsedNum >= 3600 ? 0.15 : 0.22))
-  );
+  const durationSize = Math.min(56, Math.round(ring * 0.22));
   // Idem pour "DURÉE TOTALE" : à 10 px avec 3 px d'interlettrage, le libellé
   // dépassait le cercle et se coupait en deux lignes.
   const durationLabelSize = ring < 210 ? 9 : 10;
