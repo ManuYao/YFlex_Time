@@ -1,18 +1,13 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { usePathname, useRouter } from 'expo-router';
+import { useGlobalSearchParams, usePathname, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import AppIcon from './AppIcon';
 import Button from './Button';
 import { fonts } from '../../lib/fonts';
-import { isWindowTooSmall, useWindowSize } from '../../lib/responsive';
+import { isWindowTooSmall, noticeKind, useWindowSize } from '../../lib/responsive';
 import { haptic } from '../../hooks/useHaptic';
-
-// Écrans qui ont leur propre mise en page « mini » : on les garde ouverts dans
-// une petite fenêtre (le chrono pendant qu'on suit son programme à côté), ils
-// ne reçoivent le message que si la fenêtre devient vraiment minuscule.
-const ADAPTIVE_ROUTES = ['/', '/home', '/running', '/countdown'];
 
 /**
  * Message « agrandis la fenêtre » — à monter une seule fois dans app/_layout.js,
@@ -20,15 +15,19 @@ const ADAPTIVE_ROUTES = ['/', '/home', '/running', '/countdown'];
  * multi-fenêtres / pop-up view de Samsung) est trop petite pour qu'il reste
  * utilisable ; il disparaît tout seul dès qu'on agrandit.
  *
- * Seuils et raisons : isWindowTooSmall() dans lib/responsive.js.
+ * Seuils et raisons : lib/windowTiers.js (NOTICE_LIMITS). Le chrono (hors MIX) descend très
+ * bas (il a un palier « micro ») ; le MIX garde son ancien minimum, donc le message revient
+ * dès que la fenêtre est plus petite que celui-ci.
  */
 export default function SmallWindowNotice() {
   const { width, height } = useWindowSize();
   const pathname = usePathname();
   const router = useRouter();
+  const params = useGlobalSearchParams();
 
-  const adaptive = ADAPTIVE_ROUTES.includes(pathname);
-  if (!isWindowTooSmall(width, height, adaptive)) return null;
+  const timerId = Array.isArray(params?.timerId) ? params.timerId[0] : params?.timerId;
+  const kind = noticeKind(pathname, timerId === 'mix');
+  if (!isWindowTooSmall(width, height, kind)) return null;
 
   const onHome = pathname === '/' || pathname === '/home';
   // Très bas : on supprime ce qui n'est pas indispensable pour que le texte
@@ -44,7 +43,9 @@ export default function SmallWindowNotice() {
             Fenêtre trop petite
           </Text>
           <Text style={styles.body}>
-            Agrandis la fenêtre pour utiliser cet écran.
+            {kind === 'mix'
+              ? 'Le MIX a besoin d’un peu plus de place : agrandis la fenêtre.'
+              : 'Agrandis la fenêtre pour utiliser cet écran.'}
           </Text>
           {!onHome && (
             <Button

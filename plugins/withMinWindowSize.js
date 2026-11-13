@@ -11,13 +11,20 @@
 // (eas build), un `eas update` ne peut pas le livrer.
 const { withAndroidManifest, AndroidConfig } = require('expo/config-plugins');
 
-// En dessous, l'empilement vertical de /running (barre du haut + anneau +
-// pastilles de phase + commandes) ne tient plus, meme reduit : seuls l'anneau
-// et les chiffres se reduisent, la hauteur du reste est fixe (~210dp).
-// A 480dp de haut ca passait au dp pres, d'ou cette marge.
-// Valeurs a reajuster si un testeur trouve la fenetre minimale trop grande.
-const MIN_WIDTH = '300dp';
-const MIN_HEIGHT = '520dp';
+// Plancher ABAISSE (demande de l'utilisateur) : le chrono (AMRAP, EMOM, TABATA,
+// BASIC) a maintenant des paliers jusqu'au « micro » — juste les chiffres, les
+// commandes apparaissent quand on touche le chiffre (lib/windowTiers.js,
+// app/running.js). Avant, le plancher etait 300 x 520 dp : en dessous, l'empilement
+// vertical ne tenait plus. Android applique de toute facon son propre plancher
+// (~220 dp en fenetre flottante) : ces valeurs ne servent qu'aux appareils qui
+// laissent descendre plus bas.
+//
+// Le MIX, lui, GARDE l'ancien minimum 300 x 520 (decision de l'utilisateur) : le
+// plancher natif est le meme pour toute l'app, donc c'est l'ecran qui le fait
+// respecter (message « Agrandis la fenetre », NOTICE_LIMITS.mix dans lib/windowTiers.js).
+// Les autres ecrans (listes, feuilles) ont aussi leur message sous 430 x 270.
+const MIN_WIDTH = '200dp';
+const MIN_HEIGHT = '120dp';
 
 module.exports = (config) =>
   withAndroidManifest(config, (cfg) => {

@@ -20,7 +20,7 @@ import { useTimers } from '../contexts/TimersContext';
 import { buildTutorialTimer } from '../lib/tutorialShape';
 import { goHomeClean } from '../lib/navigation';
 import { fonts } from '../lib/fonts';
-import { useLayoutLevel, useWindowSize } from '../lib/responsive';
+import { isMicroWindow, useLayoutLevel, useLayoutSize, useWindowSize } from '../lib/responsive';
 import { LAUNCH_GLOW_REST, burstParticles, launchRingSize, launchTone } from '../lib/launchVisuals';
 import { useHaptic } from '../hooks/useHaptic';
 import { useSound } from '../hooks/useSound';
@@ -134,6 +134,11 @@ export default function Countdown() {
   // est courte, avant de toucher au chiffre lui-même.
   const level = useLayoutLevel();
   const isReduced = level === 'mini' || level === 'compact';
+  // Fenêtre minuscule (palier micro du chrono, jamais le MIX) : l'anneau et le chiffre prennent
+  // toute la place, les repères du haut et du bas (« PRÉPARE-TOI », rappel du timer) passeraient
+  // par-dessus l'anneau. Un appui sur l'écran annule toujours le décompte.
+  const layoutSize = useLayoutSize();
+  const isMicro = timer.id !== 'mix' && isMicroWindow(layoutSize.width, layoutSize.height);
 
   const isDark = timer.textMode === 'dark';
   const textColor = isDark ? '#0A0A0A' : '#FFFFFF';
@@ -340,22 +345,26 @@ export default function Countdown() {
       </View>
 
       <Pressable style={[styles.full, isReduced && styles.fullReduced]} onPress={handleCancel}>
-        <Animated.View style={[styles.topLabel, labelsStyle]} pointerEvents="none">
-          <Text style={[styles.prepLabel, { color: dimColor }]}>PRÉPARE-TOI</Text>
-          <View style={[styles.bar, { backgroundColor: dimColor }]} />
-        </Animated.View>
+        {!isMicro && (
+          <Animated.View style={[styles.topLabel, labelsStyle]} pointerEvents="none">
+            <Text style={[styles.prepLabel, { color: dimColor }]}>PRÉPARE-TOI</Text>
+            <View style={[styles.bar, { backgroundColor: dimColor }]} />
+          </Animated.View>
+        )}
 
         <View style={styles.center} pointerEvents="none" />
 
-        <Animated.View style={[styles.bottomLabel, labelsStyle]} pointerEvents="none">
-          <View style={[styles.bar, { backgroundColor: dimColor }]} />
-          <Text style={[styles.timerHint, { color: dimColor }]}>
-            {isTutorial ? 'TEST · ' : ''}{timer.name} · {heroDuration}
-          </Text>
-          <Text style={[styles.cancelHint, { color: mutedColor }]}>
-            Appuie pour annuler
-          </Text>
-        </Animated.View>
+        {!isMicro && (
+          <Animated.View style={[styles.bottomLabel, labelsStyle]} pointerEvents="none">
+            <View style={[styles.bar, { backgroundColor: dimColor }]} />
+            <Text style={[styles.timerHint, { color: dimColor }]}>
+              {isTutorial ? 'TEST · ' : ''}{timer.name} · {heroDuration}
+            </Text>
+            <Text style={[styles.cancelHint, { color: mutedColor }]}>
+              Appuie pour annuler
+            </Text>
+          </Animated.View>
+        )}
       </Pressable>
     </GradientBackground>
   );

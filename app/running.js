@@ -61,7 +61,26 @@ import { formatDuration } from '../lib/formatters';
 import { restGradient, blendGradients, shiftLightness } from '../lib/phase-colors';
 import { TIMERS } from '../lib/timers-config';
 import { useTimer } from '../hooks/useTimer';
-import { useUiScale, scaled, useLayoutLevel, useWindowSize } from '../lib/responsive';
+import {
+  useUiScale,
+  scaled,
+  useLayoutLevel,
+  useLayoutSize,
+  useWindowSize,
+  runTier,
+  isSlimTopBar,
+  controlsScale,
+} from '../lib/responsive';
+import {
+  MICRO_AUTOHIDE_MS,
+  MICRO_TRACKING,
+  embeddedControlsScale,
+  microDigitsSize,
+  microInfoHeight,
+  microShowsLabels,
+  microShowsReturn,
+  microTimeText,
+} from '../lib/windowTiers';
 import { useHaptic } from '../hooks/useHaptic';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { useSound } from '../hooks/useSound';
@@ -131,11 +150,8 @@ export default function Running() {
   // en mini l'anneau disparaît au profit du temps — la seule chose qu'on
   // regarde vraiment en plein effort.
   const level = useLayoutLevel();
-  const isMini = level === 'mini';
-  const isReduced = isMini || level === 'compact';
   const { height: winH, width: winW } = useWindowSize();
-  const ring = scaled(level === 'compact' ? 260 : 320, ui);
-  const bigTimeSize = isMini ? scaled(64, ui) : scaled(level === 'compact' ? 62 : 76, ui);
+  const { width: lw, height: lh } = useLayoutSize();
 
   const {
     secondsElapsed,
@@ -148,6 +164,27 @@ export default function Running() {
   useWakeLock(true);
 
   const isMix = timer.id === 'mix';
+
+  // Paliers du chrono en fenêtre réduite (lib/windowTiers.js), hors MIX :
+  //   ring  = barre du haut + anneau + commandes (réduits) ;
+  //   mini  = plus d'anneau (trop petit) ;
+  //   micro = seulement les chiffres ; les commandes sortent d'un appui sur le chiffre.
+  // Le MIX garde EXACTEMENT ses paliers d'origine (décision de l'utilisateur) : le niveau
+  // global, jamais le micro (son minimum est respecté par SmallWindowNotice).
+  const availH = lh - insets.top - insets.bottom;
+  const tier = isMix
+    ? level === 'mini'
+      ? 'mini'
+      : 'ring'
+    : runTier({ width: lw, height: availH, level, ui });
+  const isMicro = tier === 'micro';
+  const isMini = tier === 'mini';
+  const isReduced = level !== 'full';
+  // Fenêtre basse : la barre du haut perd le libellé « Retour » (place pour l'anneau).
+  const slim = !isMix && isSlimTopBar(availH);
+  const ring = scaled(level === 'full' ? 320 : 260, ui);
+  const bigTimeSize = isMini ? scaled(64, ui) : scaled(level === 'full' ? 76 : 62, ui);
+
   const [restTriggers, setRestTriggers] = useState([]);
   // Un bloc BASIC dans un MIX est manuel comme le BASIC autonome, mais
   // plusieurs BASIC dans le même MIX ont chacun leurs propres tours : la clé
@@ -297,6 +334,37 @@ export default function Running() {
     tickVoiceCoach(voicePrevRef, state, secondsElapsed, timer.id);
   }, [secondsElapsed, isPaused, state.isComplete]);
 
+  // ── Palier micro : commandes affichées par-dessus le chiffre ──
+  // Un appui sur le chiffre les fait apparaître ; un appui à côté des boutons, une action qui
+  // change l'écran (Reset, Passer, fin du travail) ou 3 s sans appui les referment. Chaque
+  // appui sur un bouton relance les 3 s (un maintien de 2 s au plus ne se fait jamais couper).
+  const [microOpen, setMicroOpen] = useState(false);
+  const microOpenRef = useRef(false);
+  microOpenRef.current = microOpen;
+  const microTimerRef = useRef(null);
+  const closeMicro = useCallback(() => {
+    clearTimeout(microTimerRef.current);
+    setMicroOpen(false);
+  }, []);
+  const armMicroTimer = useCallback(() => {
+    clearTimeout(microTimerRef.current);
+    microTimerRef.current = setTimeout(() => setMicroOpen(false), MICRO_AUTOHIDE_MS);
+  }, []);
+  const openMicro = useCallback(() => {
+    haptic.light();
+    setMicroOpen(true);
+    armMicroTimer();
+  }, [armMicroTimer]);
+  const dismissMicro = useCallback(() => {
+    haptic.light();
+    closeMicro();
+  }, [closeMicro]);
+  // La fenêtre s'agrandit : le palier micro disparaît, ses commandes aussi.
+  useEffect(() => {
+    if (!isMicro) closeMicro();
+  }, [isMicro]);
+  useEffect(() => () => clearTimeout(microTimerRef.current), []);
+
   // Quitter le chrono de test : on retombe sur le bilan du tour guidé (qui
   // propose de refaire le test ou de quitter le tuto), jamais sur l'accueil
   // d'un coup — et surtout sans écran de fin ni historique.
@@ -344,8 +412,12 @@ export default function Running() {
   useEffect(() => {
     // Pendant une séance le retour Android est avalé (on ne quitte pas un
     // effort par accident) ; dans le tutoriel il QUITTE le test : un tutoriel
-    // ne doit jamais enfermer la personne.
+    // ne doit jamais enfermer la personne. Commandes du palier micro ouvertes : il les referme.
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (microOpenRef.current) {
+        closeMicro();
+        return true;
+      }
       if (isTutorial) handleTutorialQuit();
       return true;
     });
@@ -615,6 +687,31 @@ export default function Running() {
     }),
     []
   );
+  // Mêmes commandes pour le palier micro, plus la fermeture du panneau : la pause le laisse
+  // ouvert (on voit « Reprendre »), les actions qui changent l'écran le referment.
+  const microControls = useMemo(
+    () => ({
+      onReset: () => {
+        latest.current.onReset();
+        closeMicro();
+      },
+      onPauseToggle: () => {
+        latest.current.onPauseToggle();
+        armMicroTimer();
+      },
+      onSkip: () => {
+        latest.current.onSkip();
+        closeMicro();
+      },
+      onEndWork: () => {
+        latest.current.onEndWork();
+        closeMicro();
+      },
+      onFinish: () => latest.current.onFinish(),
+      onReturn: () => latest.current.onReturn(),
+    }),
+    [closeMicro, armMicroTimer]
+  );
 
   const displaySeconds = isWorkInfinite
     ? Math.floor(state.phaseSecondsLeft)
@@ -629,6 +726,8 @@ export default function Running() {
   const ringTicksLit = Math.floor(60 * Math.max(0, Math.min(1, state.ringProgress || 0)));
   const ringProgressQ = (ringTicksLit + 0.5) / 60;
   const timeText = formatDuration(displaySeconds);
+  // Palier micro : sous une minute, les secondes seules (« 54 ») pour un chiffre bien plus grand.
+  const microText = microTimeText(displaySeconds, timeText);
   // Bulle de charge : seulement PENDANT l'exercice en cours (décision du 11/11/2026 : en repos
   // elle ajoutait trop d'éléments à l'écran ; le poids PRÉVU du prochain exercice se règle
   // depuis la carte « Ensuite »). Même élément tant que ses valeurs ne changent pas.
@@ -894,6 +993,33 @@ export default function Running() {
     });
   }, [state.isRest]);
 
+  // Commandes du bas : les mêmes, en bas de l'écran ou (palier micro) par-dessus le chiffre.
+  // Valeurs stables (chaînes, booléens, handlers de `stable`) : BottomControls reste protégé du
+  // redessin de 10×/s même quand on lui passe cet objet éclaté.
+  const controlsProps = {
+    tokens: t,
+    tone: timer.textMode,
+    timerColor: timer.color,
+    isPaused,
+    onReset: stable.onReset,
+    onPauseToggle: stable.onPauseToggle,
+    onSkip: stable.onSkip,
+    skipLabel: isEmom ? 'Next' : 'Skip',
+    showEndWork: (isManualBasic && isWorkInfinite) || isLastEmomRound || isLastMixEmomRound,
+    endWorkLabel: isLastBasicWork || isLastEmomRound || isLastMixEmomRound ? 'FINI' : 'REPOS',
+    onEndWork: stable.onEndWork,
+    hideSkip: (isManualBasic && isWorkInfinite) || isLastEmomRound || isLastMixEmomRound,
+    // AMRAP, TABATA, BASIC, EMOM : « Quitter » remplace « Skip ». Il arrête
+    // la séance EN GARDANT ce qui a été fait (écran de fin + historique),
+    // comme le Stop de la notification. Le MIX garde son « Skip » (passer
+    // au bloc suivant) ; au dernier tour BASIC / EMOM, « FINI » au centre
+    // fait déjà le travail ; le chrono de test du tutoriel garde le sien.
+    showFinish: !isMix && !isTutorial && !isLastBasicWork && !isLastEmomRound,
+    finishLabel: 'Quitter',
+    onFinish: stable.onFinish,
+    accessory: weightAccessory,
+  };
+
   return (
     // Racine neutre : le fond (RunBackdrop) est posé EN DESSOUS, protégé du
     // redessin de 10×/s. Avant, tout l'écran était l'enfant d'un
@@ -917,96 +1043,109 @@ export default function Running() {
       />
 
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-        <TopBar
-          tokens={t}
-          tone={timer.textMode}
-          name={timer.name}
-          tag={ctaLabel}
-          roundLabel={state.roundLabel}
-          onReturn={stable.onReturn}
-          progress={barProgress}
-          markers={state.phaseMarkers}
-          isPaused={isPaused}
-        />
-
-        <View style={[styles.center, isReduced && styles.centerReduced]}>
-          <RunCenter
-            isMini={isMini}
-            ring={ring}
-            bigTimeSize={bigTimeSize}
+        {isMicro ? (
+          // Palier micro (fenêtre minuscule, jamais le MIX) : seulement les chiffres, le tour et
+          // la phase. Un appui sur le chiffre fait apparaître les commandes (MicroControls).
+          <RunMicro
             tokens={t}
-            ringProgress={ringProgressQ}
+            width={lw}
+            height={availH}
+            timeText={microText}
+            roundLabel={state.roundLabel}
             phaseLabel={state.phaseLabel}
-            timeText={timeText}
-            centerLabel={centerLabel}
+            isPaused={isPaused}
+            progress={barProgress}
+            markers={state.phaseMarkers}
             timeStyle={timeStyle}
             phaseLabelStyle={phaseLabelStyle}
-            ringBoxStyle={ringBoxStyle}
-            ringZoomStyle={ringZoomStyle}
-            ringStyle={ringStyle}
-            onLongPress={isMix && !isTutorial ? stable.onRingLongPress : null}
+            onPress={openMicro}
           />
-
-          {/* Le déroulé des phases est un repère de confort : premier bloc
-              sacrifié quand la hauteur manque. */}
-          {isTutorial ? (
-            // Chrono de test : la bulle de guidage prend la place du déroulé
-            // (même emplacement, même rôle — expliquer où on en est).
-            <TutorialCoach
-              step={coachStepFor(state)}
+        ) : (
+          <>
+            <TopBar
               tokens={t}
-              compact={isMini || winH < 640}
-              onQuit={handleTutorialQuit}
+              tone={timer.textMode}
+              name={timer.name}
+              tag={ctaLabel}
+              roundLabel={state.roundLabel}
+              onReturn={stable.onReturn}
+              progress={barProgress}
+              markers={state.phaseMarkers}
+              isPaused={isPaused}
+              slim={slim}
             />
-          ) : (
-            <>
-              {/* Languette dépliée : elle dit déjà « ENSUITE » et occupe la
-                  place, la carte « Ensuite » et le déroulé s'effacent. */}
-              {showNextUp && !moveExpanded && (
-                <NextUp
-                  next={state.nextBlock}
-                  weight={nextWeight}
-                  editable={nextEditable}
-                  onWeightPress={stable.onNextWeightPress}
+
+            <View style={[styles.center, isReduced && styles.centerReduced]}>
+              <RunCenter
+                isMini={isMini}
+                ring={ring}
+                bigTimeSize={bigTimeSize}
+                tokens={t}
+                ringProgress={ringProgressQ}
+                phaseLabel={state.phaseLabel}
+                timeText={timeText}
+                centerLabel={centerLabel}
+                timeStyle={timeStyle}
+                phaseLabelStyle={phaseLabelStyle}
+                ringBoxStyle={ringBoxStyle}
+                ringZoomStyle={ringZoomStyle}
+                ringStyle={ringStyle}
+                onLongPress={isMix && !isTutorial ? stable.onRingLongPress : null}
+              />
+
+              {/* Le déroulé des phases est un repère de confort : premier bloc
+                  sacrifié quand la hauteur manque. */}
+              {isTutorial ? (
+                // Chrono de test : la bulle de guidage prend la place du déroulé
+                // (même emplacement, même rôle — expliquer où on en est).
+                <TutorialCoach
+                  step={coachStepFor(state)}
                   tokens={t}
-                  compact={isReduced}
-                  mini={isMini}
+                  compact={isMini || winH < 640}
+                  onQuit={handleTutorialQuit}
                 />
+              ) : (
+                <>
+                  {/* Languette dépliée : elle dit déjà « ENSUITE » et occupe la
+                      place, la carte « Ensuite » et le déroulé s'effacent. */}
+                  {showNextUp && !moveExpanded && (
+                    <NextUp
+                      next={state.nextBlock}
+                      weight={nextWeight}
+                      editable={nextEditable}
+                      onWeightPress={stable.onNextWeightPress}
+                      tokens={t}
+                      compact={isReduced}
+                      mini={isMini}
+                    />
+                  )}
+                  {/* Pendant un repos annoncé, le déroulé cède la place sur les
+                      écrans un peu courts : « ENSUITE » est ce qu'on veut lire. */}
+                  {!isReduced && !moveExpanded && !(showNextUp && winH < 860) && (
+                    <PhasesPills phases={state.phasesList} timer={timer} tokens={t} />
+                  )}
+                </>
               )}
-              {/* Pendant un repos annoncé, le déroulé cède la place sur les
-                  écrans un peu courts : « ENSUITE » est ce qu'on veut lire. */}
-              {!isReduced && !moveExpanded && !(showNextUp && winH < 860) && (
-                <PhasesPills phases={state.phasesList} timer={timer} tokens={t} />
-              )}
-            </>
-          )}
-        </View>
+            </View>
 
-
-        <BottomControls
-          tokens={t}
-          tone={timer.textMode}
-          timerColor={timer.color}
-          isPaused={isPaused}
-          onReset={stable.onReset}
-          onPauseToggle={stable.onPauseToggle}
-          onSkip={stable.onSkip}
-          skipLabel={isEmom ? 'Next' : 'Skip'}
-          showEndWork={(isManualBasic && isWorkInfinite) || isLastEmomRound || isLastMixEmomRound}
-          endWorkLabel={isLastBasicWork || isLastEmomRound || isLastMixEmomRound ? 'FINI' : 'REPOS'}
-          onEndWork={stable.onEndWork}
-          hideSkip={(isManualBasic && isWorkInfinite) || isLastEmomRound || isLastMixEmomRound}
-          // AMRAP, TABATA, BASIC, EMOM : « Quitter » remplace « Skip ». Il arrête
-          // la séance EN GARDANT ce qui a été fait (écran de fin + historique),
-          // comme le Stop de la notification. Le MIX garde son « Skip » (passer
-          // au bloc suivant) ; au dernier tour BASIC / EMOM, « FINI » au centre
-          // fait déjà le travail ; le chrono de test du tutoriel garde le sien.
-          showFinish={!isMix && !isTutorial && !isLastBasicWork && !isLastEmomRound}
-          finishLabel="Quitter"
-          onFinish={stable.onFinish}
-          accessory={weightAccessory}
-        />
+            <BottomControls {...controlsProps} />
+          </>
+        )}
       </SafeAreaView>
+
+      {/* Palier micro : les commandes apparaissent PAR-DESSUS le chiffre, semi-transparentes.
+          Même rangée que les commandes du bas (mêmes maintiens du mode pluie). */}
+      {isMicro && microOpen && (
+        <MicroControls
+          {...controlsProps}
+          {...microControls}
+          accessory={null}
+          width={lw}
+          height={availH}
+          onDismiss={dismissMicro}
+          onActivity={armMicroTimer}
+        />
+      )}
 
       {/* Rappel du geste « Ma séance », tout en bas sous les boutons, seulement pendant un
           repos. Posé en absolu : il ne pousse ni le cercle ni les commandes. */}
@@ -1232,7 +1371,7 @@ const RunCenter = memo(function RunCenter({
   );
 });
 
-const TopBar = memo(function TopBar({ tokens, tone, name, tag, roundLabel, onReturn, progress, markers, isPaused }) {
+const TopBar = memo(function TopBar({ tokens, tone, name, tag, roundLabel, onReturn, progress, markers, isPaused, slim }) {
   const dotScale = useSharedValue(1);
   const dotOpacity = useSharedValue(0.6);
   // Mode allégé (lib/lightMode.js), lu ICI (TopBar est mémoïsée) : niveau 1 = deux fois plus
@@ -1279,10 +1418,10 @@ const TopBar = memo(function TopBar({ tokens, tone, name, tag, roundLabel, onRet
   const holds = holdDurations(settings.rainMode);
   return (
     <View style={styles.topBar}>
-      <View style={styles.topRow}>
+      <View style={[styles.topRow, slim && styles.topRowSlim]}>
         <LongPressButton
-          label="Retour"
-          size={44}
+          label={slim ? undefined : 'Retour'}
+          size={slim ? 40 : 44}
           duration={holds.quit}
           tone={tone}
           ringColor={tokens.primary}
@@ -1312,27 +1451,7 @@ const TopBar = memo(function TopBar({ tokens, tone, name, tag, roundLabel, onRet
           insensible à la pause : elle ne change ni de couleur ni de rythme,
           elle dit seulement où on en est. Les découpes matérialisent les
           phases (tours EMOM, travail/repos TABATA, blocs MIX). */}
-      <View style={[styles.progressTrack, { backgroundColor: tokens.ringInactive }]}>
-        <View
-          style={[
-            styles.progressFill,
-            {
-              backgroundColor: tokens.secondary,
-              width: `${Math.min(100, progress * 100)}%`,
-            },
-          ]}
-        />
-        {(markers ?? []).map((m, i) => (
-          <View
-            key={i}
-            pointerEvents="none"
-            style={[
-              styles.progressNotch,
-              { backgroundColor: tokens.trackNotch, left: `${m * 100}%` },
-            ]}
-          />
-        ))}
-      </View>
+      <ProgressStrip tokens={tokens} progress={progress} markers={markers} />
     </View>
   );
 }, (a, b) =>
@@ -1343,9 +1462,190 @@ const TopBar = memo(function TopBar({ tokens, tone, name, tag, roundLabel, onRet
   a.roundLabel === b.roundLabel &&
   a.progress === b.progress &&
   a.isPaused === b.isPaused &&
+  a.slim === b.slim &&
   a.onReturn === b.onReturn &&
   sameNumbers(a.markers, b.markers)
 );
+
+// Barre d'avancement de la séance (barre du haut et palier micro) : même dessin des deux
+// côtés. Insensible à la pause (voir le commentaire de TopBar).
+const ProgressStrip = memo(function ProgressStrip({ tokens, progress, markers }) {
+  return (
+    <View style={[styles.progressTrack, { backgroundColor: tokens.ringInactive }]}>
+      <View
+        style={[
+          styles.progressFill,
+          {
+            backgroundColor: tokens.secondary,
+            width: `${Math.min(100, progress * 100)}%`,
+          },
+        ]}
+      />
+      {(markers ?? []).map((m, i) => (
+        <View
+          key={i}
+          pointerEvents="none"
+          style={[
+            styles.progressNotch,
+            { backgroundColor: tokens.trackNotch, left: `${m * 100}%` },
+          ]}
+        />
+      ))}
+    </View>
+  );
+}, (a, b) => a.tokens === b.tokens && a.progress === b.progress && sameNumbers(a.markers, b.markers));
+
+// ─── Palier micro : seulement les chiffres ────────────────────────────────────
+// Fenêtre minuscule (lib/windowTiers.js, hors MIX) : le chiffre prend toute la place, avec
+// le tour et la phase au-dessus et la barre d'avancement en dessous. Rien d'autre ne tient :
+// les commandes sortent d'un appui n'importe où sur cet écran (MicroControls).
+const RunMicro = memo(function RunMicro({
+  tokens,
+  width,
+  height,
+  timeText,
+  roundLabel,
+  phaseLabel,
+  isPaused,
+  progress,
+  markers,
+  timeStyle,
+  phaseLabelStyle,
+  onPress,
+}) {
+  const size = microDigitsSize(width, height, timeText.length);
+  const short = height < 150;
+  // « 3/8 » seulement quand il y a des tours : un AMRAP (« ∞ ») n'a rien à compter ici.
+  const hasRounds = /\d\s*\/\s*\d/.test(roundLabel || '');
+  return (
+    <Pressable
+      style={styles.microRoot}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel="Afficher les commandes"
+    >
+      <View
+        style={[
+          styles.microInfo,
+          { height: microInfoHeight(height), justifyContent: hasRounds ? 'space-between' : 'center' },
+        ]}
+      >
+        {hasRounds ? (
+          <Text
+            style={[styles.microRound, short && styles.microRoundShort, { color: tokens.primary }]}
+            numberOfLines={1}
+          >
+            {roundLabel}
+          </Text>
+        ) : null}
+        <Animated.Text
+          style={[
+            styles.microPhase,
+            short && styles.microPhaseShort,
+            { color: isPaused ? tokens.primary : tokens.tertiary },
+            phaseLabelStyle,
+          ]}
+          numberOfLines={1}
+        >
+          {isPaused ? 'EN PAUSE' : phaseLabel}
+        </Animated.Text>
+      </View>
+      <View style={styles.microDigits}>
+        <Animated.Text
+          style={[
+            styles.microTime,
+            {
+              color: tokens.primary,
+              fontSize: size,
+              lineHeight: Math.round(size * 1.05),
+              letterSpacing: Math.round(size * MICRO_TRACKING),
+            },
+            timeStyle,
+          ]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.5}
+        >
+          {timeText}
+        </Animated.Text>
+      </View>
+      <ProgressStrip tokens={tokens} progress={progress} markers={markers} />
+    </Pressable>
+  );
+}, (a, b) =>
+  // Comme TopBar : `markers` est un tableau recréé à chaque tick de 100 ms, on compare son
+  // contenu ; le reste ne change qu'une fois par seconde ou par phase.
+  a.tokens === b.tokens &&
+  a.width === b.width &&
+  a.height === b.height &&
+  a.timeText === b.timeText &&
+  a.roundLabel === b.roundLabel &&
+  a.phaseLabel === b.phaseLabel &&
+  a.isPaused === b.isPaused &&
+  a.progress === b.progress &&
+  a.timeStyle === b.timeStyle &&
+  a.phaseLabelStyle === b.phaseLabelStyle &&
+  a.onPress === b.onPress &&
+  sameNumbers(a.markers, b.markers)
+);
+
+// Commandes du palier micro, posées PAR-DESSUS le chiffre : un voile semi-transparent (le chiffre
+// reste lisible dessous) + la même rangée que les commandes du bas, réduite pour tenir. Un appui
+// sur le voile, à côté des boutons, les referme ; sinon elles se referment seules (voir
+// MICRO_AUTOHIDE_MS). `onActivity` relance ce délai à chaque appui — y compris le début d'un
+// maintien (le toucher remonte jusqu'ici même quand un bouton le prend).
+const MicroControls = memo(function MicroControls({
+  width,
+  height,
+  onDismiss,
+  onActivity,
+  onReturn,
+  ...controls
+}) {
+  const { settings } = useSettings();
+  const holds = holdDurations(settings.rainMode);
+  const { tokens, tone } = controls;
+  // Texte noir sur fond jaune (TABATA) : un voile CLAIR garde les chiffres et les boutons lisibles.
+  const scrim = tone === 'dark' ? 'rgba(255,255,255,0.34)' : 'rgba(0,0,0,0.42)';
+  return (
+    <Animated.View
+      entering={FadeIn.duration(140)}
+      exiting={FadeOut.duration(140)}
+      style={styles.microOverlay}
+      onTouchStart={onActivity}
+      onTouchEnd={onActivity}
+    >
+      <Pressable
+        style={[styles.microScrim, { backgroundColor: scrim }]}
+        onPress={onDismiss}
+        accessibilityLabel="Masquer les commandes"
+      >
+        <BottomControls
+          {...controls}
+          embedded
+          fitW={width}
+          fitH={height}
+          hideLabels={!microShowsLabels(height)}
+        />
+        {microShowsReturn(height) ? (
+          // « Retour » (jette la séance) : dans un coin, même maintien que la barre du haut.
+          <View style={styles.microReturn}>
+            <LongPressButton
+              size={36}
+              duration={holds.quit}
+              tone={tone}
+              ringColor={tokens.primary}
+              labelColor={tokens.muted}
+              onComplete={onReturn}
+            >
+              <AppIcon name="back" size={16} color={tokens.primary} />
+            </LongPressButton>
+          </View>
+        ) : null}
+      </Pressable>
+    </Animated.View>
+  );
+});
 
 const NEXT_MODE_NAMES = { amrap: 'AMRAP', emom: 'EMOM', tabata: 'TABATA', basic: 'BASIC' };
 
@@ -1511,8 +1811,8 @@ function PhaseChip({ index, isCurrent, bg, border, color, label, tokens }) {
   );
 }
 
-// Largeur naturelle de la rangée des commandes : 64 + 28 + 92 + 28 + 64.
-const CONTROLS_NATURAL_W = 276;
+// Largeur naturelle de la rangée des commandes : 64 + 28 + 92 + 28 + 64 (276, voir
+// controlsScale dans lib/windowTiers.js).
 
 // Bulle de charge (« + kg ») : elle a une place FIXE, tout au bout de la
 // rangée des commandes, après le bouton Skip. Jamais dans l'emplacement de
@@ -1545,6 +1845,13 @@ const BottomControls = memo(function BottomControls({
   finishLabel = 'Fin',
   onFinish,
   accessory = null,
+  // `embedded` : posées par-dessus le chiffre dans le palier micro (MicroControls) — sans marges
+  // autour, réduites pour tenir dans la fenêtre (fitW × fitH) ; `hideLabels` : pas de libellés
+  // sous les boutons ronds quand la fenêtre est très basse.
+  embedded = false,
+  fitW,
+  fitH,
+  hideLabels = false,
 }) {
   // (V) Les commandes gardent leur taille de cible (on les vise en plein
   // effort, parfois en sueur) : seule la marge autour se resserre.
@@ -1557,20 +1864,19 @@ const BottomControls = memo(function BottomControls({
   // proportionnellement pour que la rangée tienne ; k vaut 1 dès que la place
   // suffit, donc rien ne change sur un téléphone normal.
   const { width: windowW } = useWindowSize();
-  const k = Math.min(
-    1,
-    Math.max(0.55, (windowW - (accessory ? CONTROLS_ACCESSORY_RESERVE : 24)) / CONTROLS_NATURAL_W)
-  );
+  const k = embedded
+    ? embeddedControlsScale(fitW ?? windowW, fitH ?? Infinity)
+    : controlsScale(windowW, accessory ? CONTROLS_ACCESSORY_RESERVE : 24);
   const sideSize = Math.round(64 * k);
   const centerSize = Math.round(92 * k);
   const rowGap = Math.round(28 * k);
   const { settings } = useSettings();
   const holds = holdDurations(settings.rainMode);
   return (
-    <View style={[styles.bottom, isReduced && styles.bottomReduced]}>
+    <View style={[styles.bottom, isReduced && styles.bottomReduced, embedded && styles.bottomEmbedded]}>
       <View style={[styles.bottomRow, { gap: rowGap }]}>
         <LongPressButton
-          label="Reset"
+          label={hideLabels ? undefined : 'Reset'}
           size={sideSize}
           duration={holds.reset}
           tone={tone}
@@ -1644,7 +1950,7 @@ const BottomControls = memo(function BottomControls({
           // Petit maintien même en mode normal : arrêter par erreur en plein
           // effort ferait perdre la fin de la séance.
           <LongPressButton
-            label={finishLabel}
+            label={hideLabels ? undefined : finishLabel}
             size={sideSize}
             duration={holds.finish}
             tone={tone}
@@ -1658,7 +1964,7 @@ const BottomControls = memo(function BottomControls({
           <View style={{ width: sideSize, height: sideSize }} />
         ) : (
           <LongPressButton
-            label={skipLabel}
+            label={hideLabels ? undefined : skipLabel}
             size={sideSize}
             duration={holds.skip}
             tone={tone}
@@ -1782,6 +2088,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 16,
   },
+  // Fenêtre basse : barre du haut plus serrée (lib/windowTiers.js, TOPBAR_SLIM_H).
+  topRowSlim: { marginBottom: 8 },
   topCenter: {
     alignItems: 'center',
     paddingTop: 4,
@@ -2000,6 +2308,65 @@ const styles = StyleSheet.create({
   },
   centerReduced: {
     paddingHorizontal: 12,
+  },
+  // Commandes posées par-dessus le chiffre (palier micro) : pas de marges autour.
+  bottomEmbedded: {
+    paddingHorizontal: 0,
+    paddingTop: 0,
+    paddingBottom: 0,
+  },
+  // ── Palier micro (fenêtre minuscule) ──
+  microRoot: {
+    flex: 1,
+    paddingHorizontal: 8,
+    paddingTop: 6,
+    paddingBottom: 6,
+  },
+  microInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  microRound: {
+    fontFamily: fonts.monoExtraBold,
+    fontSize: 15,
+  },
+  microRoundShort: { fontSize: 12 },
+  microPhase: {
+    flexShrink: 1,
+    fontFamily: fonts.sansBold,
+    fontSize: 11,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+  },
+  microPhaseShort: { fontSize: 9, letterSpacing: 1.5 },
+  microDigits: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // Pleine largeur : adjustsFontSizeToFit a besoin d'une boîte à mesurer (piège n°11 : ce
+  // texte est en flux normal, pas en surimpression, donc Android le réduit proprement).
+  microTime: {
+    fontFamily: fonts.monoExtraBold,
+    includeFontPadding: false,
+    textAlign: 'center',
+    alignSelf: 'stretch',
+  },
+  // Voile + commandes : par-dessus tout l'écran de séance.
+  microOverlay: {
+    ...StyleSheet.absoluteFill,
+    zIndex: 20,
+  },
+  microScrim: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  microReturn: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
   },
   miniCenter: {
     alignItems: 'center',
