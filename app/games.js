@@ -8,6 +8,8 @@ import IconButton from '../components/common/IconButton';
 import PressTap from '../components/common/PressTap';
 import AppIcon from '../components/common/AppIcon';
 import { haptic } from '../hooks/useHaptic';
+import { usePremium } from '../hooks/usePremium';
+import { playSound } from '../lib/sounds';
 import { fonts } from '../lib/fonts';
 import { goBackSafe } from '../lib/navigation';
 import { bestScore } from '../lib/gameCount';
@@ -20,6 +22,7 @@ import { loadComboScores } from '../lib/gameComboStore';
  */
 export default function Games() {
   const router = useRouter();
+  const { isPremium } = usePremium();
   const [scores, setScores] = useState(null);
   const [pyramidScores, setPyramidScores] = useState(null);
   const [comboScores, setComboScores] = useState(null);
@@ -109,7 +112,7 @@ export default function Games() {
             <Text style={styles.cardTitle}>La pyramide</Text>
             <Text style={styles.cardText}>
               Des séries qui montent, qui descendent, ou les deux. La voix compte, tu te reposes entre
-              chaque. Jusqu’où iras-tu ?
+              chaque. Jusqu’où iras-tu ? (Évolutif et Dégressif : Premium.)
             </Text>
             <Text style={styles.cardBest}>
               {pyramidScores === null
@@ -123,17 +126,31 @@ export default function Games() {
 
           <PressTap
             onPress={() => {
+              if (!isPremium) {
+                haptic.warning();
+                playSound('blockedTimer');
+                router.push('/premium');
+                return;
+              }
               haptic.light();
               router.push('/game-combo');
             }}
             tapScale={0.98}
-            accessibilityLabel="Ouvrir Combo Bi-Exo"
+            accessibilityLabel={isPremium ? 'Ouvrir Combo Bi-Exo' : 'Combo Bi-Exo, réservé à Premium'}
             style={[styles.card, styles.cardPink]}
           >
             <View style={[styles.cardIcon, styles.cardIconPink]}>
               <AppIcon name="repeat" size={26} color="#FFFFFF" />
             </View>
-            <Text style={[styles.cardTag, styles.cardTagPink]}>POIDS DU CORPS</Text>
+            <View style={styles.tagRow}>
+              <Text style={[styles.cardTag, styles.cardTagPink]}>POIDS DU CORPS</Text>
+              {!isPremium && (
+                <View style={styles.premiumPill}>
+                  <AppIcon name="crown" size={11} color="#F0C954" />
+                  <Text style={styles.premiumPillText}>PREMIUM</Text>
+                </View>
+              )}
+            </View>
             <Text style={styles.cardTitle}>Combo Bi-Exo</Text>
             <Text style={styles.cardText}>
               Deux mots, deux exercices. La voix en crie un au hasard, tu fais l’exercice qui va avec.
@@ -202,6 +219,19 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,95,162,0.4)',
   },
   cardTagPink: { color: '#FF5FA2' },
+  tagRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  premiumPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    backgroundColor: 'rgba(240,201,84,0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(240,201,84,0.4)',
+  },
+  premiumPillText: { fontFamily: fonts.sansBold, fontSize: 9, letterSpacing: 1.6, color: '#F0C954' },
   cardIcon: {
     width: 46,
     height: 46,

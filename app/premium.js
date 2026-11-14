@@ -32,6 +32,11 @@ const BENEFITS = [
     desc: 'En gratuit : 3 mix publiés en même temps dans le fil public. En Pro : jusqu\'à 30.',
   },
   {
+    icon: 'blocks',
+    title: 'Jeux en plus',
+    desc: 'Le jeu Combo Bi-Exo en entier, et les formats Évolutif et Dégressif de La pyramide. La pyramide complète et Le chef d\'orchestre restent gratuits.',
+  },
+  {
     icon: 'pulse',
     title: 'Statistiques avancées',
     desc: 'Temps sous tension, graphiques, régularité et analyse de tes jeux (parties, records, progression) : vois précisément où tu progresses.',

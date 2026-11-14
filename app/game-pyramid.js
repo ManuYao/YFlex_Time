@@ -18,6 +18,8 @@ import GameTagOverlays from '../components/screens/GameTagOverlays';
 import HoldToTag from '../components/common/HoldToTag';
 import { useSettings } from '../contexts/SettingsContext';
 import { haptic } from '../hooks/useHaptic';
+import { usePremium } from '../hooks/usePremium';
+import { playSound } from '../lib/sounds';
 import { useGameExerciseTag } from '../hooks/useGameExerciseTag';
 import { fonts } from '../lib/fonts';
 import { goBackSafe } from '../lib/navigation';
@@ -66,6 +68,9 @@ const formatDay = (at) => {
 
 const scoreValue = (s) => s.total;
 
+// Formats réservés à Premium : Évolutif et Dégressif. La pyramide complète reste gratuite.
+const isPremiumFormat = (id) => id === 'up' || id === 'down';
+
 // Une barre par série, haute comme son nombre de répétitions : on voit la
 // pyramide et où on en est (faites = bleu, en cours = blanc, à venir = pâle).
 const PyramidBars = React.memo(function PyramidBars({ sets, activeIndex, height = 56 }) {
@@ -101,6 +106,7 @@ export default function GamePyramid() {
   const router = useRouter();
   const { height } = useWindowDimensions();
   const { settings } = useSettings();
+  const { isPremium } = usePremium();
   // Démo (Paramètres › À propos › « Revoir l'astuce des jeux ») : on arrive sur le menu du jeu avec
   // un score d'exemple tout en haut de « Mes scores » (jamais enregistré), pour revoir la bulle
   // d'explication sans jouer.
@@ -359,7 +365,21 @@ export default function GamePyramid() {
     tickRest();
   };
 
+  // Refus commun (format Premium sans Premium) : alerte, son de refus, page Premium.
+  const denyPremium = () => {
+    haptic.warning();
+    playSound('blockedTimer');
+    router.push('/premium');
+  };
+
   const startGame = () => {
+    // Filet : un format Premium ne part jamais sans Premium (réglage resté d'avant, etc.).
+    if (!isPremium && isPremiumFormat(formatId)) {
+      setFormatId(DEFAULT_FORMAT);
+      setSets(buildSets(DEFAULT_FORMAT, peak));
+      denyPremium();
+      return;
+    }
     haptic.medium();
     const planned = buildSets(formatId, peak);
     setsRef.current = planned;
@@ -444,6 +464,10 @@ export default function GamePyramid() {
   };
 
   const chooseFormat = (id) => {
+    if (!isPremium && isPremiumFormat(id)) {
+      denyPremium();
+      return;
+    }
     haptic.selection();
     setFormatId(id);
     setSets(buildSets(id, peak));
@@ -539,6 +563,7 @@ export default function GamePyramid() {
               <View style={styles.chips}>
                 {Object.values(FORMATS).map((f) => {
                   const on = f.id === formatId;
+                  const locked = !isPremium && isPremiumFormat(f.id);
                   return (
                     <PressTap
                       key={f.id}
@@ -546,11 +571,14 @@ export default function GamePyramid() {
                       tapScale={0.96}
                       containerStyle={styles.chipWrap}
                       style={[styles.chip, on && styles.chipOn]}
-                      accessibilityLabel={`Format ${f.label}`}
+                      accessibilityLabel={locked ? `Format ${f.label}, réservé à Premium` : `Format ${f.label}`}
                     >
-                      <Text style={[styles.chipText, on && styles.chipTextOn]} numberOfLines={1}>
-                        {f.label}
-                      </Text>
+                      <View style={styles.chipInner}>
+                        {locked && <AppIcon name="crown" size={13} color="#F0C954" />}
+                        <Text style={[styles.chipText, on && styles.chipTextOn]} numberOfLines={1}>
+                          {f.label}
+                        </Text>
+                      </View>
                     </PressTap>
                   );
                 })}
@@ -855,6 +883,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.14)',
   },
+  chipInner: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   chipOn: { backgroundColor: ACCENT, borderColor: ACCENT },
   chipText: { fontFamily: fonts.sansBold, fontSize: 13, color: '#FFFFFF' },
   chipTextOn: { color: '#1A0C04' },
