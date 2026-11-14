@@ -22,7 +22,7 @@ import { useGameExerciseTag } from '../hooks/useGameExerciseTag';
 import { fonts } from '../lib/fonts';
 import { goBackSafe } from '../lib/navigation';
 import { playGameGo, preloadGameSounds } from '../lib/gameSounds';
-import { createNumberCaller } from '../lib/gameVoice';
+import { createFixedNumberCaller } from '../lib/gameVoice';
 import { loadScores, saveScore, deleteScore, setCountScoreExercises } from '../lib/gameScores';
 import { recordGameSession, setGameSessionExercises } from '../lib/gameHistory';
 import { exercisesLabel, shouldHalo } from '../lib/gameExercises';
@@ -181,7 +181,7 @@ export default function GameCount() {
 
   const startPlaying = () => {
     const stepMs = tempoMs(tempoRef.current);
-    const caller = callerRef.current ?? createNumberCaller(settings.voiceGender);
+    const caller = callerRef.current ?? createFixedNumberCaller(settings.voiceGender, MAX_COUNT);
     callerRef.current = caller;
     const planner = newPlanner(Math.random);
     countRef.current = 0;
@@ -217,8 +217,8 @@ export default function GameCount() {
     // Son décodé d'avance, sinon le bip final saute.
     preloadGameSounds();
     // Prépare les premiers chiffres pendant le décompte (décodage des MP3).
-    callerRef.current = createNumberCaller(settings.voiceGender);
-    callerRef.current.preload(1, 3);
+    callerRef.current = createFixedNumberCaller(settings.voiceGender, MAX_COUNT);
+    callerRef.current.preload(1, 12);
     goPhase('countdown');
     setCountdown(3);
     const steps = [
