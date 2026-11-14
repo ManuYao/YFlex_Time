@@ -27,6 +27,7 @@ import { useGameExerciseTag } from '../hooks/useGameExerciseTag';
 import { exercisesLabel, shouldHalo } from '../lib/gameExercises';
 import { useSettings } from '../contexts/SettingsContext';
 import { haptic } from '../hooks/useHaptic';
+import PremiumTag from '../components/common/PremiumTag';
 import { usePremium } from '../hooks/usePremium';
 import { useKeyboardHeight, scrollToFocusedInput } from '../hooks/useKeyboardHeight';
 import { fonts } from '../lib/fonts';
@@ -470,7 +471,10 @@ export default function GameCombo() {
               scrollEventThrottle={32}
             >
               <View ref={contentRef} collapsable={false} style={styles.readyInner}>
-                <Text style={styles.tag}>JEU · DEUX MOTS, DEUX EXERCICES</Text>
+                <View style={styles.tagRow}>
+                  <Text style={styles.tag}>JEU · DEUX MOTS, DEUX EXERCICES</Text>
+                  <PremiumTag />
+                </View>
                 <Text style={styles.rules}>
                   Choisis deux mots et un exercice pour chacun. La voix en crie un au hasard : tu fais
                   tout de suite UNE répétition de l’exercice qui va avec. Enchaîne pendant 3 min 30. Le
@@ -717,6 +721,7 @@ const styles = StyleSheet.create({
   topSpacer: { width: 44 },
   readyContent: { paddingHorizontal: 20 },
   readyInner: { gap: 14 },
+  tagRow: { alignItems: 'center', gap: 8 },
   tag: {
     fontFamily: fonts.sansBold,
     fontSize: 11,

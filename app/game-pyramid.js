@@ -574,7 +574,7 @@ export default function GamePyramid() {
                       accessibilityLabel={locked ? `Format ${f.label}, réservé à Premium` : `Format ${f.label}`}
                     >
                       <View style={styles.chipInner}>
-                        {locked && <AppIcon name="crown" size={13} color="#F0C954" />}
+                        {isPremiumFormat(f.id) && <AppIcon name="crown" size={13} color="#F0C954" />}
                         <Text style={[styles.chipText, on && styles.chipTextOn]} numberOfLines={1}>
                           {f.label}
                         </Text>

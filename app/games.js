@@ -8,6 +8,7 @@ import IconButton from '../components/common/IconButton';
 import PressTap from '../components/common/PressTap';
 import AppIcon from '../components/common/AppIcon';
 import { haptic } from '../hooks/useHaptic';
+import PremiumTag from '../components/common/PremiumTag';
 import { usePremium } from '../hooks/usePremium';
 import { playSound } from '../lib/sounds';
 import { fonts } from '../lib/fonts';
@@ -108,7 +109,10 @@ export default function Games() {
             <View style={[styles.cardIcon, styles.cardIconWarm]}>
               <AppIcon name="blocks" size={26} color="#FFFFFF" />
             </View>
-            <Text style={[styles.cardTag, styles.cardTagWarm]}>POIDS DU CORPS</Text>
+            <View style={styles.tagRow}>
+              <Text style={[styles.cardTag, styles.cardTagWarm]}>POIDS DU CORPS</Text>
+              <PremiumTag label="2 FORMATS PREMIUM" />
+            </View>
             <Text style={styles.cardTitle}>La pyramide</Text>
             <Text style={styles.cardText}>
               Des séries qui montent, qui descendent, ou les deux. La voix compte, tu te reposes entre
@@ -144,12 +148,7 @@ export default function Games() {
             </View>
             <View style={styles.tagRow}>
               <Text style={[styles.cardTag, styles.cardTagPink]}>POIDS DU CORPS</Text>
-              {!isPremium && (
-                <View style={styles.premiumPill}>
-                  <AppIcon name="crown" size={11} color="#F0C954" />
-                  <Text style={styles.premiumPillText}>PREMIUM</Text>
-                </View>
-              )}
+              <PremiumTag />
             </View>
             <Text style={styles.cardTitle}>Combo Bi-Exo</Text>
             <Text style={styles.cardText}>
@@ -220,18 +219,6 @@ const styles = StyleSheet.create({
   },
   cardTagPink: { color: '#FF5FA2' },
   tagRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  premiumPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 10,
-    backgroundColor: 'rgba(240,201,84,0.14)',
-    borderWidth: 1,
-    borderColor: 'rgba(240,201,84,0.4)',
-  },
-  premiumPillText: { fontFamily: fonts.sansBold, fontSize: 9, letterSpacing: 1.6, color: '#F0C954' },
   cardIcon: {
     width: 46,
     height: 46,
