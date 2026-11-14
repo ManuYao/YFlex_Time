@@ -1,6 +1,7 @@
 package expo.modules.perfprobe
 
 import android.app.ActivityManager
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -34,10 +35,99 @@ class PerfProbeModule : Module() {
       collectStats()
     }
 
+    // Événements poussés par le système (plus de relevé à la minute côté JavaScript) :
+    //  - onDeviceChanged : batterie (%, température, branchée) et mode économie d'énergie,
+    //    émis seulement quand une de ces valeurs change vraiment ;
+    //  - onThermalChanged : statut thermique (API 29+).
+    // Les écouteurs ne sont posés que tant que JavaScript écoute (OnStartObserving).
+    Events("onDeviceChanged", "onThermalChanged")
+    Function("supportsEvents") { true }
+
+    OnStartObserving { startObserving() }
+    OnStopObserving { stopObserving() }
+    OnDestroy { stopObserving() }
+
     // Les 10 fils qui ont le plus travaillé depuis le début du processus.
     AsyncFunction("getThreadCpu") {
       collectThreadCpu()
     }
+  }
+
+  private var receiver: BroadcastReceiver? = null
+  private var thermalListener: Any? = null
+  private var lastSig: String? = null
+
+  private fun emitDevice(battery: Intent?) {
+    safe {
+      val ctx = appContext.reactContext ?: return@safe
+      val pm = ctx.getSystemService(Context.POWER_SERVICE) as? PowerManager
+      val out = LinkedHashMap<String, Any>()
+      if (battery != null) {
+        val level = battery.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+        val scale = battery.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+        if (level >= 0 && scale > 0) out["batteryPct"] = level * 100.0 / scale
+        val temp = battery.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE)
+        if (temp != Int.MIN_VALUE) out["batteryTempC"] = temp / 10.0
+        out["batteryPlugged"] = battery.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0
+      }
+      if (pm != null) out["isPowerSaveMode"] = pm.isPowerSaveMode
+      // Le système rediffuse la batterie à chaque petit changement de tension : on ne
+      // réveille JavaScript que si le niveau (entier), la température, la prise ou
+      // l'économie d'énergie ont changé.
+      val sig = "${(out["batteryPct"] as? Double)?.toInt()}|${out["batteryTempC"]}|${out["batteryPlugged"]}|${out["isPowerSaveMode"]}"
+      if (sig == lastSig) return@safe
+      lastSig = sig
+      sendEvent("onDeviceChanged", out)
+    }
+  }
+
+  private fun startObserving() {
+    stopObserving()
+    val ctx = appContext.reactContext ?: return
+    safe {
+      val r = object : BroadcastReceiver() {
+        override fun onReceive(c: Context?, intent: Intent?) {
+          if (intent?.action == Intent.ACTION_BATTERY_CHANGED) {
+            emitDevice(intent)
+          } else {
+            // Économie d'énergie : on relit aussi la batterie (diffusion collante).
+            emitDevice(ctx.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)))
+          }
+        }
+      }
+      val filter = IntentFilter()
+      filter.addAction(Intent.ACTION_BATTERY_CHANGED)
+      filter.addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)
+      // La diffusion collante renvoie l'état courant : premier événement tout de suite.
+      val sticky = ctx.registerReceiver(r, filter)
+      receiver = r
+      lastSig = null
+      emitDevice(sticky)
+    }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      safe {
+        val pm = ctx.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        val l = PowerManager.OnThermalStatusChangedListener { status ->
+          sendEvent("onThermalChanged", mapOf("thermalStatus" to status.toDouble()))
+        }
+        pm?.addThermalStatusListener(l)
+        thermalListener = l
+        pm?.let { sendEvent("onThermalChanged", mapOf("thermalStatus" to it.currentThermalStatus.toDouble())) }
+      }
+    }
+  }
+
+  private fun stopObserving() {
+    val ctx = appContext.reactContext
+    safe { receiver?.let { ctx?.unregisterReceiver(it) } }
+    receiver = null
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      safe {
+        val pm = ctx?.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        (thermalListener as? PowerManager.OnThermalStatusChangedListener)?.let { pm?.removeThermalStatusListener(it) }
+      }
+    }
+    thermalListener = null
   }
 
   private fun collectStats(): Map<String, Any> {
