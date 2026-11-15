@@ -12,41 +12,12 @@ import { useHaptic } from '../hooks/useHaptic';
 import { goBackSafe } from '../lib/navigation';
 import { fonts } from '../lib/fonts';
 import { ROUND_SIZE } from '../lib/buttonTokens';
+import { PREMIUM_BENEFITS } from '../lib/premiumFeatures';
 
 const GOLD = '#F0C954';
 
-const BENEFITS = [
-  {
-    icon: 'calendar',
-    title: 'Lancer depuis ton planning',
-    desc: 'Le planning est gratuit. En Pro, tu lances un bloc en MIX d\'un maintien ou un mix enregistré directement depuis ta semaine, avec le conseil de charge.',
-  },
-  {
-    icon: 'infinity',
-    title: 'Une bibliothèque de mix sans limite',
-    desc: 'En gratuit : 3 mix créés par toi et 5 mix téléchargés depuis la communauté. En Pro : autant que tu veux.',
-  },
-  {
-    icon: 'globe',
-    title: 'Publie plus de mix',
-    desc: 'En gratuit : 3 mix publiés en même temps dans le fil public. En Pro : jusqu\'à 30.',
-  },
-  {
-    icon: 'blocks',
-    title: 'Jeux en plus',
-    desc: 'Le jeu Combo Bi-Exo en entier, et les formats Évolutif et Dégressif de La pyramide. La pyramide complète et Le chef d\'orchestre restent gratuits.',
-  },
-  {
-    icon: 'pulse',
-    title: 'Statistiques avancées',
-    desc: 'Temps sous tension, graphiques, régularité et analyse de tes jeux (parties, records, progression) : vois précisément où tu progresses.',
-  },
-  {
-    icon: 'palette',
-    title: 'Bientôt : synchronisation, thèmes et sons',
-    desc: 'Retrouve tes données sur tous tes appareils, et personnalise l\'appli avec des thèmes et des sons exclusifs. Pas encore disponible.',
-  },
-];
+// La liste des avantages vient de lib/premiumFeatures.js (source unique des règles Premium).
+const BENEFITS = PREMIUM_BENEFITS;
 
 export default function Premium() {
   const router = useRouter();

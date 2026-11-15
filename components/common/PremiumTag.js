@@ -2,16 +2,21 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import AppIcon from './AppIcon';
+import { usePremium } from '../../hooks/usePremium';
 import { fonts } from '../../lib/fonts';
 
 const GOLD = '#F0C954';
 
 /**
- * Petite pastille dorée « couronne + PREMIUM » : repère unique des fonctions
- * réservées à Premium (jeux, formats). Toujours visible, même pour un Premium :
- * elle dit « ceci fait partie de Premium », pas « tu n'y as pas droit ».
+ * Petite pastille dorée « couronne + PREMIUM » : repère des fonctions réservées
+ * à Premium (jeux, formats). Elle ne s'affiche que pour quelqu'un qui n'a PAS
+ * Premium : un abonné n'a plus rien à se faire rappeler (règle 3 de
+ * lib/premiumFeatures.js). Rien non plus tant que le statut n'est pas lu, pour
+ * ne pas la faire clignoter chez un abonné.
  */
 export default function PremiumTag({ label = 'PREMIUM', style }) {
+  const { isPremium, loaded } = usePremium();
+  if (!loaded || isPremium) return null;
   return (
     <View style={[styles.pill, style]}>
       <AppIcon name="crown" size={11} color={GOLD} />

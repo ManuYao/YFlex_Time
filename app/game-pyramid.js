@@ -18,8 +18,8 @@ import GameTagOverlays from '../components/screens/GameTagOverlays';
 import HoldToTag from '../components/common/HoldToTag';
 import { useSettings } from '../contexts/SettingsContext';
 import { haptic } from '../hooks/useHaptic';
-import { usePremium } from '../hooks/usePremium';
-import { playSound } from '../lib/sounds';
+import { usePremiumGate } from '../hooks/usePremiumGate';
+import { GAME_GATES } from '../lib/premiumFeatures';
 import { useGameExerciseTag } from '../hooks/useGameExerciseTag';
 import { fonts } from '../lib/fonts';
 import { goBackSafe } from '../lib/navigation';
@@ -68,7 +68,9 @@ const formatDay = (at) => {
 
 const scoreValue = (s) => s.total;
 
-// Formats réservés à Premium : Évolutif et Dégressif. La pyramide complète reste gratuite.
+// Formats réservés à Premium : Évolutif et Dégressif (portes `game.pyramid.up` / `.down`
+// de lib/premiumFeatures.js). La pyramide complète reste gratuite.
+const formatGate = (id) => GAME_GATES.pyramidFormat(id);
 const isPremiumFormat = (id) => id === 'up' || id === 'down';
 
 // Une barre par série, haute comme son nombre de répétitions : on voit la
@@ -106,7 +108,9 @@ export default function GamePyramid() {
   const router = useRouter();
   const { height } = useWindowDimensions();
   const { settings } = useSettings();
-  const { isPremium } = usePremium();
+  const { locked: gateLocked, deny: denyPremium } = usePremiumGate();
+  // `formatId` peut être un format libre : on ne demande la porte que pour les deux réservés.
+  const formatLocked = (id) => isPremiumFormat(id) && gateLocked(formatGate(id));
   // Démo (Paramètres › À propos › « Revoir l'astuce des jeux ») : on arrive sur le menu du jeu avec
   // un score d'exemple tout en haut de « Mes scores » (jamais enregistré), pour revoir la bulle
   // d'explication sans jouer.
@@ -366,16 +370,10 @@ export default function GamePyramid() {
     tickRest();
   };
 
-  // Refus commun (format Premium sans Premium) : alerte, son de refus, page Premium.
-  const denyPremium = () => {
-    haptic.warning();
-    playSound('blockedTimer');
-    router.push('/premium');
-  };
-
   const startGame = () => {
     // Filet : un format Premium ne part jamais sans Premium (réglage resté d'avant, etc.).
-    if (!isPremium && isPremiumFormat(formatId)) {
+    // Refus commun : usePremiumGate().deny (alerte, son de refus, page Premium).
+    if (formatLocked(formatId)) {
       setFormatId(DEFAULT_FORMAT);
       setSets(buildSets(DEFAULT_FORMAT, peak));
       denyPremium();
@@ -466,7 +464,7 @@ export default function GamePyramid() {
   };
 
   const chooseFormat = (id) => {
-    if (!isPremium && isPremiumFormat(id)) {
+    if (formatLocked(id)) {
       denyPremium();
       return;
     }
@@ -565,7 +563,7 @@ export default function GamePyramid() {
               <View style={styles.chips}>
                 {Object.values(FORMATS).map((f) => {
                   const on = f.id === formatId;
-                  const locked = !isPremium && isPremiumFormat(f.id);
+                  const locked = formatLocked(f.id);
                   return (
                     <PressTap
                       key={f.id}
@@ -576,7 +574,7 @@ export default function GamePyramid() {
                       accessibilityLabel={locked ? `Format ${f.label}, réservé à Premium` : `Format ${f.label}`}
                     >
                       <View style={styles.chipInner}>
-                        {isPremiumFormat(f.id) && <AppIcon name="crown" size={13} color="#F0C954" />}
+                        {locked && <AppIcon name="crown" size={13} color="#F0C954" />}
                         <Text style={[styles.chipText, on && styles.chipTextOn]} numberOfLines={1}>
                           {f.label}
                         </Text>

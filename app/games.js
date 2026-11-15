@@ -9,8 +9,8 @@ import PressTap from '../components/common/PressTap';
 import AppIcon from '../components/common/AppIcon';
 import { haptic } from '../hooks/useHaptic';
 import PremiumTag from '../components/common/PremiumTag';
-import { usePremium } from '../hooks/usePremium';
-import { playSound } from '../lib/sounds';
+import { usePremiumGate } from '../hooks/usePremiumGate';
+import { GAME_GATES } from '../lib/premiumFeatures';
 import { fonts } from '../lib/fonts';
 import { goBackSafe } from '../lib/navigation';
 import { bestScore } from '../lib/gameCount';
@@ -23,7 +23,7 @@ import { loadComboScores } from '../lib/gameComboStore';
  */
 export default function Games() {
   const router = useRouter();
-  const { isPremium } = usePremium();
+  const { isPremium, locked, guard } = usePremiumGate();
   const [scores, setScores] = useState(null);
   const [pyramidScores, setPyramidScores] = useState(null);
   const [comboScores, setComboScores] = useState(null);
@@ -116,7 +116,7 @@ export default function Games() {
             <Text style={styles.cardTitle}>La pyramide</Text>
             <Text style={styles.cardText}>
               Des séries qui montent, qui descendent, ou les deux. La voix compte, tu te reposes entre
-              chaque. Jusqu’où iras-tu ? (Évolutif et Dégressif : Premium.)
+              chaque. Jusqu’où iras-tu ?{isPremium ? '' : ' (Évolutif et Dégressif : Premium.)'}
             </Text>
             <Text style={styles.cardBest}>
               {pyramidScores === null
@@ -129,18 +129,14 @@ export default function Games() {
           </PressTap>
 
           <PressTap
-            onPress={() => {
-              if (!isPremium) {
-                haptic.warning();
-                playSound('blockedTimer');
-                router.push('/premium');
-                return;
-              }
-              haptic.light();
-              router.push('/game-combo');
-            }}
+            onPress={() =>
+              guard(GAME_GATES.combo, () => {
+                haptic.light();
+                router.push('/game-combo');
+              })
+            }
             tapScale={0.98}
-            accessibilityLabel={isPremium ? 'Ouvrir Combo Bi-Exo' : 'Combo Bi-Exo, réservé à Premium'}
+            accessibilityLabel={locked(GAME_GATES.combo) ? 'Combo Bi-Exo, réservé à Premium' : 'Ouvrir Combo Bi-Exo'}
             style={[styles.card, styles.cardPink]}
           >
             <View style={[styles.cardIcon, styles.cardIconPink]}>

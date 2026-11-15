@@ -28,7 +28,8 @@ import { exercisesLabel, shouldHalo } from '../lib/gameExercises';
 import { useSettings } from '../contexts/SettingsContext';
 import { haptic } from '../hooks/useHaptic';
 import PremiumTag from '../components/common/PremiumTag';
-import { usePremium } from '../hooks/usePremium';
+import { usePremiumGate } from '../hooks/usePremiumGate';
+import { GAME_GATES } from '../lib/premiumFeatures';
 import { useKeyboardHeight, scrollToFocusedInput } from '../hooks/useKeyboardHeight';
 import { fonts } from '../lib/fonts';
 import { goBackSafe } from '../lib/navigation';
@@ -101,13 +102,14 @@ export default function GameCombo() {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const { settings } = useSettings();
-  const { isPremium, loaded: premiumLoaded } = usePremium();
+  const { locked } = usePremiumGate();
 
   // Combo Bi-Exo est réservé à Premium. Le menu des jeux refuse déjà le toucher ; ce filet
   // couvre un accès direct (lien, démo) : on renvoie vers la page Premium, sans rien jouer.
+  const comboLocked = locked(GAME_GATES.combo);
   useEffect(() => {
-    if (premiumLoaded && !isPremium) router.replace('/premium');
-  }, [premiumLoaded, isPremium, router]);
+    if (comboLocked) router.replace('/premium');
+  }, [comboLocked, router]);
 
   const [phase, setPhase] = useState('ready'); // ready | countdown | playing | done
   const [tempoId, setTempoId] = useState(DEFAULT_TEMPO);
