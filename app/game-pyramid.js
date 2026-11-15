@@ -25,7 +25,7 @@ import { fonts } from '../lib/fonts';
 import { goBackSafe } from '../lib/navigation';
 import { playGameGo, preloadGameSounds } from '../lib/gameSounds';
 import { createFixedNumberCaller } from '../lib/gameVoice';
-import { speakGame, stopVoiceCoach } from '../lib/voiceCoach';
+import { holdGameFocus, releaseGameFocus, speakGame, stopVoiceCoach } from '../lib/voiceCoach';
 import {
   loadPyramidScores,
   savePyramidScore,
@@ -183,6 +183,7 @@ export default function GamePyramid() {
     clearTimers();
     callerRef.current?.dispose();
     callerRef.current = null;
+    releaseGameFocus();
     stopVoiceCoach();
     try { deactivateKeepAwake(KEEP_AWAKE_TAG); } catch {}
   };
@@ -386,6 +387,7 @@ export default function GamePyramid() {
     setSets(planned);
     // Ni choix d'exercice ni choix de rythme dans ce jeu (PYRAMID_REP_MS pour tout).
     cfgRef.current = { formatId, peak, gender: settings.voiceGender };
+    holdGameFocus(); // focus audio tenu toute la partie (voir lib/voiceCoach.js)
     activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(() => {});
     // Son décodé d'avance, sinon le bip final saute.
     preloadGameSounds();

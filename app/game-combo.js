@@ -34,7 +34,14 @@ import { fonts } from '../lib/fonts';
 import { goBackSafe } from '../lib/navigation';
 import { DEFAULT_TEMPO, TEMPOS } from '../lib/gameCount';
 import { playGameGo, preloadGameSounds } from '../lib/gameSounds';
-import { areGameWordsReady, prepareGameWords, speakGame, stopVoiceCoach } from '../lib/voiceCoach';
+import {
+  areGameWordsReady,
+  holdGameFocus,
+  prepareGameWords,
+  releaseGameFocus,
+  speakGame,
+  stopVoiceCoach,
+} from '../lib/voiceCoach';
 import {
   loadComboScores,
   saveComboScore,
@@ -165,6 +172,7 @@ export default function GameCombo() {
 
   const releaseGame = () => {
     clearTimers();
+    releaseGameFocus();
     stopVoiceCoach();
     try { deactivateKeepAwake(KEEP_AWAKE_TAG); } catch {}
   };
@@ -326,6 +334,7 @@ export default function GameCombo() {
     };
     cfgRef.current = { tempoId, setup: clean, gender: settings.voiceGender };
     saveComboSetup(clean);
+    holdGameFocus(); // focus audio tenu toute la partie (voir lib/voiceCoach.js)
     activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(() => {});
     // Son décodé d'avance, sinon le bip final saute.
     preloadGameSounds();

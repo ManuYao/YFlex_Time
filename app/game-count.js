@@ -23,6 +23,7 @@ import { fonts } from '../lib/fonts';
 import { goBackSafe } from '../lib/navigation';
 import { playGameGo, preloadGameSounds } from '../lib/gameSounds';
 import { createFixedNumberCaller } from '../lib/gameVoice';
+import { holdGameFocus, releaseGameFocus } from '../lib/voiceCoach';
 import { loadScores, saveScore, deleteScore, setCountScoreExercises } from '../lib/gameScores';
 import { recordGameSession, setGameSessionExercises } from '../lib/gameHistory';
 import { exercisesLabel, shouldHalo } from '../lib/gameExercises';
@@ -117,6 +118,7 @@ export default function GameCount() {
     clearTimers();
     callerRef.current?.dispose();
     callerRef.current = null;
+    releaseGameFocus();
     try { deactivateKeepAwake(KEEP_AWAKE_TAG); } catch {}
   };
 
@@ -213,6 +215,7 @@ export default function GameCount() {
 
   const startGame = () => {
     haptic.medium();
+    holdGameFocus(); // focus audio tenu toute la partie (voir lib/voiceCoach.js)
     activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(() => {});
     // Son décodé d'avance, sinon le bip final saute.
     preloadGameSounds();
