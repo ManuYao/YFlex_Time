@@ -206,6 +206,10 @@ export default function Home() {
   const { ready, skeletonGone, skeletonStyle } = useScreenReady({
     dataReady: hydrated && (!!lastTimerId || heatLoaded),
     waitForInteractions: false,
+    // Retour d'une séance : tout est déjà en mémoire, mais monter l'accueil d'un coup dans la
+    // transition faisait un micro-gel sans rien à voir. On montre d'abord le squelette du
+    // démarrage (peint avant le montage), l'accueil se monte derrière lui puis le remplace en fondu.
+    paintFirst: !!lastTimerId,
     fadeMs: 240,
   });
 

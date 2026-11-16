@@ -42,10 +42,15 @@ export function useScreenReady({
   dataReady = true,
   softReady = true,
   waitForInteractions = true,
+  paintFirst = false,
   timeoutMs = 1500,
   fadeMs = 260,
 } = {}) {
-  const [settled, setSettled] = useState(!waitForInteractions);
+  // `paintFirst` : montrer le squelette AU MOINS une image avant de monter le vrai écran, même si
+  // les données sont déjà en mémoire. Sinon un écran lourd dont tout est déjà prêt (l'accueil au
+  // retour d'une séance) se monte d'un coup dans la transition : micro-gel, sans rien à regarder.
+  // Le squelette (sur le fil d'interface) est peint d'abord, le montage lourd passe derrière lui.
+  const [settled, setSettled] = useState(!waitForInteractions && !paintFirst);
   const [timedOut, setTimedOut] = useState(false);
 
   const ready = dataReady && (settled || timedOut) && (softReady || timedOut);
@@ -59,9 +64,25 @@ export function useScreenReady({
   useEffect(() => {
     const timer = setTimeout(() => setTimedOut(true), timeoutMs);
     let task = null;
-    if (waitForInteractions) task = InteractionManager.runAfterInteractions(() => setSettled(true));
+    let raf1 = null;
+    let raf2 = null;
+    const settle = () => {
+      if (waitForInteractions) task = InteractionManager.runAfterInteractions(() => setSettled(true));
+      else setSettled(true);
+    };
+    if (paintFirst) {
+      // Deux images : la première pose le squelette, la seconde garantit qu'il est à l'écran
+      // avant que le fil JavaScript ne soit pris par le montage lourd.
+      raf1 = requestAnimationFrame(() => {
+        raf2 = requestAnimationFrame(settle);
+      });
+    } else if (waitForInteractions) {
+      task = InteractionManager.runAfterInteractions(() => setSettled(true));
+    }
     return () => {
       task?.cancel?.();
+      if (raf1 != null) cancelAnimationFrame(raf1);
+      if (raf2 != null) cancelAnimationFrame(raf2);
       clearTimeout(timer);
     };
   }, []);
