@@ -88,6 +88,9 @@ import { useMixLauncher } from '../hooks/useMixLauncher';
 import MixTutorialSheet from '../components/screens/MixTutorialSheet';
 import { loadMixTutorialSeen, markMixTutorialSeen, shouldShowMixTutorial } from '../lib/mixTutorial';
 import { usePremium } from '../hooks/usePremium';
+import { usePremiumGate } from '../hooks/usePremiumGate';
+import { isDownloaded } from '../lib/libraryLimits';
+import { MIX_EDIT_GATE } from '../lib/premiumFeatures';
 import { useAuth } from '../contexts/AuthContext';
 
 const ACCENT = '#9575FF';
@@ -172,6 +175,15 @@ export default function MixBuilder() {
   // « Modifier » l'ouvrait comme si c'était le mien, partage compris.
   // Il m'appartient dès qu'il est enregistré dans Mes mix.
   const [preview, setPreview] = useState(() => params.preview === '1' || !!currentMix?.isPreview);
+  // Mix TÉLÉCHARGÉ (fil public, lien d'ami) déjà dans Mes mix : en gratuit il se
+  // lance mais reste en LECTURE SEULE — ni blocs, ni nom, ni couleur, ni copie
+  // pour le modifier (porte Premium `mix.editDownloaded`, lib/premiumFeatures.js).
+  // Pour modifier : passer Pro, ou refaire le mix dans ses propres créations.
+  // Un Premium n'y voit rien de spécial.
+  const { locked: gateLocked, deny: denyGate, isPremium: userIsPremium } = usePremiumGate();
+  const lockedMix = !preview && !!draft && gateLocked(MIX_EDIT_GATE) && isDownloaded(draft);
+  const readOnly = preview || lockedMix;
+  const denyEdit = () => denyGate(MIX_EDIT_GATE);
   // Verrou anti double-tap : le lancement est asynchrone (écriture du MIX
   // courant avant de partir), un second appui ne doit pas consommer deux
   // places du quota.
@@ -194,12 +206,12 @@ export default function MixBuilder() {
         index={getIndex() ?? 0}
         drag={drag}
         isActive={isActive}
-        readOnly={preview}
+        readOnly={readOnly}
         onEdit={handleEditRow}
         onDelete={handleDeleteRow}
       />
     ),
-    [preview, handleEditRow, handleDeleteRow]
+    [readOnly, handleEditRow, handleDeleteRow]
   );
 
   useEffect(
@@ -304,7 +316,7 @@ export default function MixBuilder() {
   // enregistrement.
   const dirty = !!currentMix && draftSig !== mixSignature(currentMix);
   // En aperçu, le brouillon n'est pas « modifié » : rien n'est à perdre.
-  const hasUnsavedWork = dirty && !preview && draft.blocks.length > 0;
+  const hasUnsavedWork = dirty && !readOnly && draft.blocks.length > 0;
 
   // ---- Petits messages et retour visuel ----
 
@@ -486,6 +498,7 @@ export default function MixBuilder() {
     // Mix qui ne m'appartient pas : un simple appui l'enregistre dans Mes mix
     // (il devient alors le mien) — plus besoin de maintenir.
     if (preview) return handleSavePreview();
+    if (lockedMix) return denyEdit();
     if (inLibrary && nameTaken()) return refuseTakenName();
     // Mix neuf (pas encore dans Mes mix) qui porte le nom d'un mix existant :
     // jamais d'écrasement silencieux, on demande d'abord.
@@ -522,7 +535,7 @@ export default function MixBuilder() {
       await saveCurrentMix(match.entry);
       setDraft(cloneMix(match.entry));
       setPreview(false);
-      showToast({ text: 'Déjà dans Mes mix : ouvert pour modification.', icon: 'check' });
+      showToast({ text: userIsPremium ? 'Déjà dans Mes mix : ouvert pour modification.' : 'Déjà dans Mes mix.', icon: 'check' });
       return;
     }
 
@@ -556,12 +569,13 @@ export default function MixBuilder() {
     await saveCurrentMix(res.entry);
     setDraft(cloneMix(res.entry));
     setPreview(false);
-    flashSaved('added', 'Ajouté à Mes mix : tu peux le modifier');
+    flashSaved('added', userIsPremium ? 'Ajouté à Mes mix : tu peux le modifier' : 'Ajouté à Mes mix');
   };
 
   const handleSaveAsNew = async (meta) => {
     if (draft.blocks.length === 0) return;
     if (preview) return handleSavePreview();
+    if (lockedMix) return denyEdit();
     const baseName = (draft.name || '').trim() || 'Sans nom';
     // Archiver sous un nom déjà utilisé (y compris celui du mix d'origine) est
     // refusé : le nom doit être différent.
@@ -777,6 +791,7 @@ export default function MixBuilder() {
       haptic.warning();
       return;
     }
+    if (lockedMix) return denyEdit();
     if (!silent) haptic.light();
     setShareMix(withLatestPublishedId(mix));
     setShareIsDraft(isDraft);
@@ -829,7 +844,7 @@ export default function MixBuilder() {
   // font déjà ce travail).
   const ListFooter = (
     <View style={styles.feedLinks}>
-      {!preview && !publishedLink && draft.blocks.length > 0 && (
+      {!readOnly && !publishedLink && draft.blocks.length > 0 && (
         <ActionLinkRow
           icon="globe"
           title="Publier ce mix"
@@ -855,7 +870,20 @@ export default function MixBuilder() {
             <Text style={styles.pubBannerKicker}>APERÇU</Text>
           </View>
           <Text style={styles.pubBannerText}>
-            Ce mix ne t'appartient pas encore : tu peux le lancer ou l'enregistrer. Une fois enregistré dans Mes mix, il est à toi : tu peux le modifier et le partager.
+            {userIsPremium
+              ? "Ce mix ne t'appartient pas encore : tu peux le lancer ou l'enregistrer. Une fois enregistré dans Mes mix, il est à toi : tu peux le modifier et le partager."
+              : "Ce mix ne t'appartient pas : tu peux le lancer ou l'enregistrer dans Mes mix. Il reste en lecture seule ; pour en faire ta version, crée ton propre mix."}
+          </Text>
+        </View>
+      )}
+      {lockedMix && (
+        <View style={styles.pubBanner}>
+          <View style={styles.pubBannerHead}>
+            <AppIcon name="lock" size={13} color={ACCENT} />
+            <Text style={styles.pubBannerKicker}>LECTURE SEULE</Text>
+          </View>
+          <Text style={styles.pubBannerText}>
+            Ce mix vient de la communauté : tu peux le lancer, mais pas le modifier. Crée ton propre mix pour le refaire à ta façon.
           </Text>
         </View>
       )}
@@ -899,7 +927,7 @@ export default function MixBuilder() {
               choisie ; absente d'un aperçu (le mix n'est pas encore à moi). */}
           <View style={styles.heroKickerRow}>
             <Text style={styles.heroKicker}>Ton MIX</Text>
-            {!preview && (
+            {!readOnly && (
               <Pressable
                 onPress={() => {
                   haptic.light();
@@ -922,7 +950,7 @@ export default function MixBuilder() {
           <TextInput
             value={draft.name}
             onChangeText={updateName}
-            editable={!preview}
+            editable={!readOnly}
             style={styles.heroName}
             maxLength={28}
             placeholder="Nom du mix"
@@ -979,10 +1007,10 @@ export default function MixBuilder() {
         <View style={styles.sectionHeadText}>
           <Text style={styles.sectionTitle}>Blocs de la séance</Text>
           <Text style={styles.sectionHint}>
-            {preview ? 'Aperçu en lecture seule' : 'Tap édite · Glisse ← supprime · Maintiens drag'}
+            {readOnly ? 'Lecture seule' : 'Tap édite · Glisse ← supprime · Maintiens drag'}
           </Text>
         </View>
-        {draft.blocks.length > 0 && !preview && (
+        {draft.blocks.length > 0 && !readOnly && (
           <Button
             variant="glass"
             size="sm"
@@ -1009,7 +1037,7 @@ export default function MixBuilder() {
           <IconButton icon="close" onPress={handleCancel} accessibilityLabel="Annuler" />
           <Text style={styles.topTitle}>Constructeur</Text>
           <View style={styles.topBarRight}>
-            {!preview && (
+            {!readOnly && (
               <IconButton
                 icon="share"
                 size={ROUND_SIZE.nav}
@@ -1051,7 +1079,7 @@ export default function MixBuilder() {
             beaucoup de blocs, "Ajouter un bloc" finissait tout en bas de la
             liste et fallait tout dérouler pour l'atteindre). */}
         <View style={styles.bottomBar} onLayout={(e) => setBarH(e.nativeEvent.layout.height)}>
-          {!preview && (
+          {!readOnly && (
             <Button
               variant="glass"
               fullWidth
@@ -1073,6 +1101,7 @@ export default function MixBuilder() {
               oneTap={preview}
               onTap={handleSave}
               onLongComplete={() => {
+                if (lockedMix) return denyEdit();
                 haptic.medium();
                 setMetaOpen(true);
               }}
