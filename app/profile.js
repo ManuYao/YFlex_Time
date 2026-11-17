@@ -26,6 +26,8 @@ import ProfileSeasonRow from '../components/screens/ProfileSeasonRow';
 import { useTimers } from '../contexts/TimersContext';
 import { useAuth } from '../contexts/AuthContext';
 import { usePremium } from '../hooks/usePremium';
+import { denyPremium } from '../hooks/usePremiumGate';
+import { gatePromptText } from '../lib/premiumFeatures';
 import { useScreenReady } from '../hooks/useScreenReady';
 import { haptic } from '../hooks/useHaptic';
 import { goBackSafe } from '../lib/navigation';
@@ -275,6 +277,7 @@ export default function Profile() {
                 stats={stats}
                 isPremium={isPremium}
                 onGoPremium={() => router.push('/premium')}
+                onLockedPress={() => denyPremium(gatePromptText('stats.advanced'))}
                 onOpenAnalysis={() => router.push('/analysis')}
                 weightSlot={
                   <ProfileWeight

@@ -90,10 +90,11 @@ import { usePremium } from '../hooks/usePremium';
 import { useAuth } from '../contexts/AuthContext';
 
 const ACCENT = '#9575FF';
-// Maintenir « Enregistrer » 3 s = feuille « Couleur et note », qui enregistre
-// ensuite (dans Mes mix ou comme ton MIX). La barre qui se remplit montre où on
-// en est : le bouton ne paraît pas figé.
-const SAVE_HOLD_MS = 3000;
+// Un appui sur « Enregistrer » = enregistrement direct (ou mise à jour
+// silencieuse) avec un retour éphémère. Maintenir 1,5 s = feuille « Couleur et
+// note », qui enregistre ensuite (dans Mes mix ou comme ton MIX). La barre qui
+// se remplit montre où on en est : le bouton ne paraît pas figé.
+const SAVE_HOLD_MS = 1500;
 
 export default function MixBuilder() {
   const router = useRouter();
@@ -1481,7 +1482,7 @@ function SaveButton({ disabled, onTap, onLongComplete, oneTap = false, status = 
           </Text>
           {!confirmed && !oneTap && (
             <Text style={[styles.btnPrimaryHint, refused && { color: '#FF5454' }]} numberOfLines={1}>
-              {refused ? 'Change le nom du mix' : 'Maintiens 3s = couleur'}
+              {refused ? 'Change le nom du mix' : 'Maintiens = couleur'}
             </Text>
           )}
         </View>

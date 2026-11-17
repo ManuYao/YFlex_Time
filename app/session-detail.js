@@ -19,6 +19,7 @@ import { useUiScale, scaled } from '../lib/responsive';
 import { haptic } from '../hooks/useHaptic';
 import { loadCooldownMap, getCooldownStatus } from '../lib/cooldown';
 import { loadIsPremium } from '../lib/premium';
+import { denyCooldown } from '../hooks/usePremiumGate';
 
 export default function SessionDetail() {
   const router = useRouter();
@@ -44,8 +45,8 @@ export default function SessionDetail() {
       const map = await loadCooldownMap();
       const status = getCooldownStatus(map, session.timerId);
       if (status.isLocked) {
-        haptic.warning();
-        router.replace('/premium');
+        // Pop-up Premium commun : on reste sur le détail de la séance.
+        denyCooldown();
         return;
       }
     }

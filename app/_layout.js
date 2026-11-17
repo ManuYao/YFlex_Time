@@ -31,6 +31,7 @@ import { TimersProvider } from '../contexts/TimersContext';
 import { SettingsProvider } from '../contexts/SettingsContext';
 import { AuthProvider } from '../contexts/AuthContext';
 import LibraryLimitGate from '../components/common/LibraryLimitGate';
+import PremiumPromptGate from '../components/common/PremiumPromptGate';
 import MemoryBadge from '../components/common/MemoryBadge';
 import BatteryEcoGate from '../components/common/BatteryEcoGate';
 
@@ -201,6 +202,8 @@ export default function RootLayout() {
                     dans une fenêtre minuscule (lib/responsive.js). */}
                 <SmallWindowNotice />
                 <LibraryLimitGate />
+                {/* Pop-up Premium commun (refus d'une fonction réservée) : couronne + « Voir Premium ». */}
+                <PremiumPromptGate />
                 {/* Compteur de mémoire (Paramètres › Mémoire) : rien tant que le réglage est coupé. */}
                 <MemoryBadge />
                 {/* Économie de batterie : coupe les décors animés à 20 % (lib/batteryEco.js). */}

@@ -372,11 +372,12 @@ export default function GamePyramid() {
 
   const startGame = () => {
     // Filet : un format Premium ne part jamais sans Premium (réglage resté d'avant, etc.).
-    // Refus commun : usePremiumGate().deny (alerte, son de refus, page Premium).
+    // Refus commun : usePremiumGate().deny (alerte, son de refus, pop-up Premium).
     if (formatLocked(formatId)) {
+      const refused = formatId;
       setFormatId(DEFAULT_FORMAT);
       setSets(buildSets(DEFAULT_FORMAT, peak));
-      denyPremium();
+      denyPremium(formatGate(refused));
       return;
     }
     haptic.medium();
@@ -465,7 +466,7 @@ export default function GamePyramid() {
 
   const chooseFormat = (id) => {
     if (formatLocked(id)) {
-      denyPremium();
+      denyPremium(formatGate(id));
       return;
     }
     haptic.selection();

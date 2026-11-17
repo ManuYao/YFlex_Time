@@ -102,14 +102,17 @@ export default function GameCombo() {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const { settings } = useSettings();
-  const { locked } = usePremiumGate();
+  const { locked, deny } = usePremiumGate();
 
   // Combo Bi-Exo est réservé à Premium. Le menu des jeux refuse déjà le toucher ; ce filet
-  // couvre un accès direct (lien, démo) : on renvoie vers la page Premium, sans rien jouer.
+  // couvre un accès direct (lien, démo) : on ressort de l'écran (retour au menu des jeux) et
+  // le pop-up Premium commun explique pourquoi, sans rien jouer.
   const comboLocked = locked(GAME_GATES.combo);
   useEffect(() => {
-    if (comboLocked) router.replace('/premium');
-  }, [comboLocked, router]);
+    if (!comboLocked) return;
+    goBackSafe(router, '/games');
+    deny(GAME_GATES.combo);
+  }, [comboLocked, router, deny]);
 
   const [phase, setPhase] = useState('ready'); // ready | countdown | playing | done
   const [tempoId, setTempoId] = useState(DEFAULT_TEMPO);

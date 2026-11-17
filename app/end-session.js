@@ -44,6 +44,7 @@ import { useUiScale, scaled, useLayoutLevel } from '../lib/responsive';
 import { haptic } from '../hooks/useHaptic';
 import { loadCooldownMap, getCooldownStatus } from '../lib/cooldown';
 import { loadIsPremium } from '../lib/premium';
+import { denyCooldown } from '../hooks/usePremiumGate';
 import BadgeUnlockSheet from '../components/common/BadgeUnlockSheet';
 import { pendingBadges, markBadgeSeen } from '../lib/badgeCelebration';
 import { countSessionsByTimer, notifyHistoryChanged } from '../lib/history';
@@ -209,8 +210,8 @@ export default function EndSession() {
       const map = await loadCooldownMap();
       const status = getCooldownStatus(map, timer.id);
       if (status.isLocked) {
-        haptic.warning();
-        router.replace('/premium');
+        // Pop-up Premium commun : on reste sur le bilan, rien ne nous éjecte vers la page Premium.
+        denyCooldown();
         return;
       }
     }

@@ -17,6 +17,7 @@ import ExerciseLibrarySheet from '../common/ExerciseLibrarySheet';
 import ExerciseDetailSheet from '../common/ExerciseDetailSheet';
 import MixLibrarySheet from '../common/MixLibrarySheet';
 import { usePremium } from '../../hooks/usePremium';
+import { gatePromptText } from '../../lib/premiumFeatures';
 import SaveFlashRing from '../common/SaveFlashRing';
 import ShineSweep from '../common/ShineSweep';
 import MiniToast from '../common/MiniToast';
@@ -145,7 +146,7 @@ function PlanningContent({
   const showPremiumToast = () =>
     showToast({
       premium: true,
-      text: 'Lancer depuis le planning : Premium. Le reste est libre.',
+      text: gatePromptText('planning.launch'),
     });
 
   // Sauvegarde de la note du jour. `notePending` = le texte pas encore écrit

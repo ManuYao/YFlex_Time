@@ -54,7 +54,6 @@ import IconButton from '../components/common/IconButton';
 import AppIcon from '../components/common/AppIcon';
 import StreakFlame from '../components/common/StreakFlame';
 import ModeStatsSheet from '../components/common/ModeStatsSheet';
-import { playSound } from '../lib/sounds';
 import ProgressionSheet from '../components/common/ProgressionSheet';
 import BadgeUnlockSheet from '../components/common/BadgeUnlockSheet';
 import CoachNudgeSheet from '../components/common/CoachNudgeSheet';
@@ -80,6 +79,7 @@ import { getTimerHero, getTimerDescription, getTimerBar } from '../lib/timers-co
 import PhaseBar from '../components/common/PhaseBar';
 import { loadArchives, loadPlanning } from '../lib/planning';
 import { loadIsPremium } from '../lib/premium';
+import { denyCooldown } from '../hooks/usePremiumGate';
 import {
   findProgressionSuggestion,
   loadProgressionSeen,
@@ -1166,9 +1166,7 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
     // Verrou cooldown (TABATA/MIX uniquement, voir lib/cooldown.js).
     const status = getCooldownStatus(active.id);
     if (status.isLocked) {
-      haptic.warning();
-      playSound('blockedTimer');
-      router.push('/premium');
+      denyCooldown(); // vibration + son + pop-up Premium commun
       return;
     }
     if (primerDueRef.current) {
