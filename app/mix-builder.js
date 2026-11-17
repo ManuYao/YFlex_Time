@@ -482,12 +482,14 @@ export default function MixBuilder() {
   // Le brouillon devient le MIX courant ; s'il est déjà dans « Mes mix », son
   // entrée est mise à jour au passage (sinon la version enregistrée là-bas
   // restait l'ancienne).
+  // Rend `false` si le téléphone n'a pas pu écrire le MIX courant.
   const persistDraft = async (source = draft) => {
     const mix = withLatestPublishedId(cloneMix(source));
-    await saveCurrentMix(mix);
+    const written = await saveCurrentMix(mix);
     if (inLibrary) {
       await saveAsLibraryEntry({ ...mix, name: mix.name?.trim() ? mix.name : 'Sans nom' });
     }
+    return written !== false;
   };
 
   // Un appui : on enregistre et on RESTE sur la page (avant, l'écran se fermait
@@ -511,7 +513,13 @@ export default function MixBuilder() {
     haptic.success();
     const source = meta ? { ...draft, ...meta } : draft;
     if (meta) setDraft(source);
-    await persistDraft(source);
+    const written = await persistDraft(source);
+    if (!written) {
+      // Jamais de faux « Enregistré » : le téléphone n'a pas pu écrire.
+      haptic.error();
+      showToast({ text: "L'enregistrement n'a pas pu être écrit sur le téléphone. Réessaie.", icon: 'close' }, 4200);
+      return;
+    }
     flashSaved('saved', inLibrary ? 'Enregistré · Mes mix mis à jour' : 'Enregistré comme ton MIX');
   };
 
@@ -600,13 +608,18 @@ export default function MixBuilder() {
       delete entry.fromFeed;
       delete entry.own;
       delete entry.syncSig;
-      await saveAsLibraryEntry(withFreshUid(entry));
+      // Refusé (limite gratuite atteinte : la fenêtre d'explication s'est déjà
+      // ouverte) : rien n'a été ajouté, donc jamais de « Ajouté » à tort.
+      const copy = await saveAsLibraryEntry(withFreshUid(entry));
+      if (!copy) return;
       flashSaved('added', 'Ajouté à Mes mix');
       return;
     }
     // Le mix entre dans Mes mix : même mix, il garde sa clé unique. Si Mes mix en
     // contenait déjà un avec cette clé, c'est lui qui est mis à jour et rendu.
-    const stored = (await saveAsLibraryEntry(entry)) || entry;
+    // Rendu `null` = refusé (limite gratuite) : on s'arrête, rien n'est ajouté.
+    const stored = await saveAsLibraryEntry(entry);
+    if (!stored) return;
     await saveCurrentMix(stored);
     setDraft(cloneMix(stored));
     flashSaved('added', 'Ajouté à Mes mix');

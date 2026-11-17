@@ -151,7 +151,8 @@ export function TimersProvider({ children }) {
         : withUid;
     const mix = ensureUid(keepLink);
     setCurrentMixState(mix);
-    await persistCurrentMix(mix);
+    // `false` si l'écriture sur le téléphone a échoué (l'écran concerné le dit).
+    return persistCurrentMix(mix);
   }, []);
 
   // Relie (ou délie, `publishedId` nul) un mix à sa publication dans le fil
