@@ -35,7 +35,9 @@ const average = (list) => (list.length ? list.reduce((s, v) => s + v, 0) / list.
 
 // `weightSlot` : la section « POIDS » (gratuite), posée entre l'activité et
 // l'analyse avancée. `onOpenAnalysis` : ouvre la page dédiée (app/analysis.js).
-export default function ProfileAnalytics({ stats, isPremium, onGoPremium, onOpenAnalysis, weightSlot = null }) {
+// `onLockedPress` : toucher l'aperçu verrouillé (pop-up Premium commun) ; le bouton « Voir toute
+// l'analyse avancée », lui, mène à la page Premium (`onGoPremium`).
+export default function ProfileAnalytics({ stats, isPremium, onGoPremium, onLockedPress, onOpenAnalysis, weightSlot = null }) {
   const locked = !isPremium;
 
   const [showMore, setShowMore] = useState(false);
@@ -114,7 +116,7 @@ export default function ProfileAnalytics({ stats, isPremium, onGoPremium, onOpen
                 s'estompe progressivement vers le fond. Pas de vrai flou
                 (BlurView fait ressortir du banding, voir GrainOverlay) : un
                 fondu vers le noir donne le même effet « il y a la suite ». */}
-            <PressTap onPress={onGoPremium} tapScale={0.99} accessibilityLabel="Débloquer l'analyse avancée">
+            <PressTap onPress={onLockedPress || onGoPremium} tapScale={0.99} accessibilityLabel="Débloquer l'analyse avancée">
               <View style={styles.teaser} pointerEvents="none">
                 <PremiumContent stats={stats} preview />
                 <LinearGradient
@@ -124,7 +126,10 @@ export default function ProfileAnalytics({ stats, isPremium, onGoPremium, onOpen
                 />
               </View>
             </PressTap>
-            <LockedList sessionCount={stats.sessionCount} />
+            <LockedList
+              sessionCount={stats.sessionCount}
+              tensionTotal={stats.tension.totalSeconds > 0 ? `${stats.tension.totalLabel} au total` : null}
+            />
             <View style={styles.teaserCta}>
               <Button
                 variant="glass"
@@ -155,7 +160,7 @@ const LOCKED_ITEMS = [
   { icon: 'play', title: 'Analyse de tes jeux', caption: 'Parties, records et progression' },
 ];
 
-function LockedList({ sessionCount }) {
+function LockedList({ sessionCount, tensionTotal = null }) {
   const n = sessionCount || 0;
   const lead =
     n > 0
@@ -164,7 +169,11 @@ function LockedList({ sessionCount }) {
   return (
     <View style={styles.lockedWrap}>
       <Text style={styles.lockedLead}>{lead}</Text>
-      {LOCKED_ITEMS.map((item) => (
+      {LOCKED_ITEMS.map((item) => {
+        // Avant-goût gratuit : le total global du temps sous tension (le détail
+        // par mois, semaine et format reste sous verrou).
+        const teaser = item.icon === 'clock' && tensionTotal ? tensionTotal : null;
+        return (
         <View key={item.title} style={styles.lockedRow}>
           <View style={styles.lockedIcon}>
             <AppIcon name={item.icon} size={14} color={GOLD} />
@@ -177,9 +186,15 @@ function LockedList({ sessionCount }) {
               {item.caption}
             </Text>
           </View>
+          {teaser ? (
+            <Text style={styles.lockedTeaser} numberOfLines={1}>
+              {teaser}
+            </Text>
+          ) : null}
           <AppIcon name="lock" size={13} color="rgba(255,255,255,0.45)" />
         </View>
-      ))}
+        );
+      })}
     </View>
   );
 }
@@ -671,6 +686,12 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sansBold,
     fontSize: 14,
     color: '#FFFFFF',
+  },
+  lockedTeaser: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 12.5,
+    color: GOLD,
+    marginRight: 8,
   },
   lockedCaption: {
     fontFamily: fonts.sansMedium,
