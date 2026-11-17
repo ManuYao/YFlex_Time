@@ -8,8 +8,9 @@ import { haptic } from '../../hooks/useHaptic';
 import { onPremiumPrompt } from '../../lib/premiumPrompt';
 
 // Pop-up Premium commun, monté une seule fois à la racine (comme LibraryLimitGate).
-// Même message que celui du Planning : couronne, une phrase qui dit CE qui est
-// réservé (et que le reste est libre), « Voir Premium » ouvre la page Premium.
+// Même message que celui du Planning : couronne, deux ou trois mots qui disent CE qui
+// est réservé (« Format Premium », sans expliquer le reste), « Voir Premium » ouvre la
+// page Premium.
 // Il se retire tout seul ; un nouveau refus remplace le message affiché.
 const SHOW_MS = 3600;
 // Posé AU-DESSUS de la rangée de boutons du bas (56 dp + marge) : le bouton que la

@@ -141,8 +141,8 @@ function PlanningContent({
     setToast(next);
     toastTimer.current = setTimeout(() => setToast(null), TOAST_MS);
   };
-  // Lancer depuis le planning est réservé à Premium : le message dit CE qu'on ne
-  // peut pas faire (et que le reste du planning est libre), « Voir » ouvre Premium.
+  // Lancer depuis le planning est réservé à Premium : le message dit juste CE qui
+  // est réservé (lib/premiumFeatures.js), « Voir Premium » ouvre la page Premium.
   const showPremiumToast = () =>
     showToast({
       premium: true,
