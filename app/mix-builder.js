@@ -522,7 +522,7 @@ export default function MixBuilder() {
     }
     // Un mix pas encore dans la liste : on dit comment l'y mettre (le maintien).
     if (inLibrary) flashSaved('saved', 'Enregistré · Mes mix mis à jour');
-    else flashSaved('saved', "Enregistré. Pour l'ajouter à ta liste, maintiens le bouton.", 4500);
+    else flashSaved('saved', "Ton mix est enregistré, mais pas dans ta liste de mix. Maintiens le bouton pour l'y ajouter.", 5000);
   };
 
   // Maintien 2 s : archiver dans « Mes mix », sous un nom qui n'y existe pas
@@ -1520,6 +1520,14 @@ function SaveButton({ disabled, onTap, onLongComplete, oneTap = false, inLibrary
 
   const confirmed = status === 'saved' || status === 'added';
   const refused = status === 'refused';
+  // Le petit texte sous « Enregistrer » : des PHRASES, pas de « = » (« on dirait un
+  // jeu pour enfants », 17/11), et des mots exacts. Un appui simple enregistre ton
+  // MIX seulement ; l'ajout à la liste de mix est une AUTRE chose (le maintien).
+  // Juste après l'appui, on dit donc franchement que le mix n'est pas dans la liste.
+  let hintText = null;
+  if (refused) hintText = 'Change le nom du mix';
+  else if (status === 'saved') hintText = inLibrary ? null : 'Pas dans la liste de mix';
+  else if (!confirmed) hintText = inLibrary ? 'Maintiens : couleur' : 'Maintiens : liste de mix';
 
   return (
     // Contour vert qui se dessine à chaque enregistrement réussi : la
@@ -1588,9 +1596,9 @@ function SaveButton({ disabled, onTap, onLongComplete, oneTap = false, inLibrary
           >
             {status === 'added' ? 'Ajouté' : status === 'saved' ? 'Enregistré' : refused ? 'Nom déjà pris' : 'Enregistrer'}
           </Text>
-          {!confirmed && !oneTap && (
+          {!!hintText && !oneTap && (
             <Text style={[styles.btnPrimaryHint, refused && { color: '#FF5454' }]} numberOfLines={1}>
-              {refused ? 'Change le nom du mix' : inLibrary ? 'Maintiens = couleur' : 'Maintiens = ma liste'}
+              {hintText}
             </Text>
           )}
         </View>
