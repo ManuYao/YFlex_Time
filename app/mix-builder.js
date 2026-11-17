@@ -1527,7 +1527,7 @@ function SaveButton({ disabled, onTap, onLongComplete, oneTap = false, inLibrary
   let hintText = null;
   if (refused) hintText = 'Change le nom du mix';
   else if (status === 'saved') hintText = inLibrary ? null : 'Pas dans la liste de mix';
-  else if (!confirmed) hintText = inLibrary ? 'Maintiens : couleur' : 'Maintiens : liste de mix';
+  else if (!confirmed) hintText = inLibrary ? 'Maintiens : une note' : 'Maintiens : liste de mix';
 
   return (
     // Contour vert qui se dessine à chaque enregistrement réussi : la
