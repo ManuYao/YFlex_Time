@@ -41,6 +41,7 @@ import MixShareSheet, { publishErrorText } from '../components/common/MixShareSh
 import MixPublicSheet from '../components/common/MixPublicSheet';
 import MixLibrarySheet from '../components/common/MixLibrarySheet';
 import UnsavedChangesSheet from '../components/common/UnsavedChangesSheet';
+import ConfirmSheet from '../components/common/ConfirmSheet';
 import MiniToast from '../components/common/MiniToast';
 import SaveFlashRing from '../components/common/SaveFlashRing';
 import MixMetaSheet from '../components/common/MixMetaSheet';
@@ -136,6 +137,8 @@ export default function MixBuilder() {
   // Avertissement « modifications non sauvegardées » : { action } (remplacer le
   // brouillon par un autre mix) ou { leaving: true } (quitter le constructeur).
   const [unsaved, setUnsaved] = useState(null);
+  // Nom déjà pris par un autre mix : { clash, meta } tant qu'on attend la réponse.
+  const [overwriteAsk, setOverwriteAsk] = useState(null);
   const toastTimer = useRef(null);
   const saveStatusTimer = useRef(null);
   const resetUndoRef = useRef(null);
@@ -425,6 +428,43 @@ export default function MixBuilder() {
     saveStatusTimer.current = setTimeout(() => setSaveStatus(null), 2500);
   };
 
+  // Un mix NEUF (jamais enregistré dans Mes mix, ex. après « Tout vider ») qui
+  // reprend le nom d'un mix existant : dans Mes mix, ou le MIX courant de
+  // l'accueil (qu'un enregistrement remplacerait). Modifier un mix choisi dans
+  // Mes mix ne passe jamais ici : il se met à jour normalement.
+  const findNameClash = () => {
+    const name = (draft.name || '').trim().toLowerCase();
+    if (!name) return null;
+    const same = (m) => m && m.id !== draft.id && (m.name || '').trim().toLowerCase() === name;
+    const entry = library.find(same);
+    if (entry) return { kind: 'library', entry };
+    if (same(currentMix)) return { kind: 'current', entry: currentMix };
+    return null;
+  };
+
+  const askOverwrite = (clash, meta) => {
+    haptic.warning();
+    setOverwriteAsk({ clash, meta: meta && typeof meta === 'object' && !meta.nativeEvent ? meta : null });
+  };
+
+  // « Écraser » confirmé : le mix existant est remplacé par ce brouillon (même
+  // identité, donc pas de doublon). Pour le MIX courant seul, l'enregistrement
+  // normal le remplace.
+  const confirmOverwrite = async () => {
+    const ask = overwriteAsk;
+    setOverwriteAsk(null);
+    if (!ask) return;
+    if (ask.clash.kind === 'current') return handleSave(ask.meta, true);
+    const target = ask.clash.entry;
+    const source = { ...draft, ...(ask.meta || {}), id: target.id, uid: target.uid || draft.uid };
+    setDraft(source);
+    haptic.success();
+    const mix = withLatestPublishedId(cloneMix(source));
+    await saveCurrentMix(mix);
+    await saveAsLibraryEntry({ ...mix, name: mix.name.trim() });
+    flashSaved('saved', 'Enregistré · l\'ancien mix a été remplacé');
+  };
+
   // Le brouillon devient le MIX courant ; s'il est déjà dans « Mes mix », son
   // entrée est mise à jour au passage (sinon la version enregistrée là-bas
   // restait l'ancienne).
@@ -441,12 +481,18 @@ export default function MixBuilder() {
   // « Enregistré », petit message.
   // `meta` ({ color, note }) vient de la feuille « Couleur et note » : appliqué au
   // brouillon, puis enregistré avec lui.
-  const handleSave = async (meta) => {
+  const handleSave = async (meta, overwriteConfirmed = false) => {
     if (draft.blocks.length === 0) return;
     // Mix qui ne m'appartient pas : un simple appui l'enregistre dans Mes mix
     // (il devient alors le mien) — plus besoin de maintenir.
     if (preview) return handleSavePreview();
     if (inLibrary && nameTaken()) return refuseTakenName();
+    // Mix neuf (pas encore dans Mes mix) qui porte le nom d'un mix existant :
+    // jamais d'écrasement silencieux, on demande d'abord.
+    if (!inLibrary && !overwriteConfirmed) {
+      const clash = findNameClash();
+      if (clash) return askOverwrite(clash, meta);
+    }
     haptic.success();
     const source = meta ? { ...draft, ...meta } : draft;
     if (meta) setDraft(source);
@@ -520,7 +566,11 @@ export default function MixBuilder() {
     // Archiver sous un nom déjà utilisé (y compris celui du mix d'origine) est
     // refusé : le nom doit être différent.
     if (library.some((m) => (m.name || '').trim().toLowerCase() === baseName.toLowerCase())) {
-      return refuseTakenName();
+      // Copie d'un mix de Mes mix : le nom doit changer. Mix neuf : on propose
+      // d'écraser celui qui porte ce nom (jamais en silence).
+      if (inLibrary) return refuseTakenName();
+      const clash = findNameClash();
+      return clash ? askOverwrite(clash, meta) : refuseTakenName();
     }
     haptic.success();
     // Couleur et note choisies dans la feuille : elles vont sur l'entrée créée
@@ -1162,6 +1212,18 @@ export default function MixBuilder() {
       )}
 
       {tutorialOpen && <MixTutorialSheet screenH={screenH} onDone={closeTutorial} />}
+
+      {!!overwriteAsk && (
+        <ConfirmSheet
+          screenH={screenH}
+          title="Un mix porte déjà ce nom"
+          body={`« ${(draft.name || '').trim()} » existe déjà. Veux-tu l'écraser avec ce mix ? Sinon, change le nom pour garder les deux.`}
+          confirmLabel="Écraser"
+          cancelLabel="Changer le nom"
+          onConfirm={confirmOverwrite}
+          onClose={() => setOverwriteAsk(null)}
+        />
+      )}
 
       {!!unsaved && (
         <UnsavedChangesSheet
