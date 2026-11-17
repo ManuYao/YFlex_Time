@@ -335,10 +335,10 @@ export default function MixBuilder() {
     setToast(null);
   };
 
-  const flashSaved = (status, text) => {
+  const flashSaved = (status, text, ms) => {
     setSaveStatus(status);
     setSaveTick((t) => t + 1);
-    showToast({ text, icon: 'check' });
+    showToast({ text, icon: 'check' }, ms);
     clearTimeout(saveStatusTimer.current);
     saveStatusTimer.current = setTimeout(() => setSaveStatus(null), 2000);
   };
@@ -520,7 +520,9 @@ export default function MixBuilder() {
       showToast({ text: "L'enregistrement n'a pas pu être écrit sur le téléphone. Réessaie.", icon: 'close' }, 4200);
       return;
     }
-    flashSaved('saved', inLibrary ? 'Enregistré · Mes mix mis à jour' : 'Enregistré comme ton MIX');
+    // Un mix pas encore dans la liste : on dit comment l'y mettre (le maintien).
+    if (inLibrary) flashSaved('saved', 'Enregistré · Mes mix mis à jour');
+    else flashSaved('saved', "Enregistré. Pour l'ajouter à ta liste, maintiens le bouton.", 4500);
   };
 
   // Maintien 2 s : archiver dans « Mes mix », sous un nom qui n'y existe pas
@@ -1114,6 +1116,7 @@ export default function MixBuilder() {
             <SaveButton
               disabled={draft.blocks.length === 0}
               oneTap={preview}
+              inLibrary={inLibrary}
               onTap={handleSave}
               onLongComplete={() => {
                 if (lockedMix) return denyEdit();
@@ -1494,7 +1497,10 @@ function RoleChip({ role, selected, onPress, onLayout }) {
 // l'action. Avant, la barre (Reanimated) et le onLongPress du Pressable
 // (minuteur d'Android) tournaient chacun de leur côté : barre pleine, rien ne
 // s'ouvrait, une fois sur deux.
-function SaveButton({ disabled, onTap, onLongComplete, oneTap = false, status = null, flashTick = 0 }) {
+// `inLibrary` : le mix est déjà dans la liste « Mes mix ». Sinon, un appui simple
+// ne l'enregistre que comme « ton MIX » et c'est le MAINTIEN qui l'ajoute à la
+// liste : le petit texte du bouton le dit en mots simples (retour du 17/11).
+function SaveButton({ disabled, onTap, onLongComplete, oneTap = false, inLibrary = false, status = null, flashTick = 0 }) {
   const haptic = useHaptic();
   const scale = useSharedValue(1);
   // La vibration de réussite est faite par le gestionnaire (une fois sûr que
@@ -1584,7 +1590,7 @@ function SaveButton({ disabled, onTap, onLongComplete, oneTap = false, status = 
           </Text>
           {!confirmed && !oneTap && (
             <Text style={[styles.btnPrimaryHint, refused && { color: '#FF5454' }]} numberOfLines={1}>
-              {refused ? 'Change le nom du mix' : 'Maintiens = couleur'}
+              {refused ? 'Change le nom du mix' : inLibrary ? 'Maintiens = couleur' : 'Maintiens = ma liste'}
             </Text>
           )}
         </View>
