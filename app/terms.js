@@ -36,7 +36,7 @@ const SECTIONS = [
   {
     heading: '5. Fonctionnalités Pro',
     paragraphs: [
-      "Tous les modes (AMRAP, BASIC, EMOM, TABATA, MIX) se lancent gratuitement, sans limite et sans publicité. La bibliothèque « Mes mix » est limitée en gratuit : 3 mix créés par toi et 5 mix pris chez les autres (fil public ou lien), plus 3 mix publiés en même temps dans le fil public. Le planning de la semaine est gratuit ; lancer un bloc ou un mix directement depuis le planning est réservé au Pro. Dans les jeux, le jeu « Combo Bi-Exo » et les formats « Évolutif » et « Dégressif » de « La pyramide » sont réservés au Pro. Un accès Pro, sans ces limites, est prévu, avec un vrai paiement via le Google Play Store à la sortie officielle de l'application.",
+      "Tous les modes (AMRAP, BASIC, EMOM, TABATA, MIX) se lancent gratuitement, sans limite et sans publicité. La bibliothèque « Mes mix » est limitée en gratuit : 3 mix créés par toi et 5 mix pris chez les autres (fil public ou lien), plus 3 mix publiés en même temps dans le fil public. Si tu perds l'accès Pro avec plus de mix que ces limites, tu choisis ceux que tu gardes actifs : les autres sont mis en pause, jamais supprimés, et redeviennent disponibles si tu repasses en Pro. Le planning de la semaine est gratuit ; lancer un bloc ou un mix directement depuis le planning est réservé au Pro. Dans les jeux, le jeu « Combo Bi-Exo » et les formats « Évolutif » et « Dégressif » de « La pyramide » sont réservés au Pro. Un accès Pro, sans ces limites, est prévu, avec un vrai paiement via le Google Play Store à la sortie officielle de l'application.",
     ],
   },
   {
@@ -63,7 +63,7 @@ export default function Terms() {
   return (
     <LegalScreen
       title="Conditions d'utilisation"
-      updatedAt="15 novembre 2026 · version bêta"
+      updatedAt="17 novembre 2026 · version bêta"
       sections={SECTIONS}
     />
   );

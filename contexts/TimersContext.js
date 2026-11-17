@@ -5,6 +5,7 @@ import { TIMERS } from '../lib/timers-config';
 import {
   addToLibrary as persistAddToLibrary,
   receiveMix as persistReceiveMix,
+  applyMixPause as persistMixPause,
   removeFromLibrary as persistRemoveFromLibrary,
   saveCurrentMix as persistCurrentMix,
   loadLibrary,
@@ -211,6 +212,13 @@ export function TimersProvider({ children }) {
     setLibrary(next);
   }, []);
 
+  // « Mes mix actifs » (perte de Premium) : les mix choisis restent actifs, les
+  // autres passent en pause — rien n'est supprimé (lib/libraryLimits.js).
+  const applyMixPause = useCallback(async (kinds, keepIds) => {
+    const next = await persistMixPause(kinds, keepIds);
+    setLibrary(next);
+  }, []);
+
   const loadFromLibrary = useCallback(async (id) => {
     const target = library.find((m) => m.id === id);
     if (!target) return null;
@@ -300,11 +308,12 @@ export function TimersProvider({ children }) {
       saveAsLibraryEntry,
       receiveMix,
       removeFromLibrary,
+      applyMixPause,
       loadFromLibrary,
       markPublished,
       clearPublication,
     }),
-    [timers, updateStat, resetTimer, resetAll, hydrated, library, currentMix, saveCurrentMix, saveAsLibraryEntry, receiveMix, removeFromLibrary, loadFromLibrary, markPublished, clearPublication]
+    [timers, updateStat, resetTimer, resetAll, hydrated, library, currentMix, saveCurrentMix, saveAsLibraryEntry, receiveMix, removeFromLibrary, applyMixPause, loadFromLibrary, markPublished, clearPublication]
   );
 
   return <TimersContext.Provider value={value}>{children}</TimersContext.Provider>;

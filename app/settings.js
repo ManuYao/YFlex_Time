@@ -275,6 +275,8 @@ export default function Settings() {
         'flexTimer_coachNudge',
         // Alerte « ambiance de saison » (lib/seasonNudge.js) : redevient proposable.
         'flexTimer_seasonNudge',
+        // « A été Pro » (components/common/MixPauseGate.js) : repart de zéro.
+        'flexTimer_mixPauseWasPro',
         // Proposition annuelle « les fêtes, chacun à sa façon » (lib/feastNudge.js) : redevient proposable.
         'flexTimer_feastNudge',
         // Proposition « Essaie les jeux » (lib/gamesNudge.js) : repart de zéro après un reset.
