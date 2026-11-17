@@ -84,6 +84,7 @@ import {
 import { useLayoutLevel } from '../lib/responsive';
 import { useTimers } from '../contexts/TimersContext';
 import { useHaptic } from '../hooks/useHaptic';
+import { useHoldProgress } from '../hooks/useHoldProgress';
 import { useMixLauncher } from '../hooks/useMixLauncher';
 import MixTutorialSheet from '../components/screens/MixTutorialSheet';
 import { loadMixTutorialSeen, markMixTutorialSeen, shouldShowMixTutorial } from '../lib/mixTutorial';
@@ -95,10 +96,11 @@ import { useAuth } from '../contexts/AuthContext';
 
 const ACCENT = '#9575FF';
 // Un appui sur « Enregistrer » = enregistrement direct (ou mise à jour
-// silencieuse) avec un retour éphémère. Maintenir 1,5 s = feuille « Couleur et
+// silencieuse) avec un retour éphémère. Maintenir 0,8 s = feuille « Couleur et
 // note », qui enregistre ensuite (dans Mes mix ou comme ton MIX). La barre qui
-// se remplit montre où on en est : le bouton ne paraît pas figé.
-const SAVE_HOLD_MS = 1500;
+// se remplit montre où on en est : le bouton ne paraît pas figé. Court exprès
+// (retour du 17/11 : 1,5 s paraissait interminable) : la feuille ne détruit rien.
+const SAVE_HOLD_MS = 800;
 
 export default function MixBuilder() {
   const router = useRouter();
@@ -1471,20 +1473,27 @@ function RoleChip({ role, selected, onPress, onLayout }) {
 }
 
 // Enregistrer : un appui = enregistrer (on reste sur la page, avec un retour
-// visuel), 2 s d'appui = archiver une copie dans Mes mix.
+// visuel), un maintien (SAVE_HOLD_MS) = feuille « Couleur et note ».
 // Garde sa propre mécanique d'appui (la barre qui se remplit, que Button ne
-// sait pas faire) mais porte le rendu de la recette 'accent' de
+// sait pas faire) mais porte le rendu de la recette 'glass' de
 // lib/buttonTokens.js : même capsule que tous les autres boutons.
+// Le maintien passe par useHoldProgress : UNE seule horloge pour la barre ET
+// l'action. Avant, la barre (Reanimated) et le onLongPress du Pressable
+// (minuteur d'Android) tournaient chacun de leur côté : barre pleine, rien ne
+// s'ouvrait, une fois sur deux.
 function SaveButton({ disabled, onTap, onLongComplete, oneTap = false, status = null, flashTick = 0 }) {
   const haptic = useHaptic();
-  const progress = useSharedValue(0);
   const scale = useSharedValue(1);
-  const longFiredRef = useRef(false);
+  // La vibration de réussite est faite par le gestionnaire (une fois sûr que
+  // l'action a lieu : un refus ne doit pas vibrer comme un succès).
+  const hold = useHoldProgress(() => {
+    if (!disabled) onLongComplete?.();
+  }, SAVE_HOLD_MS, { successHaptic: false });
   // Verre, pas l'accent : le bouton Lancer à côté est l'action principale.
   const r = buttonRecipe({ variant: 'glass' });
 
   const fillStyle = useAnimatedStyle(() => ({
-    width: `${progress.value * 100}%`,
+    width: `${hold.progress.value * 100}%`,
   }));
   const scaleStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
@@ -1499,37 +1508,26 @@ function SaveButton({ disabled, onTap, onLongComplete, oneTap = false, status = 
     <SaveFlashRing trigger={flashTick} radius={BUTTON_HEIGHT.lg / 2} style={styles.saveSlot}>
     <Pressable
       disabled={disabled}
-      delayLongPress={SAVE_HOLD_MS}
-      // Un maintien de 2 s fait presque toujours dériver le doigt : au-delà de
-      // la tolérance par défaut (quelques mm) Android annule l'appui, la barre
-      // se vidait et rien ne s'enregistrait, une fois sur deux. Large tolérance.
+      // Le doigt dérive pendant un maintien : au-delà de la tolérance par
+      // défaut (quelques mm) Android annule l'appui et la barre se vide.
+      // Large tolérance.
       pressRetentionOffset={{ top: 80, bottom: 80, left: 80, right: 80 }}
-      onPressIn={() => {
+      onPressIn={(e) => {
         if (disabled) return;
-        longFiredRef.current = false;
         scale.value = withSpring(TAP_SCALE.lg, springEnergetic);
         // `oneTap` (mix qui n'est pas à moi) : un appui suffit, pas de barre de maintien.
-        if (!oneTap) progress.value = withTiming(1, { duration: SAVE_HOLD_MS });
+        if (!oneTap) hold.start(e);
       }}
-      onPressOut={() => {
+      onPressOut={(e) => {
         scale.value = withSpring(1, springEnergetic);
-        progress.value = withTiming(0, { duration: 200 });
-      }}
-      onLongPress={() => {
-        if (disabled) return;
-        longFiredRef.current = true;
-        // Pas de vibration ici : c'est le gestionnaire qui vibre, une fois sûr
-        // que l'enregistrement a lieu (sinon un refus vibrait comme un succès).
-        // En `oneTap`, un appui prolongé vaut un appui simple.
-        if (oneTap) onTap?.();
-        else onLongComplete?.();
+        // Valide aussi un relâchement tout juste après la fin de la barre (voir
+        // useHoldProgress) ; sinon la barre redescend.
+        if (!oneTap) hold.cancel(e);
       }}
       onPress={() => {
         if (disabled) return;
-        if (longFiredRef.current) {
-          longFiredRef.current = false;
-          return;
-        }
+        // Le maintien a déjà agi : ce tap n'est que le relâchement du doigt.
+        if (hold.wasFired()) return;
         onTap?.();
       }}
       style={styles.savePress}
