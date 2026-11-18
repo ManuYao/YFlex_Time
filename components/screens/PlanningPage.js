@@ -482,7 +482,10 @@ function PlanningContent({
                   }
                   const mix = buildMixFromBlock(block, dayKey);
                   if (!mix) return;
-                  await saveCurrentMix(mix);
+                  // `fromPlanning` : mix de passage. Il se lance et s'ouvre dans le constructeur,
+                  // mais n'est JAMAIS rangé dans « Mes mix » sans le maintien sur « Enregistrer »
+                  // (lib/mixes.js, isTemporaryMix).
+                  await saveCurrentMix({ ...mix, fromPlanning: true });
                   router.push('/mix-builder');
                 }}
               />

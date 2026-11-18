@@ -24,7 +24,7 @@ import { fonts } from '../lib/fonts';
 import { D, slideInY } from '../lib/animations';
 import { getBlockType, getBlockDuration, getMixTotalDuration, hasEstimatedDuration } from '../lib/mix-blocks';
 import { formatMixClock } from '../lib/formatters';
-import { isDefaultMix } from '../lib/mixes';
+import { shouldStashMix } from '../lib/mixes';
 import { findLibraryMatch } from '../lib/mixIdentity';
 
 const FALLBACK_MIX_BG = ['#9575FF', '#4B2FC9', '#1A0D52'];
@@ -131,12 +131,7 @@ export default function MixHub() {
   // dans « Mes mix » avant d'être remplacé : rien ne se perd (même règle que
   // « Tester » depuis le profil).
   const stashCurrent = async () => {
-    if (
-      currentMix?.blocks?.length &&
-      !currentMix.isPreview &&
-      !isDefaultMix(currentMix) &&
-      !library.some((m) => m.id === currentMix.id)
-    ) {
+    if (shouldStashMix(currentMix, library)) {
       await saveAsLibraryEntry(currentMix);
     }
   };

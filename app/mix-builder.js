@@ -61,7 +61,7 @@ import {
   MAX_BLOCK_NOTE_LENGTH,
   getRangesForType,
 } from '../lib/mix-blocks';
-import { makeDefaultMix, isDefaultMix, mixSignature } from '../lib/mixes';
+import { makeDefaultMix, shouldStashMix, mixSignature } from '../lib/mixes';
 import { findLibraryMatch, generateMixUid, withFreshUid } from '../lib/mixIdentity';
 import { loadProfile } from '../lib/profile';
 import { getPreviewMix } from '../lib/previewMix';
@@ -297,10 +297,17 @@ export default function MixBuilder() {
   const updateName = (v) => setDraft((d) => ({ ...d, name: v }));
 
   // Copie sans le drapeau « aperçu » : tout ce qui est enregistré devient un vrai mix.
+  // Il perd aussi la marque « vient du Planning » (`fromPlanning`) : une copie faite pour
+  // entrer dans Mes mix est un vrai mix. Pour rester de passage (simple appui sur Enregistrer,
+  // Lancer), on la remet avec keepTemp.
   const cloneMix = (m) => {
-    const { isPreview: _p, ...rest } = m;
+    const { isPreview: _p, fromPlanning: _f, ...rest } = m;
     return { ...rest, blocks: m.blocks.map((b) => ({ ...b })) };
   };
+  // Un mix fabriqué depuis le Planning reste « de passage » (jamais rangé dans Mes mix tout seul,
+  // voir isTemporaryMix dans lib/mixes.js) quand on l'enregistre d'un simple appui ou qu'on le
+  // lance : seul le maintien sur « Enregistrer » l'y ajoute.
+  const keepTemp = (copy, src) => (src?.fromPlanning ? { ...copy, fromPlanning: true } : copy);
 
   // Le brouillon est une copie : une publication faite depuis la feuille de
   // partage n'y apparaît pas toute seule. On relit donc le lien de publication
@@ -484,7 +491,7 @@ export default function MixBuilder() {
   // restait l'ancienne).
   // Rend `false` si le téléphone n'a pas pu écrire le MIX courant.
   const persistDraft = async (source = draft) => {
-    const mix = withLatestPublishedId(cloneMix(source));
+    const mix = keepTemp(withLatestPublishedId(cloneMix(source)), source);
     const written = await saveCurrentMix(mix);
     if (inLibrary) {
       await saveAsLibraryEntry({ ...mix, name: mix.name?.trim() ? mix.name : 'Sans nom' });
@@ -642,7 +649,7 @@ export default function MixBuilder() {
   // MIX d'usine), est rangé dans Mes mix avant d'être remplacé : rien ne se perd
   // en silence (même règle que « Tester » depuis le fil).
   const stashBaseline = async () => {
-    if (currentMix?.blocks?.length && !currentMix.isPreview && !isDefaultMix(currentMix) && !library.some((m) => m.id === currentMix.id)) {
+    if (shouldStashMix(currentMix, library)) {
       await saveAsLibraryEntry(cloneMix(currentMix));
     }
   };
@@ -707,7 +714,7 @@ export default function MixBuilder() {
         await launchMix({ ...draft, isPreview: true });
         return;
       }
-      await launchMix(cloneMix(draft));
+      await launchMix(keepTemp(cloneMix(draft), draft));
     } finally {
       launchingRef.current = false;
     }
