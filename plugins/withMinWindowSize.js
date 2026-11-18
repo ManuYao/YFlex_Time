@@ -37,5 +37,11 @@ module.exports = (config) =>
         },
       },
     ];
+    // Redimensionnement explicite (c'est déjà la valeur par défaut depuis Android 7, mais on
+    // le dit noir sur blanc : la fenêtre flottante Samsung doit pouvoir être étirée dans
+    // tous les sens). Le verrou portrait, lui, n'est plus au manifeste (app.json : orientation
+    // « default ») : il est posé à chaud par components/common/OrientationGate.js, seulement
+    // quand l'app occupe tout l'écran.
+    activity.$['android:resizeableActivity'] = 'true';
     return cfg;
   });

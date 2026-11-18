@@ -15,6 +15,7 @@ import { setAudioModeAsync } from 'expo-audio';
 import GrainOverlay from '../components/common/GrainOverlay';
 import LaunchSplash from '../components/common/LaunchSplash';
 import UpdateGate from '../components/common/UpdateGate';
+import OrientationGate from '../components/common/OrientationGate';
 import HistorySyncGate from '../components/common/HistorySyncGate';
 import APKBlockedScreen from '../components/common/APKBlockedScreen';
 import MaintenanceBanner from '../components/common/MaintenanceBanner';
@@ -198,6 +199,9 @@ export default function RootLayout() {
                   <Stack.Screen name="archive-detail" options={{ animation: 'fade' }} />
                 </Stack>
                 <UpdateGate />
+                {/* Orientation : portrait verrouillé en plein écran, libre dans une
+                    fenêtre réduite (lib/orientationPolicy.js). Ne rend rien. */}
+                <OrientationGate />
                 <HistorySyncGate />
                 {/* « Agrandis la fenêtre » : recouvre un écran devenu inutilisable
                     dans une fenêtre minuscule (lib/responsive.js). */}
