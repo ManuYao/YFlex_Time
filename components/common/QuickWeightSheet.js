@@ -4,6 +4,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import BottomSheet from './BottomSheet';
 import WheelPicker from './WheelPicker';
 import Button from './Button';
+import LoadAdviceCard from './LoadAdviceCard';
 import PressTap from './PressTap';
 import AppIcon from './AppIcon';
 import { fonts } from '../../lib/fonts';
@@ -20,7 +21,7 @@ const WEIGHT_VALUES = Array.from({ length: 201 }, (_, i) => i);
  * que la fiche d'un exercice, mais seule. Le chrono continue de tourner
  * derrière ; fermer sans valider ne change rien.
  */
-function QuickWeightSheetBase({ screenH, kicker = 'CHARGE', label, initial, color = '#FFFFFF', onSave, onClose }) {
+function QuickWeightSheetBase({ screenH, kicker = 'CHARGE', label, initial, color = '#FFFFFF', advice = null, onSave, onClose }) {
   const haptic = useHaptic();
   const values = WEIGHT_VALUES;
   // La charge choisie n'est lue qu'au « OK » : une ref, pas un état. Un état
@@ -45,6 +46,15 @@ function QuickWeightSheetBase({ screenH, kicker = 'CHARGE', label, initial, colo
         <View>
           <Text style={styles.kicker}>{kicker}</Text>
           <Text style={styles.title} numberOfLines={1}>{label}</Text>
+          {/* Conseil « tu peux monter » (Premium, lib/loadAdviceShape.js) : appliquer enregistre et ferme. */}
+          <LoadAdviceCard
+            advice={advice}
+            color={color}
+            onApply={(w) => {
+              onSaveRef.current?.(w);
+              close();
+            }}
+          />
           <WheelPicker
             values={values}
             selectedValue={kgRef.current}
@@ -85,7 +95,7 @@ function QuickWeightSheetBase({ screenH, kicker = 'CHARGE', label, initial, colo
 export default memo(
   QuickWeightSheetBase,
   (a, b) =>
-    a.screenH === b.screenH && a.kicker === b.kicker && a.label === b.label && a.initial === b.initial && a.color === b.color
+    a.screenH === b.screenH && a.kicker === b.kicker && a.label === b.label && a.initial === b.initial && a.color === b.color && a.advice === b.advice
 );
 
 const styles = StyleSheet.create({

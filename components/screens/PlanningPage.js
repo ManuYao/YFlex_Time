@@ -34,6 +34,7 @@ import { useKeyboardHeight, scrollToFocusedInput } from '../../hooks/useKeyboard
 import { useTimers } from '../../contexts/TimersContext';
 import { useMixLauncher } from '../../hooks/useMixLauncher';
 import ChipRow from '../common/ChipRow';
+import { findProgressionAdvice } from '../../lib/progression';
 import {
   DAYS,
   addBlock,
@@ -64,6 +65,9 @@ const LAUNCH_HOLD_MS = 2000;
 // Dérive tolérée du doigt pendant le maintien : l'appui n'est annulé qu'au-delà
 // (défaut RN : 20 dp, trop juste pour deux secondes de doigt posé).
 const HOLD_RETENTION = { top: 36, left: 36, right: 36, bottom: 36 };
+
+// Aucun conseil : une seule référence, pour ne pas redessiner la page pour rien.
+const NO_ADVICE = {};
 // Couleur MIX (lib/timers-config.js) : la carte d'un bloc "activable" se
 // teinte de cette couleur sans jamais perdre sa base noire (jamais remplacer
 // une couleur, voir CLAUDE.md), même geste que le reste de l'app.
@@ -103,6 +107,22 @@ function PlanningContent({
     focus?.dayKey && DAYS.some((d) => d.key === focus.dayKey) ? focus.dayKey : todayKey()
   );
   const [usedDays, setUsedDays] = useState(() => new Set());
+  // Conseils « tu peux monter » (Premium, lib/progression.js) : { [tagId]: conseil } pour les
+  // étiquettes des blocs vivants, recalculés quand le planning change.
+  const [adviceByTag, setAdviceByTag] = useState(NO_ADVICE);
+  useEffect(() => {
+    if (!isPremium) {
+      setAdviceByTag(NO_ADVICE);
+      return undefined;
+    }
+    let cancelled = false;
+    findProgressionAdvice({ planning }).then((res) => {
+      if (!cancelled) setAdviceByTag(Object.keys(res.byTagId).length ? res.byTagId : NO_ADVICE);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [planning, isPremium]);
   const [sheet, setSheet] = useState(null);
   // Incrémenté à chaque VRAIE sauvegarde de note (texte réellement changé) —
   // fait jouer SaveFlashRing autour du champ. Pas de bouton "Enregistrer" :
@@ -472,6 +492,7 @@ function PlanningContent({
                   setPlanning(await removeBlock(planning, dayKey, block.id));
                 }}
                 premiumLocked={!isPremium}
+                adviceByTag={adviceByTag}
                 onLaunch={async () => {
                   // Le maintien va jusqu'au bout même sans Premium : il explique
                   // au lieu de lancer.
@@ -661,6 +682,7 @@ function PlanningContent({
           tag={findBlock(sheet.blockId)?.tags.find((t) => t.id === sheet.tagId)}
           blockName={findBlock(sheet.blockId)?.name}
           dayLabel={day.long}
+          advice={adviceByTag[sheet.tagId] || null}
           onClose={closeSheet}
           onSave={async (values) => {
             setPlanning(await updateTag(planning, dayKey, sheet.blockId, sheet.tagId, values));
@@ -720,6 +742,7 @@ function BlockCard({
   onDelete,
   onLaunch,
   premiumLocked = false,
+  adviceByTag = NO_ADVICE,
 }) {
   const swipeRef = useRef(null);
   const blockArchived = !!block.archivedAt;
@@ -817,6 +840,8 @@ function BlockCard({
               <Text style={[styles.tagText, { color: chip.text }]}>
                 {tag.label.toUpperCase()}
                 {suffix}
+                {/* Repère discret : cet exercice peut monter (conseil de charge, Premium). */}
+                {adviceByTag[tag.id] ? '  ↑' : ''}
               </Text>
             </PressTap>
           );

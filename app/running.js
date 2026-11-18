@@ -14,6 +14,7 @@ import HoldOverlay from '../components/common/HoldOverlay';
 import QuickWeightSheet from '../components/common/QuickWeightSheet';
 import PhaseBar from '../components/common/PhaseBar';
 import { setTagWeightByRef } from '../lib/planning';
+import { findProgressionAdvice } from '../lib/progression';
 import { useSettings } from '../contexts/SettingsContext';
 import { holdDurations } from '../lib/rainMode';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -470,6 +471,31 @@ export default function Running() {
   // figé à l'ouverture (si le repos finit pendant la saisie, on ne change pas de cible).
   const [weightSheet, setWeightSheet] = useState(null);
   const mixBlocks = isMix ? timer._mix?.blocks || [] : [];
+  // Conseil « tu peux monter » (Premium, lib/loadAdviceShape.js) : lu UNE fois au début de la séance,
+  // seulement pour un MIX lancé depuis le Planning ; rien ne se recalcule pendant le chrono.
+  // { [tagId]: conseil }
+  const [adviceByTag, setAdviceByTag] = useState(null);
+  const hasPlanBlocks = mixBlocks.some((b) => b.planRef);
+  useEffect(() => {
+    if (!hasPlanBlocks) return undefined;
+    let cancelled = false;
+    (async () => {
+      if (!(await loadIsPremium())) return;
+      const res = await findProgressionAdvice();
+      if (!cancelled) setAdviceByTag(res.byTagId);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hasPlanBlocks]);
+  // Le conseil d'un bloc, tant que sa charge est encore celle du conseil (changée : plus rien à proposer).
+  const adviceFor = (block) => {
+    const tagId = block?.planRef?.tagId;
+    const advice = tagId && adviceByTag ? adviceByTag[tagId] : null;
+    if (!advice) return null;
+    const current = savedWeights[tagId] ?? block.weight ?? null;
+    return current === advice.weight ? advice : null;
+  };
   // Position du bloc en cours : donnée par le moteur lui-même (il a parcouru les blocs dans l'ordre),
   // jamais retrouvée par id — deux blocs au même id (ancien bug, voir lib/mix-blocks.js) renvoyaient
   // le PREMIER et « Ma séance » montrait le mauvais exercice « en cours ».
@@ -486,6 +512,7 @@ export default function Running() {
   const weightValue = weightBlock
     ? savedWeights[weightBlock.planRef.tagId] ?? weightBlock.weight ?? null
     : null;
+  const weightHint = !!adviceFor(weightBlock);
   // Pendant un repos : le PROCHAIN exercice (charge prévue, modifiable si le bloc
   // vient du Planning, donc a un endroit où enregistrer).
   const nextPlanBlock = (() => {
@@ -741,9 +768,9 @@ export default function Running() {
   const weightAccessory = useMemo(
     () =>
       hasWeightBlock && !isMini ? (
-        <WeightBubble tokens={t} value={weightValue} strong={false} onPress={stable.onWeightPress} />
+        <WeightBubble tokens={t} value={weightValue} strong={false} hint={weightHint} onPress={stable.onWeightPress} />
       ) : null,
-    [hasWeightBlock, isMini, t, weightValue, stable]
+    [hasWeightBlock, isMini, t, weightValue, weightHint, stable]
   );
 
   // Decompte sonore des trois dernieres secondes d'une phase (sons 1/2/3
@@ -1186,6 +1213,7 @@ export default function Running() {
             (weightSheet.kind === 'next' ? nextWeight : weightValue) ?? weightSheet.block.weight ?? null
           }
           color={timer.color}
+          advice={adviceFor(weightSheet.block)}
           onSave={handleSaveWeight}
           onClose={() => setWeightSheet(null)}
         />
@@ -2006,7 +2034,7 @@ const BottomControls = memo(function BottomControls({
 // Petite bulle à droite : « + kg » tant qu'aucune charge n'est renseignée, la
 // charge sinon. Discrète en effort, bien visible en repos (c'est le moment où
 // les mains sont libres).
-function WeightBubble({ tokens, value, strong, caption, onPress }) {
+function WeightBubble({ tokens, value, strong, caption, hint, onPress }) {
   const filled = value != null;
   return (
     <View pointerEvents="box-none">
@@ -2037,6 +2065,12 @@ function WeightBubble({ tokens, value, strong, caption, onPress }) {
         </Text>
         <Text style={[styles.weightUnit, { color: tokens.tertiary }]}>kg</Text>
       </PressTap>
+      {/* Conseil de charge disponible : petite flèche en coin (le détail est dans la feuille). */}
+      {hint ? (
+        <View pointerEvents="none" style={[styles.weightHint, { backgroundColor: tokens.primary }]}>
+          <AppIcon name="up" size={10} color={tokens.primary === '#FFFFFF' ? '#0A0A0A' : '#FFFFFF'} strokeWidth={2.6} />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -2071,6 +2105,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   // Légende posée au-dessus de la bulle (hors flux : ne change pas sa taille).
+  weightHint: {
+    position: 'absolute',
+    top: -3,
+    right: -3,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   weightCaption: {
     position: 'absolute',
     top: -14,

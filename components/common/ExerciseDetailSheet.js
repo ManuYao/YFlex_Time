@@ -6,6 +6,7 @@ import BottomSheet from './BottomSheet';
 import PressTap from './PressTap';
 import WheelPicker from './WheelPicker';
 import Button from './Button';
+import LoadAdviceCard from './LoadAdviceCard';
 import IconButton from './IconButton';
 import AppIcon from './AppIcon';
 import TouchShield from './TouchShield';
@@ -87,6 +88,8 @@ export default function ExerciseDetailSheet({
   onClose,
   onSave,
   onRemove,
+  // Conseil « tu peux monter » (lib/loadAdviceShape.js), seulement pour un Premium ; null sinon.
+  advice = null,
 }) {
   // (V) Même contrainte que PickerSheet : en fenêtre réduite la roue passe
   // à 3 valeurs, sinon la feuille dépasse par le haut (voir lib/responsive.js).
@@ -387,6 +390,23 @@ export default function ExerciseDetailSheet({
             </View>
           ) : (
             <View>
+              {/* Conseil de charge : disparaît dès que la charge n'est plus celle du conseil. */}
+              {!!advice && draft.weight === advice.weight && (
+                <LoadAdviceCard
+                  advice={advice}
+                  color={category.color}
+                  onApply={(w) =>
+                    guard.run('advice', () => {
+                      onSave({
+                        ...draft,
+                        weight: w,
+                        timerConfig: timerType ? { type: timerType, ...timerParams } : null,
+                      });
+                      close();
+                    })
+                  }
+                />
+              )}
               <View style={styles.grid}>
                 {FIELDS.map((f) => (
                   // PressTap applique `style` à sa vue interne, pas au

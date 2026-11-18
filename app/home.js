@@ -81,7 +81,7 @@ import { loadArchives, loadPlanning } from '../lib/planning';
 import { loadIsPremium } from '../lib/premium';
 import { denyCooldown } from '../hooks/usePremiumGate';
 import {
-  findProgressionSuggestion,
+  findProgressionAdvice,
   loadProgressionSeen,
   locateExerciseInPlanning,
   markProgressionSuggested,
@@ -633,7 +633,8 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
         if (cancelled || overlayBusyRef.current) return;
         // Le conseil de charge s'appuie sur le planning, réservé à Premium : sans
         // lui il enverrait vers une page verrouillée.
-        const found = premium ? findProgressionSuggestion({ archives, seen }) : null;
+        // Règle et journal des charges : lib/loadAdviceShape.js, lib/loadJournal.js.
+        const found = premium ? (await findProgressionAdvice({ archives, seen })).best : null;
         if (found) {
           setProgression(found);
           return;

@@ -298,6 +298,8 @@ export default function Settings() {
         // Pesées du suivi de poids (lib/bodyWeight.js) : données personnelles
         // locales, effacées avec le reste.
         'flexTimer_bodyWeight',
+        // Journal des charges (lib/loadJournal.js) : local, effacé avec le reste.
+        'flexTimer_loadJournal',
         // Scores des jeux (lib/gameScores.js) : données personnelles locales.
         'flexTimer_gameScores',
         'flexTimer_gamePyramidScores',

@@ -36,6 +36,7 @@ import { useTimers } from '../contexts/TimersContext';
 import { computeSessionStats } from '../lib/timer-engine';
 import { applyOrder } from '../lib/mixReorder';
 import { buildHistoryEntry, clearSessionDraft } from '../lib/sessionDraft';
+import { recordPlannedLoads } from '../lib/loadJournal';
 import { goHomeClean } from '../lib/navigation';
 import { formatClock } from '../lib/formatters';
 import { fonts } from '../lib/fonts';
@@ -172,6 +173,8 @@ export default function EndSession() {
         // (lib/sessionDraft.js) : une seule définition de l'entrée d'historique.
         list.push(buildHistoryEntry({ timer, elapsed: elapsedNum, ctx }));
         await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(list));
+        // Journal des charges : les exercices du Planning menés jusqu'au bout (lib/loadJournal.js).
+        await recordPlannedLoads({ timer, elapsed: elapsedNum, ctx });
         // La séance est enregistrée : le brouillon n'a plus lieu d'être (sinon
         // elle serait récupérée une deuxième fois au prochain démarrage).
         await clearSessionDraft();
