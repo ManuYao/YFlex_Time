@@ -29,7 +29,7 @@ const FADE_COLORS = [
   'rgba(0,0,0,0.88)',
   'rgba(0,0,0,1)',
 ];
-const FADE_LOCATIONS = [0, 0.3, 0.55, 0.8, 1];
+const FADE_LOCATIONS = [0.55, 0.68, 0.8, 0.92, 1];
 
 const average = (list) => (list.length ? list.reduce((s, v) => s + v, 0) / list.length : 0);
 
@@ -199,7 +199,8 @@ function LockedList({ sessionCount, tensionTotal = null }) {
   );
 }
 
-// Aperçu verrouillé : la forme est visible, pas les chiffres (ils se gagnent).
+// Aperçu verrouillé : le temps sous tension du mois se lit (gratuit, comme le
+// total de la liste dessous) ; l'évolution en % et les barres restent masquées.
 function TensionCard({ stats, preview = false, foldable = false, block = false }) {
   const tut = stats.tension;
   const deltaLabel = tut.deltaPct === null ? '—' : `${tut.deltaPct > 0 ? '+' : ''}${tut.deltaPct} %`;
@@ -215,7 +216,7 @@ function TensionCard({ stats, preview = false, foldable = false, block = false }
       <View style={styles.tutRow}>
         <View style={styles.tutLeft}>
           <Text style={styles.tutValue} numberOfLines={1}>
-            {shown(tut.label)}
+            {tut.label}
           </Text>
           <View style={styles.deltaRow}>
             <View style={styles.deltaChip}>
