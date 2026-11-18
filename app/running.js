@@ -470,7 +470,13 @@ export default function Running() {
   // figé à l'ouverture (si le repos finit pendant la saisie, on ne change pas de cible).
   const [weightSheet, setWeightSheet] = useState(null);
   const mixBlocks = isMix ? timer._mix?.blocks || [] : [];
-  const curBlockIdx = mixBlocks.findIndex((b) => b.id === state.blockId);
+  // Position du bloc en cours : donnée par le moteur lui-même (il a parcouru les blocs dans l'ordre),
+  // jamais retrouvée par id — deux blocs au même id (ancien bug, voir lib/mix-blocks.js) renvoyaient
+  // le PREMIER et « Ma séance » montrait le mauvais exercice « en cours ».
+  const curBlockIdx =
+    isMix && state.currentRound >= 1 && state.currentRound <= mixBlocks.length
+      ? state.currentRound - 1
+      : mixBlocks.findIndex((b) => b.id === state.blockId);
   const inRest = mixBlocks[curBlockIdx]?.type === 'rest';
   const weightBlock = (() => {
     let b = mixBlocks[curBlockIdx];

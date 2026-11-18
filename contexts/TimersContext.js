@@ -16,7 +16,7 @@ import {
   LEGACY_ACTIVE_KEY,
   LIBRARY_MIGRATION_KEY,
 } from '../lib/mixes';
-import { getMixTotalDuration, hasEstimatedDuration } from '../lib/mix-blocks';
+import { getMixTotalDuration, hasEstimatedDuration, healMixIds } from '../lib/mix-blocks';
 import { ensureUid } from '../lib/mixIdentity';
 
 const STORAGE_KEY = 'flexTimer_timerOverrides';
@@ -50,7 +50,10 @@ const applyMixToTimer = (timer, currentMix) => {
         .slice(0, 5)
         .map((b) => (b.label || b.type || '—').toUpperCase().slice(0, 8))
         .concat(blocks.length > 5 ? ['…'] : []);
-  return { ...timer, stats, phases, _mix: currentMix || null };
+  // Le MIX qui se JOUE a toujours des ids de blocs distincts, même si le mix enregistré (ancienne
+  // version) en contenait deux pareils : le chrono, l'écran « Ma séance » et l'écran de fin
+  // lisent tous ce MIX-là, donc ils voient exactement les mêmes ids (réparation déterministe).
+  return { ...timer, stats, phases, _mix: healMixIds(currentMix) || null };
 };
 
 const applyOverrides = (timers, overrides, currentMix) =>
@@ -149,7 +152,7 @@ export function TimersProvider({ children }) {
       withUid && !withUid.publishedId && prev?.publishedId && prev.id === withUid.id
         ? { ...withUid, publishedId: prev.publishedId }
         : withUid;
-    const mix = ensureUid(keepLink);
+    const mix = ensureUid(healMixIds(keepLink));
     setCurrentMixState(mix);
     // `false` si l'écriture sur le téléphone a échoué (l'écran concerné le dit).
     return persistCurrentMix(mix);
