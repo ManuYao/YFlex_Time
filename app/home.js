@@ -112,6 +112,7 @@ import { getTokens } from '../lib/tokens';
 import { fonts } from '../lib/fonts';
 import { BOTTOM_GAP, BUTTON_HEIGHT, INK_TEXT, accentTextOn, buttonRecipe } from '../lib/buttonTokens';
 import { useUiScale, scaled, useLayoutLevel, useLayoutSize, useWindowSize, homeStatsMode } from '../lib/responsive';
+import { createLatestThrottle, RESIZE_THROTTLE_MS } from '../lib/throttleLatest';
 import { useTimers } from '../contexts/TimersContext';
 import { useSettings } from '../contexts/SettingsContext';
 import HoldOverlay from '../components/common/HoldOverlay';
@@ -285,6 +286,17 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   // redeclenche a chaque resize, donc rootW/rootH restent justes en continu.
   const [rootH, setRootH] = useState(SCREEN_H);
   const [rootW, setRootW] = useState(SCREEN_W);
+  // Pendant qu'on tire sur le bord de la fenêtre (flottante, écran partagé), onLayout arrive à
+  // chaque pas et chacun refaisait tout l'accueil (5 cartes) : on ne l'applique qu'au plus toutes
+  // les 100 ms. La 1ʳᵉ mesure et la dernière taille passent toujours (lib/throttleLatest.js).
+  const rootLayoutThrottleRef = useRef(null);
+  if (!rootLayoutThrottleRef.current) {
+    rootLayoutThrottleRef.current = createLatestThrottle(({ w, h }) => {
+      setRootH((prev) => (prev === h ? prev : h));
+      setRootW((prev) => (prev === w ? prev : w));
+    }, RESIZE_THROTTLE_MS);
+  }
+  useEffect(() => () => rootLayoutThrottleRef.current.cancel(), []);
   const router = useRouter();
   const haptic = useHaptic();
   const flatListRef = useRef(null);
@@ -1314,8 +1326,7 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
       style={[styles.root, { backgroundColor: active.bgColors[1] }]}
       onLayout={(e) => {
         const { width: w, height: h } = e.nativeEvent.layout;
-        setRootH((prev) => (prev === h ? prev : h));
-        setRootW((prev) => (prev === w ? prev : w));
+        rootLayoutThrottleRef.current.push({ w, h });
       }}
     >
       {/* (A) Fond + contenu — regroupés dans une BlurTargetView pour que le
