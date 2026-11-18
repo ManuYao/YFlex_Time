@@ -111,7 +111,7 @@ import { getTimeRange } from '../lib/timeRanges';
 import { getTokens } from '../lib/tokens';
 import { fonts } from '../lib/fonts';
 import { BOTTOM_GAP, BUTTON_HEIGHT, INK_TEXT, accentTextOn, buttonRecipe } from '../lib/buttonTokens';
-import { useUiScale, scaled, useLayoutLevel, useWindowSize } from '../lib/responsive';
+import { useUiScale, scaled, useLayoutLevel, useLayoutSize, useWindowSize, homeStatsMode } from '../lib/responsive';
 import { useTimers } from '../contexts/TimersContext';
 import { useSettings } from '../contexts/SettingsContext';
 import HoldOverlay from '../components/common/HoldOverlay';
@@ -1869,9 +1869,14 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
   const statsUsableWidth = cardWidth - 48; // paddingHorizontal 24*2 de .card
   const { settings: rainSettings2 } = useSettings();
   const statHold = holdDurations(rainSettings2.rainMode).select;
-  const statsCompact =
-    isMini ||
-    (timer.stats.length > 0 && statsUsableWidth / timer.stats.length < MIN_STAT_CHIP_W);
+  // En mini (fenêtre flottante basse) les réglages ne sont plus retirés d'office : on les garde,
+  // resserrés, tant que la fenêtre peut les porter (lib/windowTiers.js, homeStatsMode).
+  const { width: layoutW, height: layoutH } = useLayoutSize();
+  const miniStatsMode = isMini ? homeStatsMode(layoutW, layoutH, timer.stats.length) : 'row';
+  const showStats = !isMini || miniStatsMode !== 'hidden';
+  const statsCompact = isMini
+    ? miniStatsMode === 'list'
+    : timer.stats.length > 0 && statsUsableWidth / timer.stats.length < MIN_STAT_CHIP_W;
   // AMRAP n'a plus qu'une case (la durée) : centrée, pas étirée sur toute la
   // largeur comme une des trois cases des autres modes.
   const isSingleStat = timer.stats.length === 1;
@@ -2083,11 +2088,12 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
         />
       </View>
 
-      {/* (K) Stats chips avec stagger. En mini (fenêtre minuscule) : retirées —
-          le nom et la valeur sont déjà dans la ligne du haut, et chaque ligne
-          gagnée ici garde le bouton Lancer visible. Elles reviennent dès que
-          la fenêtre grandit. */}
-      {!isMini && (
+      {/* (K) Stats chips avec stagger. En mini : gardées, resserrées (rangée ou
+          liste), tant que la fenêtre peut les porter ; retirées seulement quand
+          elle devient vraiment trop basse (homeStatsMode) — le nom et la valeur
+          sont déjà dans la ligne du haut, et chaque ligne gagnée garde le
+          bouton Lancer visible. */}
+      {showStats && (
       <View
         ref={isActive ? statsRef : undefined}
         collapsable={false}
@@ -2105,7 +2111,10 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
             : isMix
             ? onMixEdit
             : undefined;
-          const chipStyle = statsCompact ? styles.statChipCompact : styles.statChip;
+          const chipStyle = [
+            statsCompact ? styles.statChipCompact : styles.statChip,
+            isMini && (statsCompact ? styles.statChipCompactMini : styles.statChipMini),
+          ];
 
           if (isActive) {
             return (
@@ -3305,6 +3314,15 @@ const styles = StyleSheet.create({
   // Point teinté par l'ambiance : le dégradé du point actif est découpé à la pastille.
   indicatorDotClip: {
     overflow: 'hidden',
+  // Mini : mêmes cases, resserrées pour que la rangée / la liste tienne dans une fenêtre basse.
+  statChipMini: {
+    paddingVertical: 7,
+    paddingHorizontal: 6,
+  },
+  statChipCompactMini: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+  },
   },
   // Boîte large et invisible (déborde largement du point, minuscule) pour que
   // le contenu, lui de taille naturelle, puisse se centrer dessus sans être
