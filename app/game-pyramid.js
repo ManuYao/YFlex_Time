@@ -634,7 +634,7 @@ export default function GamePyramid() {
                 scores={listScores}
                 accent={ACCENT}
                 getValue={scoreValue}
-                renderRow={(s, inDay) => (
+                renderRow={(s) => (
                   // Maintenir 1 s une ligne = noter (ou changer) son exercice ; le halo
                   // n'éclaire que le dernier score, tant qu'il n'a pas d'exercice.
                   <HoldToTag
@@ -649,7 +649,7 @@ export default function GamePyramid() {
                     <Text style={styles.scoreCount}>{s.total}</Text>
                     <Text style={styles.scoreMeta}>
                       {FORMATS[s.format].label} {s.peak}
-                      {inDay ? '' : ` · ${formatDay(s.at)}`}
+                      {` · ${formatDay(s.at)}`}
                       {s.complete ? ' · terminée' : ''}
                       {s.exercises?.length ? ` · ${exercisesLabel(s.exercises)}` : ''}
                     </Text>

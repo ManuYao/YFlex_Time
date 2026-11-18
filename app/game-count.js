@@ -376,7 +376,7 @@ export default function GameCount() {
                 scores={mine}
                 accent={ACCENT}
                 getValue={scoreValue}
-                renderRow={(s, inDay) => (
+                renderRow={(s) => (
                   // Maintenir 1 s une ligne = noter (ou changer) son exercice ; le halo
                   // n'éclaire que le dernier score, tant qu'il n'a pas d'exercice.
                   <HoldToTag
@@ -391,7 +391,7 @@ export default function GameCount() {
                     <Text style={styles.scoreCount}>{s.count}</Text>
                     <Text style={styles.scoreMeta}>
                       {[
-                        inDay ? null : formatDay(s.at),
+                        formatDay(s.at),
                         TEMPOS[s.tempo]?.label,
                         s.exercises?.length ? exercisesLabel(s.exercises) : null,
                       ]

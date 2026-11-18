@@ -545,7 +545,7 @@ export default function GameCombo() {
                   scores={scores}
                   accent={ACCENT}
                   getValue={scoreValue}
-                  renderRow={(s, inDay) => (
+                  renderRow={(s) => (
                     // Maintenir 1 s une ligne = noter (ou changer) son exercice ; le halo
                     // n'éclaire que le dernier score, tant qu'il n'a pas d'exercice.
                     <HoldToTag
@@ -560,7 +560,7 @@ export default function GameCombo() {
                       <Text style={styles.scoreCount}>{s.total}</Text>
                       <Text style={styles.scoreMeta} numberOfLines={1}>
                         {TEMPOS[s.tempo]?.label} · {s.detail || s.words}
-                        {inDay ? '' : ` · ${formatDay(s.at)}`}
+                        {` · ${formatDay(s.at)}`}
                         {s.complete ? ' · terminée' : ''}
                         {s.exercises?.length ? ` · ${exercisesLabel(s.exercises)}` : ''}
                       </Text>
