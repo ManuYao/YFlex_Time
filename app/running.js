@@ -1981,8 +1981,8 @@ const BottomControls = memo(function BottomControls({
 
         {showFinish ? (
           // « Quitter » prend la place de Skip (AMRAP, TABATA, BASIC, EMOM).
-          // Petit maintien même en mode normal : arrêter par erreur en plein
-          // effort ferait perdre la fin de la séance.
+          // Direct en mode normal (un appui) ; Pluie et Orage gardent le
+          // maintien (voir lib/rainMode.js). La séance est gardée de toute façon.
           <LongPressButton
             label={hideLabels ? undefined : finishLabel}
             size={sideSize}
