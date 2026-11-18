@@ -998,6 +998,29 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
     scrollX.value = activeIndexRef.current * (rootW || 1);
   }, [rootW]);
 
+  // Largeur qui change (fenêtre flottante / écran partagé redimensionné, ou 1ʳᵉ mesure différente
+  // de Dimensions au démarrage) : le FlatList garde son décalage en PIXELS, donc il s'arrête ENTRE
+  // deux cartes (fin de l'une, début de l'autre) jusqu'au prochain glissé. On le recale sur la carte
+  // active. Plusieurs passes : juste après le changement, le contenu natif n'a pas encore sa
+  // nouvelle largeur et le décalage serait borné par l'ancienne. Jamais pendant un glissé.
+  const lastRootWRef = useRef(rootW);
+  useEffect(() => {
+    if (lastRootWRef.current === rootW) return undefined;
+    lastRootWRef.current = rootW;
+    if (!(rootW > 0)) return undefined;
+    const recenter = () => {
+      if (draggingRef.current) return;
+      flatListRef.current?.scrollToOffset({ offset: activeIndexRef.current * rootW, animated: false });
+    };
+    recenter();
+    const t1 = setTimeout(recenter, 60);
+    const t2 = setTimeout(recenter, 250);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [rootW]);
+
   // Vent de l'ambiance (lib/ambianceMotion.js) : à 0 au montage et au démontage, et
   // quand l'écran perd le focus (une autre page s'ouvre par-dessus). Allumé 800 ms
   // après le montage seulement : le carrousel fait alors son saut de positionnement
@@ -3262,6 +3285,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 14,
   },
+  // Mini : mêmes cases, resserrées pour que la rangée / la liste tienne dans une fenêtre basse.
+  statChipMini: {
+    paddingVertical: 7,
+    paddingHorizontal: 6,
+  },
+  statChipCompactMini: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+  },
   statLabelCompact: {
     fontFamily: fonts.sansSemibold,
     fontSize: 11,
@@ -3314,15 +3346,6 @@ const styles = StyleSheet.create({
   // Point teinté par l'ambiance : le dégradé du point actif est découpé à la pastille.
   indicatorDotClip: {
     overflow: 'hidden',
-  // Mini : mêmes cases, resserrées pour que la rangée / la liste tienne dans une fenêtre basse.
-  statChipMini: {
-    paddingVertical: 7,
-    paddingHorizontal: 6,
-  },
-  statChipCompactMini: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-  },
   },
   // Boîte large et invisible (déborde largement du point, minuscule) pour que
   // le contenu, lui de taille naturelle, puisse se centrer dessus sans être
