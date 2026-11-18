@@ -65,7 +65,11 @@ import { makeDefaultMix, shouldStashMix, mixSignature } from '../lib/mixes';
 import { findLibraryMatch, generateMixUid, withFreshUid } from '../lib/mixIdentity';
 import { loadProfile } from '../lib/profile';
 import { getPreviewMix } from '../lib/previewMix';
-import { updatePublishedMix } from '../lib/publicMixes';
+import { updatePublishedMix, fetchPublishedById } from '../lib/publicMixes';
+import { samePublishedContent } from '../lib/publicMixShape';
+import { sanitizeImportedPayload } from '../lib/mixShare';
+import { privateCopyName, restoreFromPublication } from '../lib/publishedFork';
+import PublishedSaveSheet from '../components/common/PublishedSaveSheet';
 import { DISCIPLINES } from '../lib/disciplines';
 import { formatHoursMinutes } from '../lib/formatters';
 import { DAYS, loadPlanning, formatBlockAsText } from '../lib/planning';
@@ -144,6 +148,9 @@ export default function MixBuilder() {
   const [unsaved, setUnsaved] = useState(null);
   // Nom déjà pris par un autre mix : { clash, meta } tant qu'on attend la réponse.
   const [overwriteAsk, setOverwriteAsk] = useState(null);
+  // Mix publié modifié qu'on enregistre : { link, item, meta, after } tant qu'on
+  // attend le choix « mettre à jour le fil » / « garder pour moi ».
+  const [publishedAsk, setPublishedAsk] = useState(null);
   const toastTimer = useRef(null);
   const saveStatusTimer = useRef(null);
   const resetUndoRef = useRef(null);
@@ -517,6 +524,52 @@ export default function MixBuilder() {
       const clash = findNameClash();
       if (clash) return askOverwrite(clash, meta);
     }
+    // Mix déjà publié et modifié : l'enregistrer ne doit pas laisser en silence deux
+    // versions différentes (celle du téléphone, celle du fil). On demande laquelle garder.
+    const cleanMeta = meta && typeof meta === 'object' && !meta.nativeEvent ? meta : null;
+    const diff = await checkPublishedDiff(cleanMeta ? { ...draft, ...cleanMeta } : draft);
+    if (diff) {
+      haptic.warning();
+      setPublishedAsk({ ...diff, meta: cleanMeta, after: null });
+      return;
+    }
+    return commitSave(cleanMeta);
+  };
+
+  // Mix publié dont le contenu a changé depuis la version en ligne ? Rend
+  // { link, item } (`item` = la version en ligne, null si on n'a pas pu la lire) ou
+  // `null` (mix privé, ou identique à ce qui est en ligne : rien à choisir).
+  const checkPublishedDiff = async (source) => {
+    if (!inLibrary || preview || lockedMix) return null;
+    const pid = publishedLink?.id ?? withLatestPublishedId(source).publishedId;
+    if (!pid) return null;
+    let item = null;
+    if (user) {
+      // Jamais bloqué par un réseau qui traîne : au bout de 4 s on juge sans.
+      const res = await Promise.race([
+        fetchPublishedById(pid, user.id),
+        new Promise((resolve) => setTimeout(() => resolve({ ok: false }), 4000)),
+      ]);
+      if (res?.ok) {
+        // Publication disparue du fil : il n'y a plus de version en ligne à protéger.
+        if (!res.item) return null;
+        item = res.item;
+      }
+    }
+    if (item) {
+      const sameCategory = !publishedLink?.category || publishedLink.category === item.category;
+      if (samePublishedContent(source, item) && sameCategory) return null;
+    } else {
+      // Version en ligne illisible (hors connexion) : on compare à ce qui est déjà
+      // enregistré sur le téléphone.
+      const saved = library.find((m) => m.id === source.id);
+      if (saved && mixSignature(saved) === mixSignature(source)) return null;
+    }
+    return { link: { id: item?.id ?? pid, category: publishedLink?.category ?? item?.category ?? null }, item };
+  };
+
+  // L'enregistrement lui-même (mix privé, ou mix publié une fois le choix fait).
+  const commitSave = async (meta) => {
     haptic.success();
     const source = meta ? { ...draft, ...meta } : draft;
     if (meta) setDraft(source);
@@ -672,6 +725,13 @@ export default function MixBuilder() {
     const pending = unsaved;
     if (!pending) return;
     if (pending.leaving) {
+      // Mix publié modifié : on demande d'abord s'il faut mettre le fil à jour.
+      const diff = await checkPublishedDiff(draft);
+      if (diff) {
+        haptic.warning();
+        setPublishedAsk({ ...diff, meta: null, after: () => goBackSafe(router) });
+        return;
+      }
       await persistDraft();
       goBackSafe(router);
       return;
@@ -679,6 +739,20 @@ export default function MixBuilder() {
     // Changer de mix : le brouillon modifié est enregistré dans Mes mix (mis à
     // jour s'il y est déjà), puis on continue.
     if (nameTaken()) return refuseTakenName();
+    const diff = await checkPublishedDiff(draft);
+    if (diff) {
+      haptic.warning();
+      setPublishedAsk({
+        ...diff,
+        meta: null,
+        after: async () => {
+          await pending.action();
+          setLibraryOpen(false);
+          setFeedOpen(false);
+        },
+      });
+      return;
+    }
     const mix = withLatestPublishedId(cloneMix(draft));
     const name = mix.name?.trim() ? mix.name : 'Sans nom';
     await saveAsLibraryEntry(inLibrary ? { ...mix, name } : { ...mix, id: `mix_${Date.now()}`, name });
@@ -748,39 +822,105 @@ export default function MixBuilder() {
   };
 
   // Envoie les corrections (nom, orthographe, blocs) vers le fil public.
-  const handlePublishUpdate = async () => {
-    if (!publishedLink || pubState.phase === 'busy') return;
+  // Rend la réponse de la base (`{ item, republished }`) ou `null` si la mise à jour
+  // a été refusée (le message d'erreur est déjà affiché).
+  const runPublishUpdate = async (link, source) => {
+    if (!link || pubState.phase === 'busy') return null;
     if (!user) {
       haptic.warning();
       setPubState({ phase: 'err', text: 'Connecte-toi pour mettre à jour ton mix publié.' });
       showToast({ text: 'Connecte-toi pour mettre à jour ton mix publié.', icon: 'lock' });
-      return;
+      return null;
     }
     setPubState({ phase: 'busy', text: null });
     const profile = await loadProfile();
-    const res = await updatePublishedMix(publishedLink.id, draft, {
+    const res = await updatePublishedMix(link.id, source, {
       userId: user.id,
       authorName: profile.pseudo,
-      category: publishedLink.category,
+      category: link.category,
     });
     if (!res.ok) {
       haptic.error();
       const text = publishErrorText(res);
       setPubState({ phase: 'err', text });
       showToast({ text, icon: 'close' });
-      return;
+      return null;
     }
     haptic.success();
     // L'id ne change que si la publication avait disparu et a été remise en
     // ligne (jamais un remplacement : étoiles et commentaires sont gardés).
-    setPublishedLink({ id: res.item.id, category: res.item.category });
-    handlePublishedChange(draft.id, res.item.id, res.item.category);
-    await markPublished(draft.id, res.item.id);
+    // Le bandeau « MIX PUBLIÉ » ne s'ouvre pas tout seul : il suit seulement un
+    // lien qui existait déjà.
+    setPublishedLink((l) => (l ? { id: res.item.id, category: res.item.category } : l));
+    handlePublishedChange(source.id, res.item.id, res.item.category);
+    await markPublished(source.id, res.item.id);
     const text = res.republished
       ? "Remis en ligne : l'ancienne publication n'existait plus."
       : 'À jour dans le fil public. Étoiles et commentaires gardés.';
     setPubState({ phase: 'ok', text });
     showToast({ text, icon: 'check' });
+    return res;
+  };
+
+  const handlePublishUpdate = () => runPublishUpdate(publishedLink, draft);
+
+  // Choix « Mettre à jour le fil public » (fenêtre « Ce mix est publié ») : le fil
+  // reçoit la nouvelle version, PUIS elle est enregistrée sur le téléphone. Si le fil
+  // refuse (connexion…), rien n'est enregistré : on reste sur le brouillon.
+  const confirmPublishedUpdate = async () => {
+    const ask = publishedAsk;
+    setPublishedAsk(null);
+    if (!ask) return;
+    const source = ask.meta ? { ...draft, ...ask.meta } : draft;
+    if (ask.meta) setDraft(source);
+    const res = await runPublishUpdate(ask.link, source);
+    if (!res) return;
+    const mix = keepTemp({ ...cloneMix(source), publishedId: res.item.id }, source);
+    await saveCurrentMix(mix);
+    await saveAsLibraryEntry({ ...mix, name: mix.name?.trim() ? mix.name : 'Sans nom' });
+    flashSaved('saved', 'Enregistré, et à jour dans le fil public.');
+    ask.after?.();
+  };
+
+  // Choix « Garder pour moi » : la version modifiée devient un mix PRIVÉ à part
+  // (nouveau mix, nouvelle clé unique, jamais relié à la publication). Le mix publié
+  // reste ce qui est en ligne : s'il avait déjà dérivé sur le téléphone, il est
+  // remis à la version du fil.
+  const keepPublishedAsIs = async () => {
+    const ask = publishedAsk;
+    setPublishedAsk(null);
+    if (!ask) return;
+    const source = ask.meta ? { ...draft, ...ask.meta } : draft;
+    // Le nom tapé s'il est libre (l'original reprendra celui du fil), sinon « (privé) ».
+    const taken = library.filter((m) => m.id !== source.id).map((m) => m.name);
+    if (ask.item?.name) taken.push(ask.item.name);
+    const copy = withFreshUid({ ...cloneMix(source), id: `mix_${Date.now()}`, name: privateCopyName(source.name, taken) });
+    delete copy.publishedId;
+    delete copy.fromFeed;
+    delete copy.own;
+    delete copy.syncSig;
+    delete copy.paused;
+    // Refusé (limite gratuite des créations privées : la fenêtre d'explication
+    // s'est déjà ouverte) : rien n'est enregistré, le brouillon reste ouvert.
+    const stored = await saveAsLibraryEntry(copy);
+    if (!stored) {
+      haptic.warning();
+      return;
+    }
+    const original = library.find((m) => m.id === source.id);
+    if (original && ask.item) {
+      const online = sanitizeImportedPayload(ask.item.payload);
+      if (online && !samePublishedContent(original, ask.item)) {
+        await saveAsLibraryEntry(restoreFromPublication(original, online));
+      }
+    }
+    haptic.success();
+    await saveCurrentMix(stored);
+    setDraft(cloneMix(stored));
+    setPublishedLink(null);
+    setPubState({ phase: 'idle', text: null });
+    flashSaved('added', "Gardé pour toi, dans tes créations privées. Le mix publié n'a pas changé.", 5000);
+    ask.after?.();
   };
 
   // ---- Charger un autre mix ----
@@ -1276,6 +1416,16 @@ export default function MixBuilder() {
           cancelLabel="Changer le nom"
           onConfirm={confirmOverwrite}
           onClose={() => setOverwriteAsk(null)}
+        />
+      )}
+
+      {!!publishedAsk && (
+        <PublishedSaveSheet
+          screenH={screenH}
+          mixName={(draft.name || '').trim()}
+          onUpdate={confirmPublishedUpdate}
+          onKeep={keepPublishedAsIs}
+          onClose={() => setPublishedAsk(null)}
         />
       )}
 
