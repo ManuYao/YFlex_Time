@@ -5,6 +5,7 @@ import AppIcon from './AppIcon';
 import Button from './Button';
 import { fonts } from '../../lib/fonts';
 import { useHaptic } from '../../hooks/useHaptic';
+import { recordTrophyFlag } from '../../lib/trophyFacts';
 
 // Virgule décimale : l'app est en français, « 62,5 kg » et pas « 62.5 kg ».
 export const kgText = (w) => String(w).replace('.', ',');
@@ -41,7 +42,11 @@ export default function LoadAdviceCard({ advice, color = '#FFFFFF', onApply, sty
         fullWidth
         label={`Passer à ${target} kg`}
         haptic={haptic.medium}
-        onPress={() => onApply?.(advice.suggested)}
+        onPress={() => {
+          // Trophée « Surcharge acceptée » : on a suivi le conseil.
+          recordTrophyFlag('overload');
+          onApply?.(advice.suggested);
+        }}
         style={styles.cta}
       />
     </View>

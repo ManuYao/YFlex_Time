@@ -15,10 +15,12 @@ import Animated, {
 import BottomSheet from './BottomSheet';
 import Button from './Button';
 import BadgeMedal, { TIER_PALETTE } from './BadgeMedal';
+import TrophyMedal from './TrophyMedal';
 import { fonts } from '../../lib/fonts';
 import { haptic } from '../../hooks/useHaptic';
 import { playSound } from '../../lib/sounds';
-import { BADGE_TIERS, BADGE_THRESHOLDS } from '../../lib/badges';
+import { BADGE_TIERS } from '../../lib/badges';
+import { getTrophy, formatGoal, medalLabel } from '../../lib/trophyCatalog';
 import { springBouncy } from '../../lib/animations';
 
 // Boîte unique partagée par la couronne et la médaille. Les deux calques sont
@@ -30,11 +32,34 @@ const BOX = 176;
 const RING_RATIO = 0.62;
 const RAYS = 24;
 
-export default function BadgeUnlockSheet({ screenH, timer, tier, position, total, onClose }) {
+const WHITE = '#FFFFFF';
+const upperFirst = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+
+/**
+ * Annonce d'un trophée gagné (une feuille à la fois, voir app/home.js et
+ * app/end-session.js). `trophyId` = l'id du trophée (celui d'un mode pour les 15 premiers) ;
+ * `tier` = 'bronze' | 'argent' | 'or' pour un palier, 'done' pour un exploit ou un secret.
+ */
+export default function BadgeUnlockSheet({ screenH, trophyId, tier, position, total, onClose }) {
+  const def = getTrophy(trophyId) || getTrophy('amrap');
+  const isTier = def.kind === 'tier';
+  const isSecret = def.kind === 'secret';
+  const tierIndex = Math.max(0, BADGE_TIERS.findIndex((t) => t.key === tier));
   const palette = TIER_PALETTE[tier] || TIER_PALETTE.bronze;
-  const tierLabel = BADGE_TIERS.find((t) => t.key === tier)?.label ?? String(tier).toUpperCase();
-  const tierIndex = BADGE_TIERS.findIndex((t) => t.key === tier);
-  const threshold = (BADGE_THRESHOLDS[timer.id] || BADGE_THRESHOLDS.amrap)[tierIndex];
+
+  // Couleur de la fête : celle du palier, ou celle de l'exploit (le blanc si l'anneau en a plusieurs).
+  const colors = def.colors || [WHITE];
+  const main = isTier ? palette.hi : colors.length > 1 ? WHITE : colors[0];
+
+  const tierLabel = BADGE_TIERS[tierIndex]?.label ?? String(tier).toUpperCase();
+  const eyebrow =
+    total > 1
+      ? `TROPHÉE ${position} SUR ${total}`
+      : isSecret
+        ? 'SECRET TROUVÉ'
+        : isTier
+          ? 'NOUVEAU TROPHÉE'
+          : 'NOUVEL EXPLOIT';
 
   useEffect(() => {
     playSound('achievement');
@@ -84,7 +109,7 @@ export default function BadgeUnlockSheet({ screenH, timer, tier, position, total
         y1={c + Math.sin(a) * inner}
         x2={c + Math.cos(a) * outer}
         y2={c + Math.sin(a) * outer}
-        stroke={palette.hi}
+        stroke={main}
         strokeOpacity={long ? 0.9 : 0.45}
         strokeWidth={long ? 2 : 1.2}
         strokeLinecap="round"
@@ -92,13 +117,20 @@ export default function BadgeUnlockSheet({ screenH, timer, tier, position, total
     );
   }
 
+  // Ce qui est écrit sous le titre.
+  const modeTrophy = !!def.mode;
+  const goalText = isTier
+    ? modeTrophy
+      ? `${def.thresholds[tierIndex]} séances terminées`
+      : upperFirst(formatGoal(def, tierIndex))
+    : def.desc;
+  const nameRowText = isTier ? def.name : def.sub || null;
+
   return (
     <BottomSheet screenH={screenH} onClose={onClose} zIndex={130}>
       {({ close }) => (
         <>
-          <Text style={styles.eyebrow}>
-            {total > 1 ? `TROPHÉE ${position} SUR ${total}` : 'NOUVEAU TROPHÉE'}
-          </Text>
+          <Text style={styles.eyebrow}>{eyebrow}</Text>
 
           <View style={styles.stage}>
             <Animated.View style={[StyleSheet.absoluteFill, crownStyle]} pointerEvents="none">
@@ -106,30 +138,46 @@ export default function BadgeUnlockSheet({ screenH, timer, tier, position, total
             </Animated.View>
 
             <Animated.View style={[StyleSheet.absoluteFill, medalStyle]}>
-              <BadgeMedal
-                tier={tier}
-                size={BOX}
-                ringRatio={RING_RATIO}
-                value={threshold}
-                glow
-              />
+              {isTier ? (
+                <BadgeMedal
+                  tier={tier}
+                  size={BOX}
+                  ringRatio={RING_RATIO}
+                  value={medalLabel(def, tierIndex)}
+                  glow
+                />
+              ) : (
+                <TrophyMedal
+                  kind={def.kind}
+                  size={BOX}
+                  ringRatio={RING_RATIO}
+                  icon={def.icon}
+                  colors={colors}
+                  revealed
+                  glow
+                />
+              )}
             </Animated.View>
           </View>
 
           <Animated.View entering={FadeIn.delay(220).duration(320)}>
-            <Text style={[styles.tier, { color: palette.hi }]}>{tierLabel}</Text>
-            <View style={styles.metaRow}>
-              <View style={[styles.dot, { backgroundColor: timer.color }]} />
-              <Text style={styles.mode}>{timer.name}</Text>
-            </View>
-            <Text style={styles.detail}>{threshold} séances terminées</Text>
+            <Text style={[styles.title, { color: main }]} numberOfLines={2}>
+              {isTier ? tierLabel : def.name.toUpperCase()}
+            </Text>
+            {nameRowText ? (
+              <View style={styles.metaRow}>
+                <View style={[styles.dot, { backgroundColor: isTier ? def.color || WHITE : main }]} />
+                <Text style={styles.mode}>{nameRowText.toUpperCase()}</Text>
+              </View>
+            ) : null}
+            <Text style={styles.detail}>{goalText}</Text>
           </Animated.View>
 
-          {/* La couleur du palier (bronze, argent, or) en capsule : dégradé,
-              lueur à sa couleur et reflet qui passe — le moment est une fête. */}
+          {/* La couleur du trophée en capsule : dégradé, lueur à sa couleur et
+              reflet qui passe — le moment est une fête. */}
           <Button
             variant="accent"
-            color={palette.hi}
+            color={main}
             fullWidth
             label={total > 1 && position < total ? 'Trophée suivant' : 'Continuer'}
             onPress={() => {
@@ -158,9 +206,10 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     marginVertical: 6,
   },
-  tier: {
+  title: {
     fontFamily: fonts.display,
     fontSize: 40,
+    lineHeight: 47,
     letterSpacing: 1.5,
     textAlign: 'center',
     includeFontPadding: false,

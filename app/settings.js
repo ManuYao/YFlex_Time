@@ -300,6 +300,12 @@ export default function Settings() {
         'flexTimer_bodyWeight',
         // Journal des charges (lib/loadJournal.js) : local, effacé avec le reste.
         'flexTimer_loadJournal',
+        // Trophées (lib/trophyFacts.js, lib/badgeCelebration.js) : faits mémorisés (mix publié,
+        // lien envoyé, exercices…), trophées déjà annoncés et passage à la version 2. Sans cette
+        // purge, un trophée regagné après un reset ne serait jamais annoncé.
+        'flexTimer_trophyFacts',
+        'flexTimer_badgesSeen',
+        'flexTimer_trophiesV2',
         // Scores des jeux (lib/gameScores.js) : données personnelles locales.
         'flexTimer_gameScores',
         'flexTimer_gamePyramidScores',

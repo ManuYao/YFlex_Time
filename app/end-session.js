@@ -37,6 +37,7 @@ import { computeSessionStats } from '../lib/timer-engine';
 import { applyOrder } from '../lib/mixReorder';
 import { buildHistoryEntry, clearSessionDraft } from '../lib/sessionDraft';
 import { recordPlannedLoads } from '../lib/loadJournal';
+import { recordSessionFacts } from '../lib/trophyFacts';
 import { goHomeClean } from '../lib/navigation';
 import { formatClock } from '../lib/formatters';
 import { fonts } from '../lib/fonts';
@@ -175,6 +176,8 @@ export default function EndSession() {
         await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(list));
         // Journal des charges : les exercices du Planning menés jusqu'au bout (lib/loadJournal.js).
         await recordPlannedLoads({ timer, elapsed: elapsedNum, ctx });
+        // Exercices menés jusqu'au bout : ils rejoignent la collection (trophée « Collectionneur »).
+        await recordSessionFacts({ timer, elapsed: elapsedNum, ctx });
         // La séance est enregistrée : le brouillon n'a plus lieu d'être (sinon
         // elle serait récupérée une deuxième fois au prochain démarrage).
         await clearSessionDraft();
@@ -463,7 +466,7 @@ export default function EndSession() {
       {badgeQueue.length > 0 && (
         <BadgeUnlockSheet
           screenH={screenH}
-          timer={timer}
+          trophyId={badgeQueue[0].timerId}
           tier={badgeQueue[0].tier}
           position={badgeTotalRef.current - badgeQueue.length + 1}
           total={badgeTotalRef.current}

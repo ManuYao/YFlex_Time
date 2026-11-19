@@ -3,134 +3,24 @@ import { View, Text, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView, BlurTargetView } from 'expo-blur';
 
-import PressTap from '../common/PressTap';
 import AppIcon from '../common/AppIcon';
-import Button from '../common/Button';
-import BadgeMedal, { TIER_PALETTE } from '../common/BadgeMedal';
-import { TIMERS } from '../../lib/timers-config';
-import { BADGE_TIERS, getBadgeProgress } from '../../lib/badges';
+import ProfileTrophies from './ProfileTrophies';
 import { fonts } from '../../lib/fonts';
-import { haptic } from '../../hooks/useHaptic';
 import { MOCK_CUSTOMIZATION } from '../../lib/profileMock';
 
-const MEDAL_SIZE = 38;
-
-function rowCaption({ count, badges }) {
-  const next = badges.nextTier;
-  if (!next) return 'TOUT OBTENU';
-  return `${count} / ${next.threshold} · ${next.label}`;
-}
-
-export default function ProfileGamification({ badgeCounts, onOpenModeStats, hasData }) {
+/**
+ * Bas du Profil : les trophées (résumé + accès à la page de tous les trophées,
+ * components/screens/ProfileTrophies.js) puis la personnalisation (encore floutée « bientôt »).
+ *
+ * `evaluation` vient de lib/trophyLoader.js (null tant qu'elle n'est pas lue).
+ */
+export default function ProfileGamification({ evaluation, onOpenAllTrophies, onOpenTrophy }) {
   const customTargetRef = useRef(null);
-  const trophyTargetRef = useRef(null);
-  const ROWS = React.useMemo(
-    () =>
-      TIMERS.map((timer) => {
-        const count = badgeCounts?.[timer.id] ?? 0;
-        return { timer, count, badges: getBadgeProgress(timer.id, count) };
-      }),
-    [badgeCounts]
-  );
-  const unlocked = ROWS.reduce((n, r) => n + r.badges.tiers.filter((t) => t.unlocked).length, 0);
-  const total = ROWS.reduce((n, r) => n + r.badges.tiers.length, 0);
-  const perTier = BADGE_TIERS.map((tier) => ({
-    key: tier.key,
-    count: ROWS.filter((r) => r.badges.tiers.find((t) => t.key === tier.key)?.unlocked).length,
-  }));
-
 
   return (
     <View>
       {/* ─── TROPHÉES ─── */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Trophées</Text>
-        <Text style={styles.sectionHint}>Section en travaux : de nouveaux trophées arrivent (objectifs, jeux…).</Text>
-        {/* Flouté pendant les travaux (11/11/2026) : contenu gardé, intouchable. */}
-        <View style={styles.blurZone}>
-        <BlurTargetView ref={trophyTargetRef} pointerEvents="none">
-        <View style={styles.card}>
-          <View style={styles.summary}>
-            <AppIcon name="trophies" size={22} />
-            <View style={styles.summaryText}>
-              <Text style={styles.summaryValue}>
-                {unlocked}
-                <Text style={styles.summaryTotal}> / {total}</Text>
-              </Text>
-              <Text style={styles.summaryLabel}>débloqués</Text>
-            </View>
-            <View style={styles.tierCounts}>
-              {perTier.map((t) => (
-                <View key={t.key} style={styles.tierCount}>
-                  <View style={[styles.tierDot, { backgroundColor: TIER_PALETTE[t.key].hi }]} />
-                  <Text style={styles.tierCountText}>{t.count}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-
-          {ROWS.map((row, i) => {
-            const { timer, badges } = row;
-            const done = !badges.nextTier;
-            return (
-              <PressTap
-                key={timer.id}
-                tapScale={0.98}
-                onHapticIn={haptic.light}
-                onPress={() => onOpenModeStats?.(timer.id)}
-                accessibilityLabel={`Trophées ${timer.name}`}
-                style={[styles.row, i > 0 && styles.rowDivider]}
-              >
-                <View style={[styles.dial, { backgroundColor: `${timer.color}26` }]}>
-                  <AppIcon name={timer.id} size={20} color={timer.color} />
-                </View>
-                <View style={styles.rowText}>
-                  <Text style={styles.rowName} numberOfLines={1}>
-                    {timer.name}
-                  </Text>
-                  <Text
-                    style={[styles.rowCaption, done && { color: TIER_PALETTE.or.hi }]}
-                    numberOfLines={1}
-                  >
-                    {rowCaption(row)}
-                  </Text>
-                </View>
-                <View style={styles.medals}>
-                  {badges.tiers.map((tier) => (
-                    <BadgeMedal
-                      key={tier.key}
-                      tier={tier.key}
-                      size={MEDAL_SIZE}
-                      locked={!tier.unlocked}
-                      progress={tier.progress}
-                      value={tier.threshold}
-                    />
-                  ))}
-                </View>
-                <AppIcon name="arrow" size={12} opacity={0.3} style={styles.chevron} />
-              </PressTap>
-            );
-          })}
-        </View>
-        </BlurTargetView>
-          <BlurView
-            blurTarget={trophyTargetRef}
-            intensity={100}
-            tint="dark"
-            blurMethod="dimezisBlurView"
-            blurReductionFactor={4}
-            style={StyleSheet.absoluteFill}
-            pointerEvents="none"
-          />
-          <View style={[StyleSheet.absoluteFill, styles.blurVeil]} />
-          <View style={[StyleSheet.absoluteFill, styles.blurCenter]} pointerEvents="none">
-            <View style={styles.soonBadge}>
-              <AppIcon name="lock" size={14} opacity={0.9} />
-              <Text style={styles.soonBadgeText}>EN TRAVAUX</Text>
-            </View>
-          </View>
-        </View>
-      </View>
+      <ProfileTrophies evaluation={evaluation} onOpenAll={onOpenAllTrophies} onOpenTrophy={onOpenTrophy} />
 
       {/* ─── PERSONNALISATION ─── */}
       <View style={styles.section}>
@@ -140,33 +30,33 @@ export default function ProfileGamification({ badgeCounts, onOpenModeStats, hasD
             pas deviner ce qu'il y a dedans, mais le jour où on retire le flou,
             tout est déjà là. Le BlurView est frère de sa cible, jamais dedans. */}
         <View style={styles.blurZone}>
-        <BlurTargetView ref={customTargetRef} style={styles.grid}>
-          {MOCK_CUSTOMIZATION.map((item) => (
-            <View key={item.id} style={[styles.card, styles.tile]}>
-              <View style={styles.tileTop}>
-                <View style={styles.tileIcon}>
-                  <AppIcon name={item.icon} size={18} opacity={0.75} />
+          <BlurTargetView ref={customTargetRef} style={styles.grid}>
+            {MOCK_CUSTOMIZATION.map((item) => (
+              <View key={item.id} style={[styles.card, styles.tile]}>
+                <View style={styles.tileTop}>
+                  <View style={styles.tileIcon}>
+                    <AppIcon name={item.icon} size={18} opacity={0.75} />
+                  </View>
+                  <AppIcon name="lock" size={14} opacity={0.45} />
                 </View>
-                <AppIcon name="lock" size={14} opacity={0.45} />
-              </View>
-              <Text style={styles.tileKind}>{item.kind}</Text>
-              <Text style={styles.tileLabel} numberOfLines={1}>
-                {item.label}
-              </Text>
-              <View style={styles.tileBottom}>
-                <LinearGradient
-                  colors={item.colors}
-                  start={{ x: 0, y: 0.5 }}
-                  end={{ x: 1, y: 0.5 }}
-                  style={styles.swatch}
-                />
-                <View style={styles.soonChip}>
-                  <Text style={styles.soonText}>BIENTÔT</Text>
+                <Text style={styles.tileKind}>{item.kind}</Text>
+                <Text style={styles.tileLabel} numberOfLines={1}>
+                  {item.label}
+                </Text>
+                <View style={styles.tileBottom}>
+                  <LinearGradient
+                    colors={item.colors}
+                    start={{ x: 0, y: 0.5 }}
+                    end={{ x: 1, y: 0.5 }}
+                    style={styles.swatch}
+                  />
+                  <View style={styles.soonChip}>
+                    <Text style={styles.soonText}>BIENTÔT</Text>
+                  </View>
                 </View>
               </View>
-            </View>
-          ))}
-        </BlurTargetView>
+            ))}
+          </BlurTargetView>
           <BlurView
             blurTarget={customTargetRef}
             intensity={100}
@@ -187,7 +77,6 @@ export default function ProfileGamification({ badgeCounts, onOpenModeStats, hasD
           </View>
         </View>
       </View>
-
     </View>
   );
 }
@@ -217,101 +106,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.10)',
     borderRadius: 18,
-  },
-
-  summary: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingTop: 14,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
-  },
-  summaryText: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    marginLeft: 10,
-    flexShrink: 1,
-  },
-  summaryValue: {
-    fontFamily: fonts.display,
-    fontSize: 24,
-    lineHeight: 29,
-    color: '#FFFFFF',
-    includeFontPadding: false,
-  },
-  summaryTotal: {
-    color: 'rgba(255,255,255,0.40)',
-  },
-  summaryLabel: {
-    fontFamily: fonts.sansSemibold,
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.70)',
-    marginLeft: 8,
-  },
-  tierCounts: {
-    flexDirection: 'row',
-    marginLeft: 'auto',
-    gap: 10,
-  },
-  tierCount: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  tierDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 5,
-  },
-  tierCountText: {
-    fontFamily: fonts.monoBold,
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.80)',
-  },
-
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  rowDivider: {
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.06)',
-  },
-  dial: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  rowText: {
-    flexGrow: 1,
-    flexShrink: 1,
-    marginLeft: 10,
-    marginRight: 8,
-  },
-  rowName: {
-    fontFamily: fonts.sansExtraBold,
-    fontSize: 14,
-    color: '#FFFFFF',
-  },
-  rowCaption: {
-    fontFamily: fonts.monoRegular,
-    fontSize: 9.5,
-    letterSpacing: 0.4,
-    color: 'rgba(255,255,255,0.50)',
-    marginTop: 2,
-  },
-  medals: {
-    flexDirection: 'row',
-    gap: 3,
-  },
-  chevron: {
-    marginLeft: 6,
   },
 
   blurZone: {

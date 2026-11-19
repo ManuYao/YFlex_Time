@@ -1464,7 +1464,7 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
       {badgeQueue.length > 0 && (
         <BadgeUnlockSheet
           screenH={rootH}
-          timer={timers.find((t) => t.id === badgeQueue[0].timerId) ?? timers[0]}
+          trophyId={badgeQueue[0].timerId}
           tier={badgeQueue[0].tier}
           position={badgeTotalRef.current - badgeQueue.length + 1}
           total={badgeTotalRef.current}
