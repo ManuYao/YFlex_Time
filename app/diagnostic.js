@@ -291,12 +291,13 @@ export default function Diagnostic() {
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.cardKicker}>VOIX DES JEUX (JOURNAL)</Text>
+            <Text style={styles.cardKicker}>VOIX DU COACH ET DES JEUX (JOURNAL)</Text>
             {gameLog.length === 0 ? (
               <Text style={[styles.cardBody, styles.perfHint]}>
-                Lance un jeu avec la voix qui compte : chaque chiffre dit, chaque coupure et
-                chaque perte du son s'enregistrent ici. Reviens après une partie capricieuse
-                (surtout avec de la musique en fond), puis copie le journal.
+                Lance une séance avec le coach vocal, ou un jeu avec la voix qui compte : chaque
+                phrase dite, chaque coupure et chaque perte du son s'enregistrent ici. Reviens
+                après une séance ou une partie capricieuse (musique en fond, appel en cours),
+                puis copie le journal.
               </Text>
             ) : (
               <>
