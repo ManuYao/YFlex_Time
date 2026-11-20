@@ -28,6 +28,12 @@ import {
   GAME_AUDIO_WARN_TAGS,
 } from '../lib/gameAudioLog';
 import { copyToClipboard } from '../lib/clipboard';
+import {
+  getOrientationState,
+  loadOrientationTest,
+  setOrientationTest,
+  subscribeOrientationState,
+} from '../lib/orientationState';
 
 const LIGHT_LABELS = ['Normaux', 'Ralentis', 'Coupés'];
 import {
@@ -56,6 +62,7 @@ export default function Diagnostic() {
   const [light, setLight] = useState(getLightDebug());
   const [gameLog, setGameLog] = useState(getGameAudioEvents());
   const [logCopied, setLogCopied] = useState(false);
+  const [noLock, setNoLock] = useState(getOrientationState().testNoLock);
   const readable = isMemoryReadable();
   // Mémoire NATIVE, chauffe, processeur par fil : seulement avec le module natif
   // de l'APK récent (sinon rien n'est affiché ni mesuré).
@@ -77,6 +84,10 @@ export default function Diagnostic() {
     return subscribeMemoryBadge(setBadgeOn);
   }, []);
   useEffect(() => subscribeGameAudioLog(() => setGameLog(getGameAudioEvents())), []);
+  useEffect(() => {
+    loadOrientationTest();
+    return subscribeOrientationState((s) => setNoLock(s.testNoLock));
+  }, []);
 
   return (
     <GradientBackground colors={['#1A1A1A', '#0A0A0A', '#000000']} ambient>
@@ -344,11 +355,32 @@ export default function Diagnostic() {
           </View>
 
           <View style={styles.card}>
+            <Text style={styles.cardKicker}>FENÊTRE FLOTTANTE (TEST)</Text>
+            <Text style={styles.cardBody}>
+              Pour comprendre pourquoi la pop-up Samsung ne se rétrécit pas en largeur : affiche le
+              compteur ci-dessous (la taille de la fenêtre apparaît en haut à gauche, en direct),
+              ouvre l'app en pop-up et tire sur un bord. Ce bouton coupe en plus le verrouillage en
+              portrait de l'app : si la largeur devient alors ajustable, c'était lui. À remettre
+              sur « verrou normal » après le test.
+            </Text>
+            <Button
+              variant={noLock ? 'solid' : 'glass'}
+              size="md"
+              label={noLock ? 'Test actif : verrou coupé' : 'Couper le verrou portrait (test)'}
+              onPress={() => {
+                haptic.light();
+                setOrientationTest(!noLock);
+              }}
+              style={styles.cta}
+            />
+          </View>
+
+          <View style={styles.card}>
             <Text style={styles.cardTitle}>Compteur sur tous les écrans</Text>
             <Text style={styles.cardBody}>
               Affiche un petit chiffre en haut à droite de chaque écran (mémoire actuelle et plus
               bas atteint), pour le suivre pendant que tu utilises l'app. Aucun coût quand il est
-              coupé.
+              coupé. La taille de la fenêtre s'affiche en haut à gauche.
             </Text>
             <Button
               variant={badgeOn ? 'solid' : 'glass'}

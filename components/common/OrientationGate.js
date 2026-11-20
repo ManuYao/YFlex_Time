@@ -1,7 +1,13 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Dimensions } from 'react-native';
 import { useWindowSize } from '../../lib/responsive';
 import { orientationPolicy } from '../../lib/orientationPolicy';
+import {
+  getOrientationState,
+  loadOrientationTest,
+  setOrientationState,
+  subscribeOrientationState,
+} from '../../lib/orientationState';
 
 // Applique la politique d'orientation (lib/orientationPolicy.js) : portrait verrouillé en
 // plein écran, rotation libre dans une fenêtre réduite (fenêtre flottante Samsung, écran
@@ -28,11 +34,19 @@ const SETTLE_MS = 300;
 export default function OrientationGate() {
   const { width, height } = useWindowSize();
   const appliedRef = useRef(null);
+  // Réglage de TEST (Paramètres › Mémoire) : verrou coupé, la fenêtre est toujours libre.
+  const [testNoLock, setTestNoLock] = useState(getOrientationState().testNoLock);
+
+  useEffect(() => {
+    loadOrientationTest();
+    return subscribeOrientationState((s) => setTestNoLock(s.testNoLock));
+  }, []);
 
   useEffect(() => {
     if (!ScreenOrientation) return undefined;
     const screen = Dimensions.get('screen');
-    const mode = orientationPolicy({ width, height }, { width: screen.width, height: screen.height });
+    const mode = testNoLock ? 'free' : orientationPolicy({ width, height }, { width: screen.width, height: screen.height });
+    setOrientationState({ wanted: mode });
     if (mode === appliedRef.current) return undefined;
     const timer = setTimeout(() => {
       appliedRef.current = mode;
@@ -45,9 +59,10 @@ export default function OrientationGate() {
       } catch (e) {
         // Jamais bloquant : au pire, l'orientation reste comme elle est.
       }
+      setOrientationState({ applied: mode });
     }, SETTLE_MS);
     return () => clearTimeout(timer);
-  }, [width, height]);
+  }, [width, height, testNoLock]);
 
   return null;
 }

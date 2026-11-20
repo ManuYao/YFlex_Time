@@ -11,6 +11,7 @@ import {
   subscribePerf,
 } from '../../lib/memoryProbe';
 import PerfMeter from './PerfMeter';
+import WindowReadout from './WindowReadout';
 
 const LEVEL_COLOR = { ok: '#7CF0B4', warn: '#FFC933', bad: '#FF5454' };
 
@@ -45,6 +46,7 @@ function BadgeBody() {
   return (
     <>
       <PerfMeter />
+      <WindowReadout />
       {hasMem || hasPerf ? (
         <View pointerEvents="none" style={[styles.wrap, { top: insets.top + 2 }]}>
           {hasMem ? (
