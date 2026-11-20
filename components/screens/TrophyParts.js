@@ -9,7 +9,7 @@ import { TrophyStateMedal } from '../common/TrophyMedal';
 import { fonts } from '../../lib/fonts';
 import { haptic } from '../../hooks/useHaptic';
 import { buildTickPaths, orEmpty, ringSegments } from '../../lib/medalGeometry';
-import { formatProgress, formatRemaining, formatGoal } from '../../lib/trophyCatalog';
+import { formatProgress, formatRemaining, formatGoal, formatRowSummary } from '../../lib/trophyCatalog';
 import { formatShortDate } from '../../lib/trophies';
 import { BADGE_TIERS } from '../../lib/badges';
 
@@ -111,51 +111,78 @@ export const TrophyChips = React.memo(function TrophyChips({ counts, compact = f
 
 /* ───────────────────────── Rangée d'un trophée à paliers ───────────────────────── */
 
-// Où on en est : « 9 h 05 / 10 h ». Le palier visé n'est pas écrit (il ne tiendrait pas sur un
-// petit écran, à côté des trois médailles) : le texte prend sa couleur (bronze, argent, or).
-function rowCaption(state) {
-  const next = state.nextTier;
-  if (!next) return 'TOUT OBTENU';
-  return formatProgress(state.def, state.value, next.threshold);
-}
-
+// Une ligne = le trophée, ses 3 médailles, et UNE phrase qui dit tout : ce que tu as, le palier
+// visé et ce qu'il reste (« 20 séances → Argent à 50 · encore 30 »). Le compteur continue après
+// le premier palier : sans cette phrase, « 20 / 50 » avec un Bronze déjà gagné déroutait.
 export const TierRow = React.memo(function TierRow({ state, divider = false, onPress }) {
   const def = state.def;
-  const done = state.complete;
+  const next = state.nextTier;
+  const parts = next ? formatRowSummary(def, state.value, state.tiers.indexOf(next)) : null;
   return (
     <PressTap
       tapScale={0.98}
       onHapticIn={haptic.light}
       onPress={() => onPress?.(state)}
       accessibilityLabel={`Trophée ${def.name}`}
-      style={[styles.row, divider && styles.rowDivider]}
+      style={[styles.rowWrap, divider && styles.rowDivider]}
     >
-      <View style={[styles.dial, { backgroundColor: `${def.color}26` }]}>
-        <AppIcon name={def.icon} size={20} color={def.color} />
-      </View>
-      <View style={styles.rowText}>
-        <Text style={styles.rowName} numberOfLines={1}>
-          {def.name}
-        </Text>
-        {def.desc ? (
-          <Text style={styles.rowDesc} numberOfLines={1}>
-            {def.desc}
+      <View style={styles.row}>
+        <View style={[styles.dial, { backgroundColor: `${def.color}26` }]}>
+          <AppIcon name={def.icon} size={20} color={def.color} />
+        </View>
+        <View style={styles.rowText}>
+          <Text style={styles.rowName} numberOfLines={1}>
+            {def.name}
           </Text>
-        ) : null}
-        <Text
-          style={[styles.rowCaption, { color: done ? TIER_PALETTE.or.hi : `${TIER_PALETTE[state.nextTier.key].hi}D9` }]}
-          numberOfLines={1}
-        >
-          {rowCaption(state)}
+          {def.desc ? (
+            <Text style={styles.rowDesc} numberOfLines={2}>
+              {def.desc}
+            </Text>
+          ) : null}
+        </View>
+        <View style={styles.medals}>
+          {state.tiers.map((_, i) => (
+            <TrophyStateMedal key={i} state={state} tierIndex={i} size={38} />
+          ))}
+        </View>
+        <AppIcon name="arrow" size={12} opacity={0.3} style={styles.chevron} />
+      </View>
+      {parts ? (
+        <Text style={styles.rowSummary} numberOfLines={2}>
+          <Text style={styles.sumNow}>{parts.now}</Text>
+          <Text style={styles.sumArrow}>{'  →  '}</Text>
+          <Text style={[styles.sumTarget, { color: TIER_PALETTE[next.key].hi }]}>{parts.target}</Text>
+          <Text style={styles.sumLeft}>{` · ${parts.left}`}</Text>
         </Text>
-      </View>
-      <View style={styles.medals}>
-        {state.tiers.map((_, i) => (
-          <TrophyStateMedal key={i} state={state} tierIndex={i} size={38} />
-        ))}
-      </View>
-      <AppIcon name="arrow" size={12} opacity={0.3} style={styles.chevron} />
+      ) : (
+        <Text style={[styles.rowSummary, { color: TIER_PALETTE.or.hi }]}>Les 3 paliers sont gagnés</Text>
+      )}
     </PressTap>
+  );
+});
+
+/** Le petit mode d'emploi du haut de la page : ce que veulent dire paliers, exploits, secrets, cadenas. */
+export const HowItWorks = React.memo(function HowItWorks() {
+  const Row = ({ label, children }) => (
+    <Text style={styles.howLine}>
+      <Text style={styles.howLabel}>{label}</Text>
+      {children}
+    </Text>
+  );
+  return (
+    <View style={styles.howCard}>
+      <View style={styles.howHead}>
+        <AppIcon name="help" size={15} opacity={0.8} />
+        <Text style={styles.howTitle}>Comment ça marche ?</Text>
+      </View>
+      <Row label="PALIERS  ">
+        Bronze, Argent, Or. Ton compteur ne s’arrête pas au premier : il vise toujours le palier suivant.
+        « 20 séances → Argent à 50 » veut dire : tu en as 20, il en faut 50.
+      </Row>
+      <Row label="EXPLOITS  ">Une seule médaille, gagnée quand tu fais ce qui est écrit. « 2 / 3 » montre où tu en es.</Row>
+      <Row label="SECRETS  ">Cachés tant que tu ne les as pas trouvés.</Row>
+      <Row label="CADENAS  ">Pas encore gagné. Une médaille en couleur, c’est gagné.</Row>
+    </View>
   );
 });
 
@@ -462,12 +489,32 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
 
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+  rowWrap: { paddingHorizontal: 12, paddingVertical: 10 },
+  row: { flexDirection: 'row', alignItems: 'center' },
+  rowSummary: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 11.5,
+    lineHeight: 16,
+    color: 'rgba(255,255,255,0.6)',
+    marginTop: 8,
   },
+  sumNow: { fontFamily: fonts.sansBold, color: WHITE },
+  sumArrow: { color: 'rgba(255,255,255,0.4)' },
+  sumTarget: { fontFamily: fonts.sansBold },
+  sumLeft: { color: 'rgba(255,255,255,0.6)' },
+  howCard: {
+    padding: 14,
+    marginBottom: 28,
+    gap: 8,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    borderRadius: 18,
+  },
+  howHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 },
+  howTitle: { fontFamily: fonts.sansExtraBold, fontSize: 14, color: WHITE },
+  howLine: { fontFamily: fonts.sansMedium, fontSize: 12.5, lineHeight: 18, color: 'rgba(255,255,255,0.68)' },
+  howLabel: { fontFamily: fonts.monoBold, fontSize: 10, letterSpacing: 1.2, color: 'rgba(255,255,255,0.5)' },
   rowDivider: { borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)' },
   dial: {
     width: 34,
