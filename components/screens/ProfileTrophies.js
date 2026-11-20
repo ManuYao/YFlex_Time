@@ -21,15 +21,14 @@ export default function ProfileTrophies({ evaluation, onOpenAll, onOpenTrophy })
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>Trophées</Text>
-      <Text style={styles.sectionHint}>Ils tombent tout seuls, au fil de tes séances.</Text>
       <View style={styles.card}>
         <View style={styles.head}>
           <TrophyRing size={84} counts={counts} total={total} unlocked={unlockedCount} />
           <View style={styles.headText}>
-            <Text style={styles.headTitle}>Trophées débloqués</Text>
-            <Text style={styles.headSub}>
-              {unlockedCount} sur {total} au total
+            <Text style={styles.headTitle}>
+              {unlockedCount} sur {total}
             </Text>
+            <Text style={styles.headSub}>trophées gagnés</Text>
             <View style={styles.chipsWrap}>
               <TrophyChips counts={counts} compact />
             </View>

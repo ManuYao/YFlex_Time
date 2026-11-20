@@ -12,7 +12,7 @@ import BadgeMedal from '../components/common/BadgeMedal';
 import ModeStatsSheet from '../components/common/ModeStatsSheet';
 import TrophyDetailSheet from '../components/common/TrophyDetailSheet';
 import { SkeletonGroup, SkeletonBlock } from '../components/common/Skeleton';
-import { TrophyRing, TrophyChips, NextTrophy, FamilySection, HowItWorks } from '../components/screens/TrophyParts';
+import { TrophyRing, TrophyChips, NextTrophy, FamilySection } from '../components/screens/TrophyParts';
 import { useTimers } from '../contexts/TimersContext';
 import { usePremium } from '../hooks/usePremium';
 import { useScreenReady } from '../hooks/useScreenReady';
@@ -132,7 +132,6 @@ export default function Trophies() {
                     {evaluation.next && !complete ? (
                       <NextTrophy state={evaluation.next} onPress={open} />
                     ) : null}
-                    <HowItWorks />
                     {complete ? (
                       <View style={styles.completeCard}>
                         <BadgeMedal tier="or" size={64} value={evaluation.total} />
@@ -148,9 +147,6 @@ export default function Trophies() {
                       <FamilySection key={family.id} family={family} states={states} onOpen={open} now={data.now} />
                     ))}
 
-                    <Text style={styles.footnote}>
-                      Tout se calcule avec ton historique : rien à cocher, les trophées tombent tout seuls.
-                    </Text>
                   </Animated.View>
                 )}
               </ScrollView>

@@ -9,7 +9,7 @@ import { TrophyStateMedal } from '../common/TrophyMedal';
 import { fonts } from '../../lib/fonts';
 import { haptic } from '../../hooks/useHaptic';
 import { buildTickPaths, orEmpty, ringSegments } from '../../lib/medalGeometry';
-import { formatProgress, formatRemaining, formatGoal, formatRowSummary } from '../../lib/trophyCatalog';
+import { formatLeft } from '../../lib/trophyCatalog';
 import { formatShortDate } from '../../lib/trophies';
 import { BADGE_TIERS } from '../../lib/badges';
 
@@ -103,21 +103,20 @@ export const TrophyChips = React.memo(function TrophyChips({ counts, compact = f
       <Chip dotStyle={{ backgroundColor: TIER_PALETTE.bronze.hi }} n={c.bronze} label="Bronze" />
       <Chip dotStyle={{ backgroundColor: TIER_PALETTE.argent.hi }} n={c.argent} label="Argent" />
       <Chip dotStyle={{ backgroundColor: TIER_PALETTE.or.hi }} n={c.or} label="Or" />
-      <Chip dotStyle={styles.dotUnique} n={`${c.unique.got}/${c.unique.total}`} label="Exploits" />
-      <Chip dotStyle={styles.dotSecret} n={`${c.secret.got}/${c.secret.total}`} label="Secrets" />
+      <Chip dotStyle={styles.dotUnique} n={`${c.unique.got} sur ${c.unique.total}`} label="exploits" />
+      <Chip dotStyle={styles.dotSecret} n={`${c.secret.got} sur ${c.secret.total}`} label="secrets" />
     </View>
   );
 });
 
 /* ───────────────────────── Rangée d'un trophée à paliers ───────────────────────── */
 
-// Une ligne = le trophée, ses 3 médailles, et UNE phrase qui dit tout : ce que tu as, le palier
-// visé et ce qu'il reste (« 20 séances → Argent à 50 · encore 30 »). Le compteur continue après
-// le premier palier : sans cette phrase, « 20 / 50 » avec un Bronze déjà gagné déroutait.
+// Une ligne = le trophée, ses 3 médailles (en couleur = gagné, cadenas = pas encore) et, tant
+// qu'il reste un palier, UN seul court texte : « encore 30 séances ». Rien d'autre : la
+// médaille visée affiche son objectif, le texte dit ce qu'il manque.
 export const TierRow = React.memo(function TierRow({ state, divider = false, onPress }) {
   const def = state.def;
   const next = state.nextTier;
-  const parts = next ? formatRowSummary(def, state.value, state.tiers.indexOf(next)) : null;
   return (
     <PressTap
       tapScale={0.98}
@@ -147,42 +146,12 @@ export const TierRow = React.memo(function TierRow({ state, divider = false, onP
         </View>
         <AppIcon name="arrow" size={12} opacity={0.3} style={styles.chevron} />
       </View>
-      {parts ? (
-        <Text style={styles.rowSummary} numberOfLines={2}>
-          <Text style={styles.sumNow}>{parts.now}</Text>
-          <Text style={styles.sumArrow}>{'  →  '}</Text>
-          <Text style={[styles.sumTarget, { color: TIER_PALETTE[next.key].hi }]}>{parts.target}</Text>
-          <Text style={styles.sumLeft}>{` · ${parts.left}`}</Text>
+      {next ? (
+        <Text style={[styles.rowSummary, { color: `${TIER_PALETTE[next.key].hi}E6` }]} numberOfLines={1}>
+          {formatLeft(def, next.threshold - state.value)}
         </Text>
-      ) : (
-        <Text style={[styles.rowSummary, { color: TIER_PALETTE.or.hi }]}>Les 3 paliers sont gagnés</Text>
-      )}
+      ) : null}
     </PressTap>
-  );
-});
-
-/** Le petit mode d'emploi du haut de la page : ce que veulent dire paliers, exploits, secrets, cadenas. */
-export const HowItWorks = React.memo(function HowItWorks() {
-  const Row = ({ label, children }) => (
-    <Text style={styles.howLine}>
-      <Text style={styles.howLabel}>{label}</Text>
-      {children}
-    </Text>
-  );
-  return (
-    <View style={styles.howCard}>
-      <View style={styles.howHead}>
-        <AppIcon name="help" size={15} opacity={0.8} />
-        <Text style={styles.howTitle}>Comment ça marche ?</Text>
-      </View>
-      <Row label="PALIERS  ">
-        Bronze, Argent, Or. Ton compteur ne s’arrête pas au premier : il vise toujours le palier suivant.
-        « 20 séances → Argent à 50 » veut dire : tu en as 20, il en faut 50.
-      </Row>
-      <Row label="EXPLOITS  ">Une seule médaille, gagnée quand tu fais ce qui est écrit. « 2 / 3 » montre où tu en es.</Row>
-      <Row label="SECRETS  ">Cachés tant que tu ne les as pas trouvés.</Row>
-      <Row label="CADENAS  ">Pas encore gagné. Une médaille en couleur, c’est gagné.</Row>
-    </View>
   );
 });
 
@@ -191,17 +160,16 @@ export const HowItWorks = React.memo(function HowItWorks() {
 export const UniqueTile = React.memo(function UniqueTile({ state, onPress, now }) {
   const def = state.def;
   const main = mainColorOf(def);
-  let caption;
-  let captionColor = 'rgba(255,255,255,0.4)';
+  // Une seule ligne de plus, et seulement si elle apprend quelque chose : la date d'obtention
+  // (« 17 nov. »), ou l'avancement d'un exploit en cours (« 2 sur 3 »). Le cadenas dit déjà « pas
+  // encore », inutile de l'écrire.
+  let caption = '';
+  let captionColor = 'rgba(255,255,255,0.55)';
   if (state.unlocked) {
-    const date = formatShortDate(state.at, now);
-    caption = date ? `OBTENU · ${date}` : 'OBTENU';
+    caption = formatShortDate(state.at, now);
     captionColor = main;
   } else if (state.hasProgress && state.value > 0) {
-    caption = `${state.value} / ${state.target}`;
-    captionColor = 'rgba(255,255,255,0.55)';
-  } else {
-    caption = 'À FAIRE';
+    caption = `${state.value} sur ${state.target}`;
   }
   return (
     <PressTap
@@ -221,9 +189,11 @@ export const UniqueTile = React.memo(function UniqueTile({ state, onPress, now }
           {def.desc}
         </Text>
       </View>
-      <Text style={[styles.tileCaption, { color: captionColor }]} numberOfLines={1}>
-        {caption}
-      </Text>
+      {caption ? (
+        <Text style={[styles.tileCaption, { color: captionColor }]} numberOfLines={1}>
+          {caption}
+        </Text>
+      ) : null}
     </PressTap>
   );
 });
@@ -252,11 +222,11 @@ export const SecretTile = React.memo(function SecretTile({ state, onPress, now }
           </Text>
         ) : null}
       </View>
-      {/* Quatre colonnes : « TROUVÉ » et la date sur deux lignes, sinon la date est coupée. */}
-      <Text style={[styles.tileCaption, { color: found ? WHITE : 'rgba(255,255,255,0.4)' }]} numberOfLines={1}>
-        {found ? 'TROUVÉ' : 'CACHÉ'}
-      </Text>
-      {found && date ? <Text style={styles.tileDate}>{date}</Text> : null}
+      {found && date ? (
+        <Text style={[styles.tileCaption, { color: WHITE }]} numberOfLines={1}>
+          {date}
+        </Text>
+      ) : null}
     </PressTap>
   );
 });
@@ -303,10 +273,9 @@ export const FamilySection = React.memo(function FamilySection({ family, states,
       <View style={styles.sectionHead}>
         <Text style={styles.sectionTitle}>{family.title}</Text>
         <Text style={styles.sectionCount}>
-          {got} / {all}
+          {got} sur {all}
         </Text>
       </View>
-      <Text style={styles.sectionHint}>{family.hint}</Text>
       <View style={styles.card}>
         {tiers.map((s, i) => (
           <TierRow key={s.id} state={s} divider={i > 0} onPress={onOpen} />
@@ -350,23 +319,14 @@ export const NextTrophy = React.memo(function NextTrophy({ state, onPress, compa
         <Text style={[styles.nextKicker, { color: palette.hi }]}>LE PROCHAIN</Text>
         <Text style={compact ? styles.nextNameCompact : styles.nextName} numberOfLines={1}>
           {def.name}
-          {compact ? <Text style={styles.nextTier}> · {tier.label.charAt(0) + tier.label.slice(1).toLowerCase()}</Text> : null}
         </Text>
-        {!compact ? (
-          <Text style={styles.nextSub} numberOfLines={1}>
-            {BADGE_TIERS[index].label.charAt(0) + BADGE_TIERS[index].label.slice(1).toLowerCase()} · {formatGoal(def, index)}
-          </Text>
-        ) : null}
         <View style={styles.nextBarRow}>
           <View style={styles.nextTrack}>
             <View style={[styles.nextFill, { width: pct, backgroundColor: palette.hi }]} />
           </View>
-          <Text style={[styles.nextValue, { color: palette.hi }]} numberOfLines={1}>
-            {formatProgress(def, state.value, tier.threshold)}
-          </Text>
         </View>
         <Text style={styles.nextRemain} numberOfLines={1}>
-          {formatRemaining(def, tier.threshold - state.value)}
+          {formatLeft(def, tier.threshold - state.value)}
         </Text>
       </View>
     </PressTap>
@@ -498,23 +458,6 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.6)',
     marginTop: 8,
   },
-  sumNow: { fontFamily: fonts.sansBold, color: WHITE },
-  sumArrow: { color: 'rgba(255,255,255,0.4)' },
-  sumTarget: { fontFamily: fonts.sansBold },
-  sumLeft: { color: 'rgba(255,255,255,0.6)' },
-  howCard: {
-    padding: 14,
-    marginBottom: 28,
-    gap: 8,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
-    borderRadius: 18,
-  },
-  howHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 },
-  howTitle: { fontFamily: fonts.sansExtraBold, fontSize: 14, color: WHITE },
-  howLine: { fontFamily: fonts.sansMedium, fontSize: 12.5, lineHeight: 18, color: 'rgba(255,255,255,0.68)' },
-  howLabel: { fontFamily: fonts.monoBold, fontSize: 10, letterSpacing: 1.2, color: 'rgba(255,255,255,0.5)' },
   rowDivider: { borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)' },
   dial: {
     width: 34,
