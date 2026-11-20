@@ -10,7 +10,6 @@ import { fonts } from '../../lib/fonts';
 import { GOLD } from '../../lib/buttonTokens';
 import { haptic } from '../../hooks/useHaptic';
 import { formatDuration, formatLeft, formatMonths, formatProgress } from '../../lib/trophyCatalog';
-import { formatShortDate } from '../../lib/trophies';
 
 const WHITE = '#FFFFFF';
 
@@ -27,7 +26,6 @@ export default function TrophyDetailSheet({ screenH, state, tierIndex = null, is
   const def = state.def;
   const isTier = state.kind === 'tier';
   const hidden = state.kind === 'secret' && !state.unlocked;
-  const now = Date.now();
 
   let focus = 0;
   if (isTier) {
@@ -39,14 +37,12 @@ export default function TrophyDetailSheet({ screenH, state, tierIndex = null, is
   const colors = def.colors || [WHITE];
   const main = isTier ? TIER_PALETTE[tier.key].hi : colors.length > 1 ? WHITE : colors[0];
   const done = isTier ? tier.unlocked : state.unlocked;
-  const doneAt = isTier ? tier.at : state.at;
-  const dateText = done && doneAt ? formatShortDate(doneAt, now) : '';
 
   // Titre, sous-titre, et la ligne d'état (une seule).
   const title = isTier ? tier.label : hidden ? '???' : def.name.toUpperCase();
   const subtitle = isTier ? def.name : hidden ? 'Trophée secret' : def.desc;
   let status = '';
-  if (done) status = dateText ? `Gagné le ${dateText}` : 'Gagné';
+  if (done) status = 'Obtenu';
   else if (isTier) status = formatLeft(def, tier.threshold - state.value);
   else if (state.hasProgress && state.value > 0) status = `${state.value} sur ${state.target}`;
   else if (hidden) status = 'Aucun indice';
@@ -107,7 +103,6 @@ export default function TrophyDetailSheet({ screenH, state, tierIndex = null, is
               <View style={styles.tiersRow}>
                 {state.tiers.map((t, i) => {
                   const p = TIER_PALETTE[t.key];
-                  const at = t.unlocked && t.at ? formatShortDate(t.at, now) : '';
                   return (
                     <View
                       key={t.key}
@@ -117,7 +112,7 @@ export default function TrophyDetailSheet({ screenH, state, tierIndex = null, is
                       <Text style={[styles.tierName, { color: p.hi }]}>{t.label}</Text>
                       <Text style={styles.tierGoal}>{thresholdText(def, t.threshold)}</Text>
                       <Text style={[styles.tierStatus, t.unlocked && { color: p.hi }]} numberOfLines={1}>
-                        {t.unlocked ? at : `${Math.round(t.progress * 100)} %`}
+                        {t.unlocked ? 'OBTENU' : `${Math.round(t.progress * 100)} %`}
                       </Text>
                     </View>
                   );

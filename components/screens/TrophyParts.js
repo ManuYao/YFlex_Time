@@ -10,7 +10,6 @@ import { fonts } from '../../lib/fonts';
 import { haptic } from '../../hooks/useHaptic';
 import { buildTickPaths, orEmpty, ringSegments } from '../../lib/medalGeometry';
 import { formatLeft } from '../../lib/trophyCatalog';
-import { formatShortDate } from '../../lib/trophies';
 import { BADGE_TIERS } from '../../lib/badges';
 
 // Briques d'affichage des trophées, partagées par la page Trophées (app/trophies.js) et la
@@ -160,13 +159,13 @@ export const TierRow = React.memo(function TierRow({ state, divider = false, onP
 export const UniqueTile = React.memo(function UniqueTile({ state, onPress, now }) {
   const def = state.def;
   const main = mainColorOf(def);
-  // Une seule ligne de plus, et seulement si elle apprend quelque chose : la date d'obtention
-  // (« 17 nov. »), ou l'avancement d'un exploit en cours (« 2 sur 3 »). Le cadenas dit déjà « pas
-  // encore », inutile de l'écrire.
+  // Une seule ligne de plus, et seulement si elle apprend quelque chose : « OBTENU », ou
+  // l'avancement d'un exploit en cours (« 2 sur 3 »). Le cadenas dit déjà « pas encore », inutile
+  // de l'écrire. Aucune date (décision de l'utilisateur, 20/11).
   let caption = '';
   let captionColor = 'rgba(255,255,255,0.55)';
   if (state.unlocked) {
-    caption = formatShortDate(state.at, now);
+    caption = 'OBTENU';
     captionColor = main;
   } else if (state.hasProgress && state.value > 0) {
     caption = `${state.value} sur ${state.target}`;
@@ -201,7 +200,6 @@ export const UniqueTile = React.memo(function UniqueTile({ state, onPress, now }
 export const SecretTile = React.memo(function SecretTile({ state, onPress, now }) {
   const def = state.def;
   const found = state.unlocked;
-  const date = found ? formatShortDate(state.at, now) : '';
   return (
     <PressTap
       tapScale={0.96}
@@ -222,9 +220,9 @@ export const SecretTile = React.memo(function SecretTile({ state, onPress, now }
           </Text>
         ) : null}
       </View>
-      {found && date ? (
+      {found ? (
         <Text style={[styles.tileCaption, { color: WHITE }]} numberOfLines={1}>
-          {date}
+          TROUVÉ
         </Text>
       ) : null}
     </PressTap>
@@ -359,7 +357,6 @@ export const RecentTrophies = React.memo(function RecentTrophies({ evaluation, c
             <Text style={styles.recentName} numberOfLines={2}>
               {state.def.name}
             </Text>
-            <Text style={styles.recentDate}>{formatShortDate(e.at, now)}</Text>
           </PressTap>
         );
       })}
