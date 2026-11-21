@@ -19,6 +19,7 @@ import {
 import { getMixTotalDuration, hasEstimatedDuration, healMixIds } from '../lib/mix-blocks';
 import { ensureUid } from '../lib/mixIdentity';
 import { recordTrophyFlag } from '../lib/trophyFacts';
+import { announceTrophies } from '../lib/badgeCelebration';
 
 const STORAGE_KEY = 'flexTimer_timerOverrides';
 
@@ -166,7 +167,7 @@ export function TimersProvider({ children }) {
   const markPublished = useCallback(async (mixId, publishedId) => {
     if (!mixId) return;
     // Trophée « Sur scène » : un mix vient d'être publié (la date est gardée une fois).
-    if (publishedId) recordTrophyFlag('stage');
+    if (publishedId) recordTrophyFlag('stage').then(() => announceTrophies('any'));
     const apply = (m) => {
       const next = { ...m };
       if (publishedId) next.publishedId = publishedId;

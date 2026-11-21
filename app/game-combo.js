@@ -52,6 +52,7 @@ import {
   setComboScoreExercises,
 } from '../lib/gameComboStore';
 import { recordGameSession, setGameSessionExercises } from '../lib/gameHistory';
+import { announceTrophies } from '../lib/badgeCelebration';
 import {
   DEFAULT_SETUP,
   EXO_MAX,
@@ -252,6 +253,8 @@ export default function GameCombo() {
       // La règle de la bulle (lib/gameTagTip.js) : si elle doit être montrée, ce sera sur le menu
       // du jeu, dès qu'on y revient.
       tag.noteGameFinished();
+      // Trophée gagné dans cette partie : annoncé ici, à la fin de la partie (lib/badgeCelebration.js).
+      announceTrophies('game');
     }
   };
 

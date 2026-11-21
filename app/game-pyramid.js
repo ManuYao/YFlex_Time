@@ -33,6 +33,7 @@ import {
   setPyramidScoreExercises,
 } from '../lib/gamePyramidScores';
 import { recordGameSession, setGameSessionExercises } from '../lib/gameHistory';
+import { announceTrophies } from '../lib/badgeCelebration';
 import { exercisesLabel, normalizeExercises, shouldHalo } from '../lib/gameExercises';
 import {
   DEFAULT_FORMAT,
@@ -235,6 +236,8 @@ export default function GamePyramid() {
       // La règle de la bulle (lib/gameTagTip.js) : si elle doit être montrée, ce sera sur le menu
       // du jeu, dès qu'on y revient.
       tag.noteGameFinished();
+      // Trophée gagné dans cette partie : annoncé ici, à la fin de la partie (lib/badgeCelebration.js).
+      announceTrophies('game');
     }
   };
 

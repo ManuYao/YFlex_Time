@@ -49,7 +49,7 @@ import { loadIsPremium } from '../lib/premium';
 import { denyCooldown } from '../hooks/usePremiumGate';
 import BadgeUnlockSheet from '../components/common/BadgeUnlockSheet';
 import { pendingBadges, markBadgeSeen } from '../lib/badgeCelebration';
-import { countSessionsByTimer, notifyHistoryChanged } from '../lib/history';
+import { notifyHistoryChanged } from '../lib/history';
 
 const springEnergetic = { stiffness: 380, damping: 22, mass: 1 };
 
@@ -186,7 +186,7 @@ export default function EndSession() {
         // Paliers de badge franchis PAR cette séance : le comptage se fait
         // sur la liste qu'on vient d'écrire, pas sur une relecture — inutile
         // de repasser par AsyncStorage pour une valeur qu'on a en main.
-        const fresh = await pendingBadges(countSessionsByTimer(list));
+        const fresh = await pendingBadges('timer');
         if (fresh.length) {
           badgeTotalRef.current = fresh.length;
           setBadgeQueue(fresh);

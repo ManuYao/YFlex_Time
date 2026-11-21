@@ -26,6 +26,7 @@ import { createFixedNumberCaller } from '../lib/gameVoice';
 import { holdGameFocus, releaseGameFocus } from '../lib/voiceCoach';
 import { loadScores, saveScore, deleteScore, setCountScoreExercises } from '../lib/gameScores';
 import { recordGameSession, setGameSessionExercises } from '../lib/gameHistory';
+import { announceTrophies } from '../lib/badgeCelebration';
 import { exercisesLabel, shouldHalo } from '../lib/gameExercises';
 import {
   DEFAULT_TEMPO,
@@ -149,6 +150,9 @@ export default function GameCount() {
       // La règle de la bulle (lib/gameTagTip.js) : si elle doit être montrée, ce sera sur le menu
       // du jeu, dès qu'on y revient.
       tag.noteGameFinished();
+      // Trophée gagné dans cette partie (Joueur, Record battu…) : annoncé ICI, à la fin de la partie,
+      // jamais à la fin d'un chrono (lib/badgeCelebration.js).
+      announceTrophies('game');
     }
   };
 
