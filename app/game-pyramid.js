@@ -33,7 +33,7 @@ import {
   setPyramidScoreExercises,
 } from '../lib/gamePyramidScores';
 import { recordGameSession, setGameSessionExercises } from '../lib/gameHistory';
-import { announceTrophies } from '../lib/badgeCelebration';
+import useTrophySheet from '../hooks/useTrophySheet';
 import { exercisesLabel, normalizeExercises, shouldHalo } from '../lib/gameExercises';
 import {
   DEFAULT_FORMAT,
@@ -108,6 +108,7 @@ const PyramidBars = React.memo(function PyramidBars({ sets, activeIndex, height 
 export default function GamePyramid() {
   const router = useRouter();
   const { height } = useWindowDimensions();
+  const { announce: announceTrophy, trophySheet } = useTrophySheet('game');
   const { settings } = useSettings();
   const { locked: gateLocked, deny: denyPremium } = usePremiumGate();
   // `formatId` peut être un format libre : on ne demande la porte que pour les deux réservés.
@@ -237,7 +238,8 @@ export default function GamePyramid() {
       // du jeu, dès qu'on y revient.
       tag.noteGameFinished();
       // Trophée gagné dans cette partie : annoncé ici, à la fin de la partie (lib/badgeCelebration.js).
-      announceTrophies('game');
+      // Grande annonce ou notification selon sa rareté (hooks/useTrophySheet.js).
+      announceTrophy();
     }
   };
 
@@ -794,6 +796,7 @@ export default function GamePyramid() {
       </SafeAreaView>
 
       {/* « Ton exercice » (ouverte seulement quand on maintient un score) et la bulle du menu. */}
+      {trophySheet}
       <GameTagOverlays tag={tag} phase={phase} screenH={height} accent={ACCENT} />
 
       {/* Même feuille que la roue de l'app : fermer sans valider garde le total. */}

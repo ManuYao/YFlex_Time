@@ -52,7 +52,7 @@ import {
   setComboScoreExercises,
 } from '../lib/gameComboStore';
 import { recordGameSession, setGameSessionExercises } from '../lib/gameHistory';
-import { announceTrophies } from '../lib/badgeCelebration';
+import useTrophySheet from '../hooks/useTrophySheet';
 import {
   DEFAULT_SETUP,
   EXO_MAX,
@@ -102,6 +102,7 @@ export default function GameCombo() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
+  const { announce: announceTrophy, trophySheet } = useTrophySheet('game');
   const { settings } = useSettings();
   const { locked, deny } = usePremiumGate();
 
@@ -254,7 +255,8 @@ export default function GameCombo() {
       // du jeu, dès qu'on y revient.
       tag.noteGameFinished();
       // Trophée gagné dans cette partie : annoncé ici, à la fin de la partie (lib/badgeCelebration.js).
-      announceTrophies('game');
+      // Grande annonce ou notification selon sa rareté (hooks/useTrophySheet.js).
+      announceTrophy();
     }
   };
 
@@ -707,6 +709,7 @@ export default function GameCombo() {
 
       {/* « Ton exercice » (ouverte seulement quand on maintient un score ; le combo coche d'office
           les deux exercices écrits par le joueur) et la bulle du menu. */}
+      {trophySheet}
       <GameTagOverlays
         tag={tag}
         phase={phase}

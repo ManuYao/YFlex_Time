@@ -26,7 +26,7 @@ import { createFixedNumberCaller } from '../lib/gameVoice';
 import { holdGameFocus, releaseGameFocus } from '../lib/voiceCoach';
 import { loadScores, saveScore, deleteScore, setCountScoreExercises } from '../lib/gameScores';
 import { recordGameSession, setGameSessionExercises } from '../lib/gameHistory';
-import { announceTrophies } from '../lib/badgeCelebration';
+import useTrophySheet from '../hooks/useTrophySheet';
 import { exercisesLabel, shouldHalo } from '../lib/gameExercises';
 import {
   DEFAULT_TEMPO,
@@ -65,6 +65,7 @@ const scoreValue = (s) => s.count;
 export default function GameCount() {
   const router = useRouter();
   const { height } = useWindowDimensions();
+  const { announce: announceTrophy, trophySheet } = useTrophySheet('game');
   const { settings } = useSettings();
 
   const [phase, setPhase] = useState('ready'); // ready | countdown | playing | done
@@ -151,8 +152,9 @@ export default function GameCount() {
       // du jeu, dès qu'on y revient.
       tag.noteGameFinished();
       // Trophée gagné dans cette partie (Joueur, Record battu…) : annoncé ICI, à la fin de la partie,
-      // jamais à la fin d'un chrono (lib/badgeCelebration.js).
-      announceTrophies('game');
+      // jamais à la fin d'un chrono (lib/badgeCelebration.js). Grande annonce ou notification selon
+      // sa rareté (hooks/useTrophySheet.js).
+      announceTrophy();
     }
   };
 
@@ -504,6 +506,7 @@ export default function GameCount() {
       </SafeAreaView>
 
       {/* « Ton exercice » (ouverte seulement quand on maintient un score) et la bulle du menu. */}
+      {trophySheet}
       <GameTagOverlays tag={tag} phase={phase} screenH={height} accent={ACCENT} />
 
       {/* Même feuille que la roue de l'app : fermer sans valider garde le score. */}

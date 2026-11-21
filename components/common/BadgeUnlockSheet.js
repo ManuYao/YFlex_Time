@@ -22,6 +22,7 @@ import { playSound } from '../../lib/sounds';
 import { BADGE_TIERS } from '../../lib/badges';
 import { getTrophy, formatGoal, medalLabel } from '../../lib/trophyCatalog';
 import { springBouncy } from '../../lib/animations';
+import { holdTrophyNotices, releaseTrophyNotices } from '../../lib/trophyNotices';
 
 // Boîte unique partagée par la couronne et la médaille. Les deux calques sont
 // posés en absoluteFill DE CETTE boîte, donc ils partagent forcément leur
@@ -66,6 +67,15 @@ export default function BadgeUnlockSheet({ screenH, trophyId, tier, position, to
     haptic.success();
     const id = setTimeout(() => haptic.success(), 260);
     return () => clearTimeout(id);
+  }, []);
+
+  // Tant que la grande annonce est là, aucune notification de trophée ne passe par-dessus
+  // (lib/trophyNotices.js) ; elles arrivent juste après sa fermeture. Le blocage « pending » posé
+  // par pendingBadges est repris ici, puis levé à la fermeture.
+  useEffect(() => {
+    holdTrophyNotices('sheet');
+    releaseTrophyNotices('pending');
+    return () => releaseTrophyNotices('sheet');
   }, []);
 
   const medalScale = useSharedValue(0.4);

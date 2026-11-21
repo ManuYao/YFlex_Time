@@ -11,42 +11,49 @@ import { fonts } from '../lib/fonts';
 import { haptic } from '../hooks/useHaptic';
 import { TIER_PALETTE } from '../components/common/BadgeMedal';
 import { BADGE_TIERS } from '../lib/badges';
-import { TROPHIES, TROPHY_FAMILIES } from '../lib/trophyCatalog';
-import { clearTrophyNotices, pushTrophyNotices } from '../lib/trophyNotices';
+import { TROPHIES, TROPHY_FAMILIES, announceFormat } from '../lib/trophyCatalog';
+import { clearTrophyNotices, holdTrophyNotices, pushTrophyNotices } from '../lib/trophyNotices';
+
+const SHEET_COLOR = '#F0C954';
+
+// Ce que dit la règle pour un trophée (annonceFormat) : une ligne lisible sous son nom.
+const formatLine = (t) => {
+  if (t.kind === 'tier' && !t.mode) return 'Notification · l’Or a la grande annonce';
+  return announceFormat(t) === 'sheet' ? 'Grande annonce' : 'Notification';
+};
 
 /**
  * Paramètres › Aperçu des trophées : voir CHAQUE annonce possible sans attendre de gagner le
  * trophée. Rien n'est gagné ni enregistré : c'est un simple aperçu.
- *   - « Notification » : la petite carte qu'on balaye (trophées du quotidien) ;
- *   - « Grande annonce » : la feuille plein écran (celle des trophées de mode).
+ *   - « Comme l'app » : chaque trophée s'affiche dans SON format (announceFormat), avec la même règle
+ *     de non-conflit : la grande annonce d'abord, les notifications juste après ;
+ *   - « Notification » / « Grande annonce » : force un format pour juger l'apparence.
  * Chaque trophée a ses boutons : Bronze / Argent / Or pour un trophée à paliers, « Voir » pour
- * un exploit ou un secret.
+ * un exploit ou un secret. Une pastille pleine = ce palier a la grande annonce.
  */
 export default function TrophyPreview() {
   const router = useRouter();
   const { height: screenH } = useWindowDimensions();
-  const [mode, setMode] = useState('notice'); // 'notice' | 'sheet'
+  const [mode, setMode] = useState('auto'); // 'auto' | 'notice' | 'sheet'
   const [sheet, setSheet] = useState(null); // { queue: [{ id, tier }], index }
 
   const show = (items) => {
     haptic.light();
-    if (mode === 'notice') {
-      clearTrophyNotices();
-      pushTrophyNotices(items);
-    } else {
-      setSheet({ queue: items, index: 0 });
-    }
+    clearTrophyNotices();
+    const sheets =
+      mode === 'sheet' ? items : mode === 'notice' ? [] : items.filter((i) => announceFormat(i.id, i.tier) === 'sheet');
+    const notices = mode === 'auto' ? items.filter((i) => !sheets.includes(i)) : mode === 'notice' ? items : [];
+    // Comme dans l'app : les cartes attendent la fermeture de la grande annonce.
+    if (sheets.length) holdTrophyNotices('pending', 8000);
+    pushTrophyNotices(notices);
+    setSheet(sheets.length ? { queue: sheets, index: 0 } : null);
   };
 
   const closeSheet = () => {
     setSheet((s) => (s && s.index + 1 < s.queue.length ? { ...s, index: s.index + 1 } : null));
   };
 
-  const sample = (ids) =>
-    ids.map((id) => {
-      const def = TROPHIES.find((t) => t.id === id);
-      return { id, tier: def.kind === 'tier' ? 'argent' : 'done' };
-    });
+  const sample = (pairs) => pairs.map(([id, tier]) => ({ id, tier }));
 
   return (
     <GradientBackground colors={['#1A1A1A', '#0A0A0A', '#000000']}>
@@ -59,6 +66,7 @@ export default function TrophyPreview() {
 
         <View style={styles.modes}>
           {[
+            ['auto', 'Comme l’app'],
             ['notice', 'Notification'],
             ['sheet', 'Grande annonce'],
           ].map(([id, label]) => (
@@ -78,19 +86,46 @@ export default function TrophyPreview() {
 
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <Text style={styles.hint}>
-            {mode === 'notice'
-              ? 'Touche un trophée : la carte arrive en haut. Balaye-la ou touche la croix.'
-              : 'Touche un trophée : la grande annonce s’ouvre, comme à la fin d’une séance.'}
+            {mode === 'auto'
+              ? 'Chaque trophée s’affiche comme dans l’app : grande annonce (pastille pleine) ou notification. S’il y a les deux, la grande annonce passe d’abord, les cartes arrivent juste après.'
+              : mode === 'notice'
+                ? 'Touche un trophée : la carte arrive en haut. Balaye-la ou touche la croix.'
+                : 'Touche un trophée : la grande annonce s’ouvre, comme à la fin d’une séance.'}
           </Text>
 
           <Text style={styles.sectionTitle}>Plusieurs d’un coup</Text>
           <View style={styles.card}>
             <Pressable
               style={styles.row}
-              onPress={() => show(sample(['sweat', 'finishTabata', 'earlyBird']))}
+              onPress={() => show(sample([['tabata', 'or'], ['finishTabata', 'done'], ['sweat', 'bronze']]))}
               accessibilityRole="button"
             >
-              <Text style={styles.rowName}>3 trophées à la suite</Text>
+              <View style={styles.rowText}>
+                <Text style={styles.rowName}>1 grande annonce + 2 notifications</Text>
+                <Text style={styles.rowSub}>TABATA Or, Jusqu’au bout, Heures de sueur Bronze</Text>
+              </View>
+              <Text style={styles.go}>Voir</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.row, styles.rowDivider]}
+              onPress={() => show(sample([['emom', 'bronze'], ['flame', 'or'], ['earlyBird', 'done']]))}
+              accessibilityRole="button"
+            >
+              <View style={styles.rowText}>
+                <Text style={styles.rowName}>3 grandes annonces à la suite</Text>
+                <Text style={styles.rowSub}>EMOM Bronze, Flamme Or, Lève-tôt</Text>
+              </View>
+              <Text style={styles.go}>Voir</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.row, styles.rowDivider]}
+              onPress={() => show(sample([['sweat', 'argent'], ['triple', 'done'], ['record', 'done']]))}
+              accessibilityRole="button"
+            >
+              <View style={styles.rowText}>
+                <Text style={styles.rowName}>3 notifications à la suite</Text>
+                <Text style={styles.rowSub}>Heures de sueur Argent, Triple, Record battu</Text>
+              </View>
               <Text style={styles.go}>Voir</Text>
             </Pressable>
           </View>
@@ -114,6 +149,12 @@ export default function TrophyPreview() {
                             {t.desc}
                           </Text>
                         ) : null}
+                        <Text
+                          style={[styles.formatTag, announceFormat(t) === 'sheet' && { color: SHEET_COLOR }]}
+                          numberOfLines={1}
+                        >
+                          {formatLine(t)}
+                        </Text>
                       </View>
                       {t.kind === 'tier' ? (
                         <View style={styles.tiers}>
@@ -121,7 +162,11 @@ export default function TrophyPreview() {
                             <Pressable
                               key={tier.key}
                               onPress={() => show([{ id: t.id, tier: tier.key }])}
-                              style={[styles.tierBtn, { borderColor: TIER_PALETTE[tier.key].hi }]}
+                              style={[
+                                styles.tierBtn,
+                                { borderColor: TIER_PALETTE[tier.key].hi },
+                                announceFormat(t, tier.key) === 'sheet' && { backgroundColor: `${TIER_PALETTE[tier.key].hi}40` },
+                              ]}
                               accessibilityRole="button"
                               accessibilityLabel={`${t.name} ${tier.label}`}
                             >
@@ -183,7 +228,7 @@ const styles = StyleSheet.create({
   },
   modeBtn: { flex: 1, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   modeBtnOn: { backgroundColor: 'rgba(255,255,255,0.16)' },
-  modeText: { fontFamily: fonts.sansBold, fontSize: 13, color: 'rgba(255,255,255,0.55)' },
+  modeText: { fontFamily: fonts.sansBold, fontSize: 12, color: 'rgba(255,255,255,0.55)' },
   modeTextOn: { color: '#FFFFFF' },
   content: { paddingHorizontal: 20, paddingBottom: 40 },
   hint: {
@@ -215,6 +260,7 @@ const styles = StyleSheet.create({
   rowText: { flex: 1, minWidth: 0 },
   rowName: { fontFamily: fonts.sansExtraBold, fontSize: 14, color: '#FFFFFF', flexShrink: 1 },
   rowSub: { fontFamily: fonts.sansMedium, fontSize: 11.5, color: 'rgba(255,255,255,0.5)', marginTop: 1 },
+  formatTag: { fontFamily: fonts.sansBold, fontSize: 10.5, letterSpacing: 0.3, color: 'rgba(255,255,255,0.4)', marginTop: 2 },
   go: { fontFamily: fonts.sansBold, fontSize: 13, color: '#FFFFFF', paddingHorizontal: 6, paddingVertical: 6 },
   tiers: { flexDirection: 'row', gap: 6 },
   tierBtn: {

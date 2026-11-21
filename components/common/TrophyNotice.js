@@ -12,6 +12,7 @@ import { BADGE_TIERS } from '../../lib/badges';
 import { getTrophy, medalLabel } from '../../lib/trophyCatalog';
 import {
   clearTrophyNotices,
+  isTrophyNoticesHeld,
   onTrophyNotices,
   peekTrophyNotice,
   shiftTrophyNotice,
@@ -20,11 +21,12 @@ import {
 
 // Notification de trophée : une petite carte en haut de l'écran (même charte que le reste de l'app),
 // qu'on BALAYE pour la fermer (de côté ou vers le haut), ou qu'on ferme avec la croix ; « Voir »
-// ouvre la page Trophées. Elle remplace la grande annonce plein écran pour les trophées du
-// quotidien (les 5 trophées de mode gardent celle de la fin de séance). Montée une seule fois à la
-// racine (app/_layout.js) ; les trophées arrivent par lib/trophyNotices.js.
+// ouvre la page Trophées. Elle remplace la grande annonce plein écran pour les trophées au format
+// 'notice' (announceFormat, lib/trophyCatalog.js : bronze et argent, exploits courants). Montée une
+// seule fois à la racine (app/_layout.js) ; les trophées arrivent par lib/trophyNotices.js.
 //
-// Jamais pendant un effort (chrono, décompte), l'introduction ou un bilan : elle attend.
+// Jamais pendant un effort (chrono, décompte), l'introduction ou un bilan : elle attend. Jamais
+// non plus par-dessus une grande annonce (holdTrophyNotices) : elle arrive après sa fermeture.
 const HIDDEN_ROUTES = new Set([
   '/', '/index', '/onboarding', '/tutorial', '/season-recap', '/countdown', '/running', '/trophies',
 ]);
@@ -57,14 +59,23 @@ export default function TrophyNotice() {
 
   // Montre la première carte en attente, quand l'écran s'y prête.
   const hidden = HIDDEN_ROUTES.has(pathname);
+  // Une grande annonce est ouverte (ou sur le point de l'être) : les cartes attendent, puis
+  // arrivent juste après sa fermeture. Jamais deux annonces en même temps.
+  const held = isTrophyNoticesHeld();
   useEffect(() => {
-    if (current || hidden || !peekTrophyNotice()) return undefined;
+    if (current || hidden || held || !peekTrophyNotice()) return undefined;
     const t = setTimeout(() => {
       const next = peekTrophyNotice();
-      if (next) setCurrent(next);
+      if (next && !isTrophyNoticesHeld()) setCurrent(next);
     }, SHOW_DELAY_MS);
     return () => clearTimeout(t);
-  }, [tick, current, hidden]);
+  }, [tick, current, hidden, held]);
+
+  // Une grande annonce s'ouvre alors qu'une carte est affichée : la carte s'efface, sans être perdue
+  // (elle reste en tête de la file et revient après).
+  useEffect(() => {
+    if (held && current) setCurrent(null);
+  }, [held, current]);
 
   // Arrivée de la carte.
   useEffect(() => {
