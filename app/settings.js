@@ -716,6 +716,14 @@ export default function Settings() {
                 router.push('/diagnostic');
               }}
             />
+            <LinkRow
+              label="Aperçu des trophées"
+              sub="Voir chaque annonce possible, sans rien gagner"
+              onPress={() => {
+                haptic.light();
+                router.push('/trophy-preview');
+              }}
+            />
             <LinkRow label="Contact" sub={CONTACT_EMAIL} onPress={handleContact} isLast />
           </Section>
 
