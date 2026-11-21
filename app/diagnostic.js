@@ -34,6 +34,21 @@ import {
   setOrientationTest,
   subscribeOrientationState,
 } from '../lib/orientationState';
+import {
+  getWindowEvents,
+  subscribeWindowLog,
+  clearWindowLog,
+  formatWindowLog,
+  formatWindowTime,
+  WINDOW_WARN_TAGS,
+} from '../lib/windowLog';
+
+// Modes de TEST du verrou d'orientation (lib/orientationState.js).
+const ORIENTATION_CHOICES = [
+  { mode: 'normal', label: 'Normal : comme avant' },
+  { mode: 'soft', label: 'Souple : ne tourne pas, ne force pas le portrait' },
+  { mode: 'none', label: 'Aucun : l\'app peut tourner' },
+];
 
 const LIGHT_LABELS = ['Normaux', 'Ralentis', 'Coupés'];
 import {
@@ -62,7 +77,9 @@ export default function Diagnostic() {
   const [light, setLight] = useState(getLightDebug());
   const [gameLog, setGameLog] = useState(getGameAudioEvents());
   const [logCopied, setLogCopied] = useState(false);
-  const [noLock, setNoLock] = useState(getOrientationState().testNoLock);
+  const [testMode, setTestMode] = useState(getOrientationState().testMode);
+  const [winLog, setWinLog] = useState(getWindowEvents());
+  const [winCopied, setWinCopied] = useState(false);
   const readable = isMemoryReadable();
   // Mémoire NATIVE, chauffe, processeur par fil : seulement avec le module natif
   // de l'APK récent (sinon rien n'est affiché ni mesuré).
@@ -86,8 +103,9 @@ export default function Diagnostic() {
   useEffect(() => subscribeGameAudioLog(() => setGameLog(getGameAudioEvents())), []);
   useEffect(() => {
     loadOrientationTest();
-    return subscribeOrientationState((s) => setNoLock(s.testNoLock));
+    return subscribeOrientationState((s) => setTestMode(s.testMode));
   }, []);
+  useEffect(() => subscribeWindowLog(() => setWinLog(getWindowEvents())), []);
 
   return (
     <GradientBackground colors={['#1A1A1A', '#0A0A0A', '#000000']} ambient>
@@ -357,22 +375,75 @@ export default function Diagnostic() {
           <View style={styles.card}>
             <Text style={styles.cardKicker}>FENÊTRE FLOTTANTE (TEST)</Text>
             <Text style={styles.cardBody}>
-              Pour comprendre pourquoi la pop-up Samsung ne se rétrécit pas en largeur : affiche le
-              compteur ci-dessous (la taille de la fenêtre apparaît en haut à gauche, en direct),
-              ouvre l'app en pop-up et tire sur un bord. Ce bouton coupe en plus le verrouillage en
-              portrait de l'app : si la largeur devient alors ajustable, c'était lui. À remettre
-              sur « verrou normal » après le test.
+              Pour comprendre pourquoi la pop-up Samsung s'ouvre grande et se redimensionne mal
+              (SmartWOD, lui, s'ouvre petite et bouge dans tous les sens).{'\n'}
+              1. Choisis un verrou ci-dessous.{'\n'}
+              2. Affiche le compteur (carte suivante) : la taille de la fenêtre apparaît en haut à
+              gauche.{'\n'}
+              3. Ferme l'app complètement, rouvre-la, puis ouvre-la en pop-up (glisser-déposer) et
+              essaie de la rétrécir par les bords et par les coins.{'\n'}
+              4. Reviens ici (agrandis la fenêtre si besoin), copie le journal et colle-le dans un
+              message. Remets « Normal » après le test.
             </Text>
-            <Button
-              variant={noLock ? 'solid' : 'glass'}
-              size="md"
-              label={noLock ? 'Test actif : verrou coupé' : 'Couper le verrou portrait (test)'}
-              onPress={() => {
-                haptic.light();
-                setOrientationTest(!noLock);
-              }}
-              style={styles.cta}
-            />
+            {ORIENTATION_CHOICES.map((c) => (
+              <Button
+                key={c.mode}
+                variant={testMode === c.mode ? 'solid' : 'glass'}
+                size="md"
+                label={testMode === c.mode ? `✓ ${c.label}` : c.label}
+                onPress={() => {
+                  haptic.light();
+                  setOrientationTest(c.mode);
+                }}
+                style={[styles.cta, { marginTop: 8 }]}
+              />
+            ))}
+            {winLog.length === 0 ? (
+              <Text style={[styles.cardBody, styles.perfHint, { marginTop: 14 }]}>
+                Le journal de la fenêtre se remplit tout seul : taille à l'ouverture, à chaque
+                redimensionnement, et verrou demandé à Android.
+              </Text>
+            ) : (
+              <>
+                <View style={{ marginTop: 14 }}>
+                  {winLog
+                    .slice(-14)
+                    .reverse()
+                    .map((e, i) => (
+                      <Text
+                        key={`${e.at}-${i}`}
+                        style={[styles.eventRow, WINDOW_WARN_TAGS.includes(e.tag) ? styles.eventWarn : null]}
+                      >
+                        {`${formatWindowTime(e.at)}  ${e.tag}  ${e.detail}`}
+                      </Text>
+                    ))}
+                </View>
+                <Button
+                  variant="glass"
+                  size="md"
+                  label={winCopied ? 'Journal copié' : 'Copier le journal de la fenêtre'}
+                  onPress={async () => {
+                    haptic.light();
+                    const ok = await copyToClipboard(formatWindowLog());
+                    if (ok) {
+                      setWinCopied(true);
+                      setTimeout(() => setWinCopied(false), 2000);
+                    }
+                  }}
+                  style={[styles.cta, { marginTop: 14 }]}
+                />
+                <Button
+                  variant="glass"
+                  size="md"
+                  label="Vider le journal de la fenêtre"
+                  onPress={() => {
+                    haptic.light();
+                    clearWindowLog();
+                  }}
+                  style={[styles.cta, { marginTop: 8 }]}
+                />
+              </>
+            )}
           </View>
 
           <View style={styles.card}>
