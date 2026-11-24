@@ -12,7 +12,7 @@ import BadgeMedal from '../components/common/BadgeMedal';
 import ModeStatsSheet from '../components/common/ModeStatsSheet';
 import TrophyDetailSheet from '../components/common/TrophyDetailSheet';
 import { SkeletonGroup, SkeletonBlock } from '../components/common/Skeleton';
-import { TrophyRing, TrophyChips, NextTrophy, FamilySection } from '../components/screens/TrophyParts';
+import { TrophyRing, TrophyChips, NextTrophy, FamilySection, EarnedList } from '../components/screens/TrophyParts';
 import { useTimers } from '../contexts/TimersContext';
 import { usePremium } from '../hooks/usePremium';
 import { useScreenReady } from '../hooks/useScreenReady';
@@ -46,6 +46,11 @@ export default function Trophies() {
   const [data, setData] = useState(null); // { evaluation, sessions, now }
   const [detail, setDetail] = useState(null); // { state, tierIndex }
   const [modeId, setModeId] = useState(null);
+  // Pastille touchée (Bronze, Argent, Or, exploits, secrets) : la liste montre ce qui a été gagné
+  // dans cette catégorie ; la toucher de nouveau (ou « Tout voir ») remet les familles.
+  const [filter, setFilter] = useState(null);
+  const toggleFilter = useCallback((key) => setFilter((f) => (f === key ? null : key)), []);
+  const clearFilter = useCallback(() => setFilter(null), []);
 
   const { ready, skeletonGone, contentStyle, skeletonStyle } = useScreenReady({
     dataReady: !!data,
@@ -125,14 +130,19 @@ export default function Trophies() {
                         unlocked={evaluation.unlockedCount}
                       />
                       <View style={styles.chipsWrap}>
-                        <TrophyChips counts={evaluation.counts} />
+                        <TrophyChips counts={evaluation.counts} selected={filter} onSelect={toggleFilter} />
                       </View>
+                      {!filter ? <Text style={styles.chipsHint}>Touche une pastille pour voir ce que tu as gagné.</Text> : null}
                     </View>
 
-                    {evaluation.next && !complete ? (
+                    {filter ? (
+                      <EarnedList evaluation={evaluation} filter={filter} onOpen={open} onClose={clearFilter} />
+                    ) : null}
+
+                    {!filter && evaluation.next && !complete ? (
                       <NextTrophy state={evaluation.next} onPress={open} />
                     ) : null}
-                    {complete ? (
+                    {!filter && complete ? (
                       <View style={styles.completeCard}>
                         <BadgeMedal tier="or" size={64} value={evaluation.total} />
                         <View style={styles.completeText}>
@@ -143,9 +153,10 @@ export default function Trophies() {
                       </View>
                     ) : null}
 
-                    {sections.map(({ family, states }) => (
-                      <FamilySection key={family.id} family={family} states={states} onOpen={open} now={data.now} />
-                    ))}
+                    {!filter &&
+                      sections.map(({ family, states }) => (
+                        <FamilySection key={family.id} family={family} states={states} onOpen={open} now={data.now} />
+                      ))}
 
                   </Animated.View>
                 )}
@@ -222,6 +233,13 @@ const styles = StyleSheet.create({
 
   hero: { alignItems: 'center', paddingTop: 4, marginBottom: 20 },
   chipsWrap: { marginTop: 16 },
+  chipsHint: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 11.5,
+    color: 'rgba(255,255,255,0.4)',
+    textAlign: 'center',
+    marginTop: 10,
+  },
 
   completeCard: {
     flexDirection: 'row',

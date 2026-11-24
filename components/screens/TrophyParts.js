@@ -9,7 +9,8 @@ import { TrophyStateMedal } from '../common/TrophyMedal';
 import { fonts } from '../../lib/fonts';
 import { haptic } from '../../hooks/useHaptic';
 import { buildTickPaths, orEmpty, ringSegments } from '../../lib/medalGeometry';
-import { formatLeft } from '../../lib/trophyCatalog';
+import { formatGoal, formatLeft } from '../../lib/trophyCatalog';
+import { closestForFilter, earnedForFilter } from '../../lib/trophies';
 import { BADGE_TIERS } from '../../lib/badges';
 
 // Briques d'affichage des trophées, partagées par la page Trophées (app/trophies.js) et la
@@ -62,13 +63,27 @@ export const TrophyRing = React.memo(function TrophyRing({ size = 84, counts, to
 
 /* ───────────────────────── Pastilles de décompte ───────────────────────── */
 
-function Chip({ dotStyle, n, label }) {
-  return (
-    <View style={styles.chip}>
+// Sans `onPress`, une simple pastille (Profil). Avec `onPress` (page Trophées), un bouton qui filtre
+// la liste ; `active` = c'est la catégorie affichée, cerclée de sa couleur (`tint`).
+function Chip({ dotStyle, n, label, onPress, active = false, tint = WHITE }) {
+  const body = (
+    <>
       <View style={[styles.chipDot, dotStyle]} />
       <Text style={styles.chipN}>{n}</Text>
       <Text style={styles.chipLabel}>{label}</Text>
-    </View>
+    </>
+  );
+  if (!onPress) return <View style={styles.chip}>{body}</View>;
+  return (
+    <PressTap
+      tapScale={0.95}
+      onHapticIn={haptic.light}
+      onPress={onPress}
+      accessibilityLabel={`${n} ${label}${active ? ', affichés' : ''} : voir la liste`}
+      style={[styles.chip, active && { backgroundColor: `${tint}26`, borderColor: tint }]}
+    >
+      {body}
+    </PressTap>
   );
 }
 
@@ -83,8 +98,12 @@ function MiniCount({ dotStyle, n, label }) {
   );
 }
 
-/** Bronze, Argent, Or, exploits, secrets : combien de chaque. */
-export const TrophyChips = React.memo(function TrophyChips({ counts, compact = false }) {
+/**
+ * Bronze, Argent, Or, exploits, secrets : combien de chaque. Avec `onSelect`, chaque pastille est un
+ * bouton (page Trophées) : `selected` = la catégorie affichée ('bronze' | 'argent' | 'or' | 'unique' |
+ * 'secret'), la toucher de nouveau la referme.
+ */
+export const TrophyChips = React.memo(function TrophyChips({ counts, compact = false, selected = null, onSelect }) {
   const c = counts;
   if (compact) {
     return (
@@ -99,11 +118,44 @@ export const TrophyChips = React.memo(function TrophyChips({ counts, compact = f
   }
   return (
     <View style={styles.chips}>
-      <Chip dotStyle={{ backgroundColor: TIER_PALETTE.bronze.hi }} n={c.bronze} label="Bronze" />
-      <Chip dotStyle={{ backgroundColor: TIER_PALETTE.argent.hi }} n={c.argent} label="Argent" />
-      <Chip dotStyle={{ backgroundColor: TIER_PALETTE.or.hi }} n={c.or} label="Or" />
-      <Chip dotStyle={styles.dotUnique} n={`${c.unique.got} sur ${c.unique.total}`} label="exploits" />
-      <Chip dotStyle={styles.dotSecret} n={`${c.secret.got} sur ${c.secret.total}`} label="secrets" />
+      <Chip
+        dotStyle={{ backgroundColor: TIER_PALETTE.bronze.hi }}
+        n={c.bronze}
+        label="Bronze"
+        tint={TIER_PALETTE.bronze.hi}
+        active={selected === 'bronze'}
+        onPress={onSelect ? () => onSelect('bronze') : undefined}
+      />
+      <Chip
+        dotStyle={{ backgroundColor: TIER_PALETTE.argent.hi }}
+        n={c.argent}
+        label="Argent"
+        tint={TIER_PALETTE.argent.hi}
+        active={selected === 'argent'}
+        onPress={onSelect ? () => onSelect('argent') : undefined}
+      />
+      <Chip
+        dotStyle={{ backgroundColor: TIER_PALETTE.or.hi }}
+        n={c.or}
+        label="Or"
+        tint={TIER_PALETTE.or.hi}
+        active={selected === 'or'}
+        onPress={onSelect ? () => onSelect('or') : undefined}
+      />
+      <Chip
+        dotStyle={styles.dotUnique}
+        n={`${c.unique.got} sur ${c.unique.total}`}
+        label="exploits"
+        active={selected === 'unique'}
+        onPress={onSelect ? () => onSelect('unique') : undefined}
+      />
+      <Chip
+        dotStyle={styles.dotSecret}
+        n={`${c.secret.got} sur ${c.secret.total}`}
+        label="secrets"
+        active={selected === 'secret'}
+        onPress={onSelect ? () => onSelect('secret') : undefined}
+      />
     </View>
   );
 });
@@ -290,6 +342,131 @@ export const FamilySection = React.memo(function FamilySection({ family, states,
           <Grid items={secrets} perRow={4} render={(s) => <SecretTile state={s} onPress={onOpen} now={now} />} />
         )}
       </View>
+    </View>
+  );
+});
+
+/* ───────────────────────── Ce qui a été gagné dans une catégorie ───────────────────────── */
+
+// Une médaille gagnée, à son palier (Bronze, Argent ou Or) : même tuile qu'un exploit.
+export const TierTile = React.memo(function TierTile({ state, tierIndex, onPress }) {
+  const def = state.def;
+  const tier = state.tiers[tierIndex];
+  return (
+    <PressTap
+      tapScale={0.96}
+      onHapticIn={haptic.light}
+      onPress={() => onPress?.(state, tierIndex)}
+      accessibilityLabel={`${def.name}, ${tier.label}`}
+      containerStyle={styles.cell}
+      style={styles.tile}
+    >
+      <TrophyStateMedal state={state} tierIndex={tierIndex} size={64} />
+      <View style={styles.tileTexts}>
+        <Text style={styles.tileName} numberOfLines={2}>
+          {def.name}
+        </Text>
+        <Text style={styles.tileDesc} numberOfLines={3}>
+          {formatGoal(def, tierIndex)}
+        </Text>
+      </View>
+    </PressTap>
+  );
+});
+
+const FILTER_TEXT = {
+  bronze: { title: 'Médailles Bronze', none: 'Pas encore de médaille Bronze.' },
+  argent: { title: 'Médailles Argent', none: 'Pas encore de médaille Argent.' },
+  or: { title: 'Médailles Or', none: 'Pas encore de médaille Or.' },
+  unique: { title: 'Exploits', none: 'Pas encore d’exploit.' },
+  secret: { title: 'Secrets', none: 'Aucun secret trouvé. Ils sont cachés : à toi de les trouver.' },
+};
+
+/**
+ * Ce qui a été GAGNÉ dans la catégorie choisie avec les pastilles (Bronze, Argent, Or, exploits,
+ * secrets), le plus récent d'abord. Rien de gagné : un mot, et le trophée le plus proche pour voir
+ * où l'on en est. « Tout voir » ferme la liste.
+ */
+export const EarnedList = React.memo(function EarnedList({ evaluation, filter, onOpen, onClose }) {
+  const text = FILTER_TEXT[filter] || FILTER_TEXT.bronze;
+  const earned = useMemo(
+    () => earnedForFilter(evaluation, filter).map((e) => ({ ...e, id: `${e.state.id}:${e.tierIndex}` })),
+    [evaluation, filter]
+  );
+  const closest = useMemo(
+    () => (earned.length ? null : closestForFilter(evaluation, filter)),
+    [evaluation, filter, earned.length]
+  );
+  const isTier = filter === 'bronze' || filter === 'argent' || filter === 'or';
+  const total = isTier ? evaluation.list.filter((s) => s.kind === 'tier').length : evaluation.counts[filter].total;
+
+  let closestLeft = '';
+  if (closest) {
+    const s = closest.state;
+    closestLeft = isTier
+      ? formatLeft(s.def, s.tiers[closest.tierIndex].threshold - s.value)
+      : `${s.value} sur ${s.target}`;
+  }
+
+  return (
+    <View style={styles.section}>
+      <View style={styles.sectionHead}>
+        <Text style={styles.sectionTitle}>{text.title}</Text>
+        <Text style={styles.sectionCount}>
+          {earned.length} sur {total}
+        </Text>
+      </View>
+      <View style={styles.card}>
+        {earned.length > 0 ? (
+          <Grid
+            items={earned}
+            perRow={filter === 'secret' ? 4 : 3}
+            render={(e) =>
+              filter === 'unique' ? (
+                <UniqueTile state={e.state} onPress={onOpen} />
+              ) : filter === 'secret' ? (
+                <SecretTile state={e.state} onPress={onOpen} />
+              ) : (
+                <TierTile state={e.state} tierIndex={e.tierIndex} onPress={onOpen} />
+              )
+            }
+          />
+        ) : (
+          <View style={styles.emptyBox}>
+            <Text style={styles.emptyText}>{text.none}</Text>
+            {closest ? (
+              <PressTap
+                tapScale={0.98}
+                onHapticIn={haptic.light}
+                onPress={() => onOpen?.(closest.state, closest.tierIndex)}
+                accessibilityLabel={`Le plus proche : ${closest.state.def.name}`}
+                style={styles.closestRow}
+              >
+                <TrophyStateMedal state={closest.state} tierIndex={closest.tierIndex} size={52} />
+                <View style={styles.nextBody}>
+                  <Text style={[styles.nextKicker, { color: 'rgba(255,255,255,0.6)' }]}>LE PLUS PROCHE</Text>
+                  <Text style={styles.nextNameCompact} numberOfLines={1}>
+                    {closest.state.def.name}
+                  </Text>
+                  <Text style={styles.nextRemain} numberOfLines={1}>
+                    {closestLeft}
+                  </Text>
+                </View>
+              </PressTap>
+            ) : null}
+          </View>
+        )}
+      </View>
+      <PressTap
+        tapScale={0.96}
+        onHapticIn={haptic.light}
+        onPress={onClose}
+        accessibilityLabel="Tout voir"
+        containerStyle={styles.clearWrap}
+        style={styles.clearBtn}
+      >
+        <Text style={styles.clearText}>Tout voir</Text>
+      </PressTap>
     </View>
   );
 });
@@ -526,6 +703,34 @@ const styles = StyleSheet.create({
     marginTop: 2,
     textAlign: 'center',
   },
+
+  emptyBox: { padding: 16, alignItems: 'center', gap: 14 },
+  emptyText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 13,
+    lineHeight: 18,
+    color: 'rgba(255,255,255,0.6)',
+    textAlign: 'center',
+  },
+  closestRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    alignSelf: 'stretch',
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  clearWrap: { alignSelf: 'center', marginTop: 14 },
+  clearBtn: {
+    paddingVertical: 9,
+    paddingHorizontal: 20,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+  clearText: { fontFamily: fonts.sansBold, fontSize: 13, color: WHITE },
 
   nextCard: {
     flexDirection: 'row',
