@@ -12,6 +12,7 @@ import { goHomeClean } from '../lib/navigation';
 import PressTap from '../components/common/PressTap';
 import HoldOverlay from '../components/common/HoldOverlay';
 import QuickWeightSheet from '../components/common/QuickWeightSheet';
+import ConfirmSheet from '../components/common/ConfirmSheet';
 import PhaseBar from '../components/common/PhaseBar';
 import { setTagWeightByRef } from '../lib/planning';
 import { findProgressionAdvice } from '../lib/progression';
@@ -104,6 +105,9 @@ import {
 // Maintien sur l'anneau pour ouvrir « Ma séance » : 2 s (même durée dans tous les modes
 // pluie, c'est un menu, pas une commande de séance).
 const SESSION_HOLD_MS = 2000;
+
+// Reset : au-delà de cette part de la séance (0 à 1), l'appui demande confirmation.
+const RESET_CONFIRM_FROM = 0.3;
 
 const easeImpact = Easing.bezier(0.22, 1, 0.36, 1);
 const springEnergetic = { stiffness: 380, damping: 22, mass: 1 };
@@ -537,8 +541,22 @@ export default function Running() {
   const moveExpanded = false;
   const ringSmall = Math.min(ring, Math.round(Math.max(150, Math.min(230, winH * 0.27))));
 
+  // Reset : au-delà de 30 % de la séance, on demande confirmation (faux appui en fin de
+  // séance = tout perdu, retour d'un testeur en salle le 24/11). En dessous, reste direct.
+  // Même règle en mode Normal, Pluie et Orage (en Pluie/Orage le maintien a déjà eu lieu).
+  // Le chrono continue de tourner derrière la question : « Annuler » ne fait rien perdre.
+  const [resetConfirm, setResetConfirm] = useState(false);
   const handleReset = () => {
-    haptic.warning();
+    if (!isTutorial && (state.totalProgress || 0) > RESET_CONFIRM_FROM) {
+      haptic.warning();
+      setResetConfirm(true);
+      return;
+    }
+    doReset(false);
+  };
+  // `silent` : la feuille de confirmation a déjà vibré à la validation (jamais deux vibrations).
+  const doReset = (silent) => {
+    if (!silent) haptic.warning();
     navigatedRef.current = false;
     lastPhaseRef.current = '';
     skippedRef.current = 0;
@@ -1201,6 +1219,18 @@ export default function Running() {
           color={timer.color}
           onMove={stable.onMixMove}
           onClose={() => setSessionSheet(false)}
+        />
+      )}
+
+      {resetConfirm && (
+        <ConfirmSheet
+          screenH={winH}
+          title="Recommencer la séance ?"
+          body="Tu as déjà fait plus de 30 % de ta séance. Si tu recommences, tout ce qui est fait est perdu."
+          confirmLabel="Recommencer"
+          cancelLabel="Continuer"
+          onConfirm={() => doReset(true)}
+          onClose={() => setResetConfirm(false)}
         />
       )}
 
