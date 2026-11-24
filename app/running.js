@@ -86,7 +86,7 @@ import {
 import { useHaptic } from '../hooks/useHaptic';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { useSound } from '../hooks/useSound';
-import { tickVoiceCoach, speakEnd, speakCues, stopVoiceCoach, releaseVoiceSoon } from '../lib/voiceCoach';
+import { tickVoiceCoach, speakEnd, speakCues, stopVoiceCoach, releaseVoiceSoon, noteVoiceSkip, cutVoice } from '../lib/voiceCoach';
 import { loadCooldownMap, saveCooldownMap, consumeLaunch } from '../lib/cooldown';
 import { loadIsPremium } from '../lib/premium';
 import { haptic as hapticOnce } from '../hooks/useHaptic';
@@ -557,6 +557,8 @@ export default function Running() {
   // `silent` : la feuille de confirmation a déjà vibré à la validation (jamais deux vibrations).
   const doReset = (silent) => {
     if (!silent) haptic.warning();
+    // On recommence : ce que le coach disait ou gardait en attente n'a plus de sens.
+    cutVoice();
     navigatedRef.current = false;
     lastPhaseRef.current = '';
     skippedRef.current = 0;
@@ -594,6 +596,8 @@ export default function Running() {
     skippedRef.current += state.phaseSecondsLeft;
     const next = skipToNextPhaseElapsed(timer, secondsElapsed, ctx);
     seek(next);
+    // Le coach coupe ce qu'il disait ; une série de sauts rapides ne fait annoncer que la phase d'arrivée.
+    noteVoiceSkip(voicePrevRef, timer.id);
     haptic.medium();
   };
 
