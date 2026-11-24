@@ -4,6 +4,7 @@ import Svg, { Path } from 'react-native-svg';
 
 import PressTap from '../common/PressTap';
 import AppIcon from '../common/AppIcon';
+import { SkeletonGroup, SkeletonBlock } from '../common/Skeleton';
 import { TIER_PALETTE } from '../common/BadgeMedal';
 import { TrophyStateMedal } from '../common/TrophyMedal';
 import { fonts } from '../../lib/fonts';
@@ -374,6 +375,45 @@ export const TierTile = React.memo(function TierTile({ state, tierIndex, onPress
   );
 });
 
+/**
+ * Squelette de la liste d'une catégorie (`EarnedList`) : posé tout de suite au toucher d'une pastille,
+ * pendant que la vraie liste (des dizaines de médailles à 60 graduations) se monte derrière. `count`
+ * = combien de médailles seront là (la forme du squelette suit : 3 par rangée, 4 pour les secrets).
+ */
+export const EarnedSkeleton = React.memo(function EarnedSkeleton({ count = 6, perRow = 3 }) {
+  const rows = Math.max(1, Math.min(4, Math.ceil(count / perRow)));
+  return (
+    <SkeletonGroup style={styles.section}>
+      <View style={styles.sectionHead}>
+        <SkeletonBlock width={120} height={10} radius={5} />
+        <SkeletonBlock width={46} height={10} radius={5} />
+      </View>
+      <View style={styles.card}>
+        {count === 0 ? (
+          <View style={styles.emptyBox}>
+            <SkeletonBlock width={180} height={13} radius={6} />
+            <SkeletonBlock height={76} radius={14} />
+          </View>
+        ) : (
+          <View style={styles.grid}>
+            {Array.from({ length: rows }).map((_, r) => (
+              <View key={r} style={styles.gridRow}>
+                {Array.from({ length: perRow }).map((__, k) => (
+                  <View key={k} style={[styles.cell, styles.skelCell]}>
+                    <SkeletonBlock width={64} height={64} radius={32} />
+                    <SkeletonBlock width={70} height={12} radius={6} style={styles.skelLine} />
+                    <SkeletonBlock width={54} height={10} radius={5} style={styles.skelLineSmall} />
+                  </View>
+                ))}
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
+    </SkeletonGroup>
+  );
+});
+
 const FILTER_TEXT = {
   bronze: { title: 'Médailles Bronze', none: 'Pas encore de médaille Bronze.' },
   argent: { title: 'Médailles Argent', none: 'Pas encore de médaille Argent.' },
@@ -704,6 +744,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
+  skelCell: { alignItems: 'center' },
+  skelLine: { marginTop: 10 },
+  skelLineSmall: { marginTop: 6 },
   emptyBox: { padding: 16, alignItems: 'center', gap: 14 },
   emptyText: {
     fontFamily: fonts.sansMedium,

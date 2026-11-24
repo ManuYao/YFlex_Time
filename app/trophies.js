@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -12,7 +12,7 @@ import BadgeMedal from '../components/common/BadgeMedal';
 import ModeStatsSheet from '../components/common/ModeStatsSheet';
 import TrophyDetailSheet from '../components/common/TrophyDetailSheet';
 import { SkeletonGroup, SkeletonBlock } from '../components/common/Skeleton';
-import { TrophyRing, TrophyChips, NextTrophy, FamilySection, EarnedList } from '../components/screens/TrophyParts';
+import { TrophyRing, TrophyChips, NextTrophy, FamilySection, EarnedList, EarnedSkeleton } from '../components/screens/TrophyParts';
 import { useTimers } from '../contexts/TimersContext';
 import { usePremium } from '../hooks/usePremium';
 import { useScreenReady } from '../hooks/useScreenReady';
@@ -51,6 +51,25 @@ export default function Trophies() {
   const [filter, setFilter] = useState(null);
   const toggleFilter = useCallback((key) => setFilter((f) => (f === key ? null : key)), []);
   const clearFilter = useCallback(() => setFilter(null), []);
+
+  // La liste d'une catégorie monte des dizaines de médailles à 60 graduations : on pose d'abord le
+  // squelette (peint en 2 images, sur le fil d'interface), puis la vraie liste se monte derrière.
+  // `listFor` = la catégorie dont la liste est montée ; tant qu'elle diffère de `filter`, squelette.
+  const [listFor, setListFor] = useState(null);
+  useEffect(() => {
+    if (!filter) {
+      setListFor(null);
+      return undefined;
+    }
+    let raf2 = null;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => setListFor(filter));
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      if (raf2 != null) cancelAnimationFrame(raf2);
+    };
+  }, [filter]);
 
   const { ready, skeletonGone, contentStyle, skeletonStyle } = useScreenReady({
     dataReady: !!data,
@@ -135,8 +154,14 @@ export default function Trophies() {
                       {!filter ? <Text style={styles.chipsHint}>Touche une pastille pour voir ce que tu as gagné.</Text> : null}
                     </View>
 
-                    {filter ? (
+                    {filter && listFor === filter ? (
                       <EarnedList evaluation={evaluation} filter={filter} onOpen={open} onClose={clearFilter} />
+                    ) : null}
+                    {filter && listFor !== filter ? (
+                      <EarnedSkeleton
+                        count={filter === 'unique' ? evaluation.counts.unique.got : filter === 'secret' ? evaluation.counts.secret.got : evaluation.counts[filter]}
+                        perRow={filter === 'secret' ? 4 : 3}
+                      />
                     ) : null}
 
                     {!filter && evaluation.next && !complete ? (
