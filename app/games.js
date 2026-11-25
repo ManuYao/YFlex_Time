@@ -8,6 +8,9 @@ import IconButton from '../components/common/IconButton';
 import PressTap from '../components/common/PressTap';
 import AppIcon from '../components/common/AppIcon';
 import { haptic } from '../hooks/useHaptic';
+import PremiumTag from '../components/common/PremiumTag';
+import { usePremiumGate } from '../hooks/usePremiumGate';
+import { GAME_GATES } from '../lib/premiumFeatures';
 import { fonts } from '../lib/fonts';
 import { goBackSafe } from '../lib/navigation';
 import { bestScore } from '../lib/gameCount';
@@ -20,6 +23,7 @@ import { loadComboScores } from '../lib/gameComboStore';
  */
 export default function Games() {
   const router = useRouter();
+  const { isPremium, locked, guard } = usePremiumGate();
   const [scores, setScores] = useState(null);
   const [pyramidScores, setPyramidScores] = useState(null);
   const [comboScores, setComboScores] = useState(null);
@@ -105,11 +109,14 @@ export default function Games() {
             <View style={[styles.cardIcon, styles.cardIconWarm]}>
               <AppIcon name="blocks" size={26} color="#FFFFFF" />
             </View>
-            <Text style={[styles.cardTag, styles.cardTagWarm]}>POIDS DU CORPS</Text>
+            <View style={styles.tagRow}>
+              <Text style={[styles.cardTag, styles.cardTagWarm]}>POIDS DU CORPS</Text>
+              <PremiumTag label="2 FORMATS PREMIUM" />
+            </View>
             <Text style={styles.cardTitle}>La pyramide</Text>
             <Text style={styles.cardText}>
               Des séries qui montent, qui descendent, ou les deux. La voix compte, tu te reposes entre
-              chaque. Jusqu’où iras-tu ?
+              chaque. Jusqu’où iras-tu ?{isPremium ? '' : ' (Évolutif et Dégressif : Premium.)'}
             </Text>
             <Text style={styles.cardBest}>
               {pyramidScores === null
@@ -122,18 +129,23 @@ export default function Games() {
           </PressTap>
 
           <PressTap
-            onPress={() => {
-              haptic.light();
-              router.push('/game-combo');
-            }}
+            onPress={() =>
+              guard(GAME_GATES.combo, () => {
+                haptic.light();
+                router.push('/game-combo');
+              })
+            }
             tapScale={0.98}
-            accessibilityLabel="Ouvrir Combo Bi-Exo"
+            accessibilityLabel={locked(GAME_GATES.combo) ? 'Combo Bi-Exo, réservé à Premium' : 'Ouvrir Combo Bi-Exo'}
             style={[styles.card, styles.cardPink]}
           >
             <View style={[styles.cardIcon, styles.cardIconPink]}>
               <AppIcon name="repeat" size={26} color="#FFFFFF" />
             </View>
-            <Text style={[styles.cardTag, styles.cardTagPink]}>POIDS DU CORPS</Text>
+            <View style={styles.tagRow}>
+              <Text style={[styles.cardTag, styles.cardTagPink]}>POIDS DU CORPS</Text>
+              <PremiumTag />
+            </View>
             <Text style={styles.cardTitle}>Combo Bi-Exo</Text>
             <Text style={styles.cardText}>
               Deux mots, deux exercices. La voix en crie un au hasard, tu fais l’exercice qui va avec.
@@ -202,6 +214,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,95,162,0.4)',
   },
   cardTagPink: { color: '#FF5FA2' },
+  tagRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   cardIcon: {
     width: 46,
     height: 46,

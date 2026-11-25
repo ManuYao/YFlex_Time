@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// Icônes Flex Timer : base + 4 saisons + 3 moments (même DA que l'ambiance de l'app), en SVG puis en PNG.
+// Icônes Flex Timer : base + 4 saisons + 4 moments (Noël ajouté le 08/11/2026), même DA que l'ambiance de l'app, en SVG puis en PNG.
 //
 //   node design/build-icons.js            -> écrit design/icons/<variante>/… et l'aperçu design/icons/_apercu.png
+//   node design/build-icons.js christmas  -> seulement ces variantes (+ l'aperçu), sans réécrire les autres
 //   node design/build-icons.js --apply    -> en plus, copie l'icône de BASE dans assets/ (voir plus bas)
 //
 // Le moteur de rendu (resvg) vit hors du projet : RESVG_PATH pour changer son emplacement.
@@ -42,6 +43,7 @@ const VARIANTS = {
   summer: { label: 'Été', bg: ['#2FA3D6', '#1A6FA8', '#0F4476'], col: MODE, fine: ['#FFE389', 0.5] },
   autumn: { label: 'Automne', bg: ['#B2602F', '#7A3A22', '#44201C'], col: MODE, fine: ['#FFC27A', 0.5] },
   winter: { label: 'Hiver', bg: ['#7FA6D4', '#46698F', '#25395A'], col: MODE, fine: ['#EBF7FF', 0.6] },
+  christmas: { label: 'Noël', bg: ['#2F7A55', '#174A35', '#0B2A1F'], col: MODE, fine: ['#FFD76A', 0.5] },
   yearend: { label: "Fin d'année", bg: ['#3B3B86', '#1F1F5A', '#10103A'], col: MODE, fine: ['#FFE08A', 0.5] },
   halloween: { label: 'Halloween', bg: ['#7A3AB0', '#3F1A6A', '#1D0B35'], col: MODE, fine: ['#FFAA5A', 0.5] },
   valentine: { label: 'Saint-Valentin', bg: ['#C93D72', '#8A2150', '#4A1030'], col: MODE, fine: ['#FFDCE6', 0.55] },
@@ -134,7 +136,9 @@ const write = (file, data) => {
   fs.writeFileSync(file, data);
 };
 
+const ONLY = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 for (const v of Object.keys(VARIANTS)) {
+  if (ONLY.length && !ONLY.includes(v)) continue;
   const dir = path.join(OUT, v);
   write(path.join(dir, 'icon.svg'), svgFull(v));
   write(path.join(dir, 'icon-1024.png'), png(svgFull(v), 1024));
@@ -146,7 +150,7 @@ for (const v of Object.keys(VARIANTS)) {
 }
 
 // Planche d'aperçu : les 9 icônes en carré arrondi, sur fond clair.
-const ORDER = ['base', 'spring', 'summer', 'autumn', 'winter', 'yearend', 'halloween', 'valentine'];
+const ORDER = ['base', 'spring', 'summer', 'autumn', 'winter', 'christmas', 'yearend', 'halloween', 'valentine'];
 const CELL = 300;
 const GAP = 44;
 const LABEL = 40;

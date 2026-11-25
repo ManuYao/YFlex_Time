@@ -22,7 +22,7 @@ import { fonts } from '../../lib/fonts';
 import { ROUND_SIZE } from '../../lib/buttonTokens';
 import { TIMERS } from '../../lib/timers-config';
 import { DISCIPLINES, getDiscipline } from '../../lib/disciplines';
-import { isDefaultMix } from '../../lib/mixes';
+import { shouldStashMix } from '../../lib/mixes';
 import { findLibraryMatch } from '../../lib/mixIdentity';
 import { fetchCommentCounts } from '../../lib/mixComments';
 import {
@@ -553,7 +553,7 @@ function PublicContent({ screenH, close, afterClose, onTest, onEdit, mine, launc
   // L'ancien MIX, s'il a été modifié et n'est pas déjà enregistré, est rangé
   // dans « Mes mix » avant d'être remplacé : rien ne se perd.
   const stashCurrentMix = async () => {
-    if (currentMix?.blocks?.length && !currentMix.isPreview && !isDefaultMix(currentMix) && !library.some((m) => m.id === currentMix.id)) {
+    if (shouldStashMix(currentMix, library)) {
       await saveAsLibraryEntry(currentMix);
     }
   };

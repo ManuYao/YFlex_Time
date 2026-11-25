@@ -6,6 +6,7 @@ import BottomSheet from './BottomSheet';
 import PressTap from './PressTap';
 import WheelPicker from './WheelPicker';
 import Button from './Button';
+import LoadAdviceCard from './LoadAdviceCard';
 import IconButton from './IconButton';
 import AppIcon from './AppIcon';
 import TouchShield from './TouchShield';
@@ -87,6 +88,8 @@ export default function ExerciseDetailSheet({
   onClose,
   onSave,
   onRemove,
+  // Conseil « tu peux monter » (lib/loadAdviceShape.js), seulement pour un Premium ; null sinon.
+  advice = null,
 }) {
   // (V) Même contrainte que PickerSheet : en fenêtre réduite la roue passe
   // à 3 valeurs, sinon la feuille dépasse par le haut (voir lib/responsive.js).
@@ -110,6 +113,9 @@ export default function ExerciseDetailSheet({
     onClose();
   };
   const [editing, setEditing] = useState(null);
+  // La roue ne lit sa valeur qu'au montage : « PDC » (poids de corps) la remonte
+  // en changeant cette clé pour qu'elle saute directement sur 0.
+  const [wheelNonce, setWheelNonce] = useState(0);
   // Renommage de l'exercice : vue à part dans la même feuille (comme les roues),
   // le nouveau nom se range dans `draft` et part avec « Enregistrer ».
   const [renaming, setRenaming] = useState(false);
@@ -302,7 +308,7 @@ export default function ExerciseDetailSheet({
               </View>
 
               <WheelPicker
-                key={field.key}
+                key={`${field.key}-${wheelNonce}`}
                 values={values[field.key]}
                 selectedValue={
                   field.key === 'weight'
@@ -318,28 +324,44 @@ export default function ExerciseDetailSheet({
               />
 
               {/* Demi-kilo : un appui ajoute 0,5 kg à la valeur de la roue
-                  (12 kg → 12,5 kg), un second appui l'enlève. */}
+                  (12 kg → 12,5 kg), un second appui l'enlève.
+                  PDC (poids de corps) : saute directement à 0 kg, sans avoir
+                  à faire défiler toute la roue jusqu'en bas. */}
               {field.key === 'weight' && (
-                <PressTap
-                  tapScale={0.97}
-                  onHapticIn={haptic.selection}
-                  onPress={() =>
-                    updateDraft(
-                      'weight',
-                      Math.floor(draft.weight ?? field.fallback) + (isHalf(draft.weight) ? 0 : 0.5)
-                    )
-                  }
-                  accessibilityLabel="Ajouter 0,5 kilo"
-                  containerStyle={styles.halfWrap}
-                  style={[styles.halfBtn, isHalf(draft.weight) && { borderColor: category.color, backgroundColor: `${category.color}26` }]}
-                >
-                  <AppIcon
-                    name={isHalf(draft.weight) ? 'check' : 'plus'}
-                    size={14}
-                    color={isHalf(draft.weight) ? category.color : 'rgba(255,255,255,0.7)'}
-                  />
-                  <Text style={[styles.halfText, isHalf(draft.weight) && { color: '#FFFFFF' }]}>0,5 kg</Text>
-                </PressTap>
+                <View style={styles.weightQuickRow}>
+                  <PressTap
+                    tapScale={0.97}
+                    onHapticIn={haptic.selection}
+                    onPress={() =>
+                      updateDraft(
+                        'weight',
+                        Math.floor(draft.weight ?? field.fallback) + (isHalf(draft.weight) ? 0 : 0.5)
+                      )
+                    }
+                    accessibilityLabel="Ajouter 0,5 kilo"
+                    style={[styles.halfBtn, isHalf(draft.weight) && { borderColor: category.color, backgroundColor: `${category.color}26` }]}
+                  >
+                    <AppIcon
+                      name={isHalf(draft.weight) ? 'check' : 'plus'}
+                      size={14}
+                      color={isHalf(draft.weight) ? category.color : 'rgba(255,255,255,0.7)'}
+                    />
+                    <Text style={[styles.halfText, isHalf(draft.weight) && { color: '#FFFFFF' }]}>0,5 kg</Text>
+                  </PressTap>
+                  <PressTap
+                    tapScale={0.97}
+                    onHapticIn={haptic.selection}
+                    onPress={() => {
+                      if (draft.weight !== 0) setWheelNonce((n) => n + 1);
+                      updateDraft('weight', 0);
+                    }}
+                    accessibilityLabel="Poids de corps, sans charge"
+                    style={[styles.halfBtn, draft.weight === 0 && { borderColor: category.color, backgroundColor: `${category.color}26` }]}
+                  >
+                    {draft.weight === 0 && <AppIcon name="check" size={14} color={category.color} />}
+                    <Text style={[styles.halfText, draft.weight === 0 && { color: '#FFFFFF' }]}>PDC</Text>
+                  </PressTap>
+                </View>
               )}
 
               <Button
@@ -387,6 +409,23 @@ export default function ExerciseDetailSheet({
             </View>
           ) : (
             <View>
+              {/* Conseil de charge : disparaît dès que la charge n'est plus celle du conseil. */}
+              {!!advice && draft.weight === advice.weight && (
+                <LoadAdviceCard
+                  advice={advice}
+                  color={category.color}
+                  onApply={(w) =>
+                    guard.run('advice', () => {
+                      onSave({
+                        ...draft,
+                        weight: w,
+                        timerConfig: timerType ? { type: timerType, ...timerParams } : null,
+                      });
+                      close();
+                    })
+                  }
+                />
+              )}
               <View style={styles.grid}>
                 {FIELDS.map((f) => (
                   // PressTap applique `style` à sa vue interne, pas au
@@ -693,8 +732,10 @@ const styles = StyleSheet.create({
 
   // Placement seulement : le rendu des boutons vient de Button
   // (lib/buttonTokens.js).
-  halfWrap: {
-    alignSelf: 'center',
+  weightQuickRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 10,
     marginTop: 4,
   },
   halfBtn: {

@@ -54,13 +54,15 @@ import IconButton from '../components/common/IconButton';
 import AppIcon from '../components/common/AppIcon';
 import StreakFlame from '../components/common/StreakFlame';
 import ModeStatsSheet from '../components/common/ModeStatsSheet';
-import { playSound } from '../lib/sounds';
 import ProgressionSheet from '../components/common/ProgressionSheet';
 import BadgeUnlockSheet from '../components/common/BadgeUnlockSheet';
 import CoachNudgeSheet from '../components/common/CoachNudgeSheet';
 import SeasonNudgeSheet from '../components/common/SeasonNudgeSheet';
 import { loadSeasonNudgeSeen, markSeasonNudgeSeen, shouldShowSeasonNudge } from '../lib/seasonNudge';
 import GamesNudgeSheet from '../components/common/GamesNudgeSheet';
+import FeastNudgeSheet from '../components/common/FeastNudgeSheet';
+import { loadFeastNudgeState, markFeastNudgeShown, shouldShowFeastNudge } from '../lib/feastNudge';
+import { ambianceIdFor, isFeast, normalizeAmbianceMode } from '../lib/ambiance';
 import { markGamesNudgeSeen, noteGamesNudgeLaunch } from '../lib/gamesNudge';
 import { shouldShowGamesNudge } from '../lib/gamesNudgeShape';
 import { isGameSession } from '../lib/gameHistoryShape';
@@ -80,8 +82,9 @@ import { getTimerHero, getTimerDescription, getTimerBar } from '../lib/timers-co
 import PhaseBar from '../components/common/PhaseBar';
 import { loadArchives, loadPlanning } from '../lib/planning';
 import { loadIsPremium } from '../lib/premium';
+import { denyCooldown } from '../hooks/usePremiumGate';
 import {
-  findProgressionSuggestion,
+  findProgressionAdvice,
   loadProgressionSeen,
   locateExerciseInPlanning,
   markProgressionSuggested,
@@ -111,7 +114,8 @@ import { getTimeRange } from '../lib/timeRanges';
 import { getTokens } from '../lib/tokens';
 import { fonts } from '../lib/fonts';
 import { BOTTOM_GAP, BUTTON_HEIGHT, INK_TEXT, accentTextOn, buttonRecipe } from '../lib/buttonTokens';
-import { useUiScale, scaled, useLayoutLevel, useWindowSize } from '../lib/responsive';
+import { useUiScale, scaled, useLayoutLevel, useLayoutSize, useWindowSize, homeStatsMode } from '../lib/responsive';
+import { createLatestThrottle, RESIZE_THROTTLE_MS } from '../lib/throttleLatest';
 import { useTimers } from '../contexts/TimersContext';
 import { useSettings } from '../contexts/SettingsContext';
 import HoldOverlay from '../components/common/HoldOverlay';
@@ -206,6 +210,10 @@ export default function Home() {
   const { ready, skeletonGone, skeletonStyle } = useScreenReady({
     dataReady: hydrated && (!!lastTimerId || heatLoaded),
     waitForInteractions: false,
+    // Retour d'une séance : tout est déjà en mémoire, mais monter l'accueil d'un coup dans la
+    // transition faisait un micro-gel sans rien à voir. On montre d'abord le squelette du
+    // démarrage (peint avant le montage), l'accueil se monte derrière lui puis le remplace en fondu.
+    paintFirst: !!lastTimerId,
     fadeMs: 240,
   });
 
@@ -281,6 +289,17 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   // redeclenche a chaque resize, donc rootW/rootH restent justes en continu.
   const [rootH, setRootH] = useState(SCREEN_H);
   const [rootW, setRootW] = useState(SCREEN_W);
+  // Pendant qu'on tire sur le bord de la fenêtre (flottante, écran partagé), onLayout arrive à
+  // chaque pas et chacun refaisait tout l'accueil (5 cartes) : on ne l'applique qu'au plus toutes
+  // les 100 ms. La 1ʳᵉ mesure et la dernière taille passent toujours (lib/throttleLatest.js).
+  const rootLayoutThrottleRef = useRef(null);
+  if (!rootLayoutThrottleRef.current) {
+    rootLayoutThrottleRef.current = createLatestThrottle(({ w, h }) => {
+      setRootH((prev) => (prev === h ? prev : h));
+      setRootW((prev) => (prev === w ? prev : w));
+    }, RESIZE_THROTTLE_MS);
+  }
+  useEffect(() => () => rootLayoutThrottleRef.current.cancel(), []);
   const router = useRouter();
   const haptic = useHaptic();
   const flatListRef = useRef(null);
@@ -297,6 +316,10 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   const profileRef = useRef(null);
   const { timers, updateStat, hydrated } = useTimers();
   const { settings, update: updateSetting } = useSettings();
+  // Réglages À JOUR pour la file de démarrage (son effet ne dépend que de `hydrated` : sans ce
+  // ref, il lirait les réglages du rendu où il a démarré, peut-être avant leur chargement).
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
   const { getStatus: getCooldownStatusRaw } = useCooldown();
   const { isPremium } = usePremium();
   // Premium débloque tout, sans jamais toucher au calcul de quota/lockout
@@ -409,6 +432,9 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   // Alerte unique « ambiance de saison » (lib/seasonNudge.js) : conseille de la
   // désactiver sur un téléphone moins puissant.
   const [showSeasonNudge, setShowSeasonNudge] = useState(false);
+  // Proposition annuelle « les fêtes, chacun à sa façon » (lib/feastNudgeShape.js) : l'id de la
+  // fête du moment (Halloween, Noël, Saint-Valentin) quand elle est ouverte, sinon null.
+  const [feastNudge, setFeastNudge] = useState(null);
   // Proposition « Essaie les jeux » (lib/gamesNudge.js) : dernière de la file de démarrage.
   const [showGamesNudge, setShowGamesNudge] = useState(false);
   // Lu par handleScrollBeginDrag (callback stable, sans dépendance) pour
@@ -449,6 +475,11 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
       previewRef.current = true;
       if (previewParam === 'games') {
         setShowGamesNudge(true);
+      } else if (previewParam === 'feast') {
+        // Aperçu (outil de test de la feuille d'ambiance, en développement) : la fête du jour,
+        // sinon Noël.
+        const today = ambianceIdFor('auto', new Date());
+        setFeastNudge(isFeast(today) ? today : 'christmas');
       } else if (previewParam === 'hold') {
         setTourKind('hold');
         setTourPhase('wait');
@@ -517,7 +548,8 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   const overlayBusyRef = useRef(false);
   overlayBusyRef.current =
     isLaunching || statsOpen || !!picker || badgeQueue.length > 0 || !!primerLaunch ||
-    showCoachNudge || showSeasonNudge || showGamesNudge || showTutorialInvite || modePickerOpen || tourPhase !== 'off';
+    showCoachNudge || showSeasonNudge || !!feastNudge || showGamesNudge || showTutorialInvite || modePickerOpen ||
+    tourPhase !== 'off';
 
   // Compte cette ouverture de l'app pour la proposition des jeux (une fois par démarrage).
   useEffect(() => {
@@ -609,6 +641,18 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
           return;
         }
 
+        // Fêtes et croyances (lib/feastNudgeShape.js) : pendant Halloween, Noël ou la
+        // Saint-Valentin, une fois par an, proposer de ne garder que les saisons. Haut dans la
+        // file (demande de l'utilisateur : « hyper important ») et liée au décor visible MAINTENANT.
+        const feastMode = normalizeAmbianceMode(settingsRef.current.ambianceMode);
+        const feastId = ambianceIdFor(feastMode, new Date());
+        const feastState = await loadFeastNudgeState();
+        if (cancelled || overlayBusyRef.current) return;
+        if (shouldShowFeastNudge({ lastAt: feastState.lastAt, ambianceMode: feastMode, ambianceId: feastId })) {
+          setFeastNudge(feastId);
+          return;
+        }
+
         const [archives, seen, premium] = await Promise.all([
           loadArchives(),
           loadProgressionSeen(),
@@ -617,7 +661,8 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
         if (cancelled || overlayBusyRef.current) return;
         // Le conseil de charge s'appuie sur le planning, réservé à Premium : sans
         // lui il enverrait vers une page verrouillée.
-        const found = premium ? findProgressionSuggestion({ archives, seen }) : null;
+        // Règle et journal des charges : lib/loadAdviceShape.js, lib/loadJournal.js.
+        const found = premium ? (await findProgressionAdvice({ archives, seen })).best : null;
         if (found) {
           setProgression(found);
           return;
@@ -885,6 +930,21 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
     updateSetting('ambianceMode', 'none');
   }, [updateSetting]);
 
+  // Fêtes et croyances : notée à la fermeture (quel que soit le chemin), sauf en aperçu ;
+  // « Seulement les saisons » passe le réglage sur « Saisons » tout de suite.
+  const handleFeastNudgeClose = useCallback(() => {
+    const id = feastNudge;
+    setFeastNudge(null);
+    if (previewRef.current) {
+      previewRef.current = false;
+      return;
+    }
+    markFeastNudgeShown(id);
+  }, [feastNudge]);
+  const handleFeastNudgeSeasonsOnly = useCallback(() => {
+    updateSetting('ambianceMode', 'seasons');
+  }, [updateSetting]);
+
   // Proposition des jeux : marquée vue à la fermeture (quel que soit le chemin) ; « Voir les jeux »
   // ouvre en plus le menu des jeux.
   const handleGamesNudgeClose = useCallback(() => {
@@ -992,6 +1052,29 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   useEffect(() => {
     pageW.value = rootW || 1;
     scrollX.value = activeIndexRef.current * (rootW || 1);
+  }, [rootW]);
+
+  // Largeur qui change (fenêtre flottante / écran partagé redimensionné, ou 1ʳᵉ mesure différente
+  // de Dimensions au démarrage) : le FlatList garde son décalage en PIXELS, donc il s'arrête ENTRE
+  // deux cartes (fin de l'une, début de l'autre) jusqu'au prochain glissé. On le recale sur la carte
+  // active. Plusieurs passes : juste après le changement, le contenu natif n'a pas encore sa
+  // nouvelle largeur et le décalage serait borné par l'ancienne. Jamais pendant un glissé.
+  const lastRootWRef = useRef(rootW);
+  useEffect(() => {
+    if (lastRootWRef.current === rootW) return undefined;
+    lastRootWRef.current = rootW;
+    if (!(rootW > 0)) return undefined;
+    const recenter = () => {
+      if (draggingRef.current) return;
+      flatListRef.current?.scrollToOffset({ offset: activeIndexRef.current * rootW, animated: false });
+    };
+    recenter();
+    const t1 = setTimeout(recenter, 60);
+    const t2 = setTimeout(recenter, 250);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
   }, [rootW]);
 
   // Vent de l'ambiance (lib/ambianceMotion.js) : à 0 au montage et au démontage, et
@@ -1162,9 +1245,7 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
     // Verrou cooldown (TABATA/MIX uniquement, voir lib/cooldown.js).
     const status = getCooldownStatus(active.id);
     if (status.isLocked) {
-      haptic.warning();
-      playSound('blockedTimer');
-      router.push('/premium');
+      denyCooldown(); // vibration + son + pop-up Premium commun
       return;
     }
     if (primerDueRef.current) {
@@ -1289,8 +1370,7 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
       style={[styles.root, { backgroundColor: active.bgColors[1] }]}
       onLayout={(e) => {
         const { width: w, height: h } = e.nativeEvent.layout;
-        setRootH((prev) => (prev === h ? prev : h));
-        setRootW((prev) => (prev === w ? prev : w));
+        rootLayoutThrottleRef.current.push({ w, h });
       }}
     >
       {/* (A) Fond + contenu — regroupés dans une BlurTargetView pour que le
@@ -1427,7 +1507,7 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
       {badgeQueue.length > 0 && (
         <BadgeUnlockSheet
           screenH={rootH}
-          timer={timers.find((t) => t.id === badgeQueue[0].timerId) ?? timers[0]}
+          trophyId={badgeQueue[0].timerId}
           tier={badgeQueue[0].tier}
           position={badgeTotalRef.current - badgeQueue.length + 1}
           total={badgeTotalRef.current}
@@ -1481,6 +1561,15 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
           screenH={rootH}
           onDisable={handleSeasonNudgeDisable}
           onClose={handleSeasonNudgeClose}
+        />
+      )}
+
+      {feastNudge && (
+        <FeastNudgeSheet
+          screenH={rootH}
+          feastId={feastNudge}
+          onSeasonsOnly={handleFeastNudgeSeasonsOnly}
+          onClose={handleFeastNudgeClose}
         />
       )}
 
@@ -1867,9 +1956,14 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
   const statsUsableWidth = cardWidth - 48; // paddingHorizontal 24*2 de .card
   const { settings: rainSettings2 } = useSettings();
   const statHold = holdDurations(rainSettings2.rainMode).select;
-  const statsCompact =
-    isMini ||
-    (timer.stats.length > 0 && statsUsableWidth / timer.stats.length < MIN_STAT_CHIP_W);
+  // En mini (fenêtre flottante basse) les réglages ne sont plus retirés d'office : on les garde,
+  // resserrés, tant que la fenêtre peut les porter (lib/windowTiers.js, homeStatsMode).
+  const { width: layoutW, height: layoutH } = useLayoutSize();
+  const miniStatsMode = isMini ? homeStatsMode(layoutW, layoutH, timer.stats.length) : 'row';
+  const showStats = !isMini || miniStatsMode !== 'hidden';
+  const statsCompact = isMini
+    ? miniStatsMode === 'list'
+    : timer.stats.length > 0 && statsUsableWidth / timer.stats.length < MIN_STAT_CHIP_W;
   // AMRAP n'a plus qu'une case (la durée) : centrée, pas étirée sur toute la
   // largeur comme une des trois cases des autres modes.
   const isSingleStat = timer.stats.length === 1;
@@ -2081,11 +2175,12 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
         />
       </View>
 
-      {/* (K) Stats chips avec stagger. En mini (fenêtre minuscule) : retirées —
-          le nom et la valeur sont déjà dans la ligne du haut, et chaque ligne
-          gagnée ici garde le bouton Lancer visible. Elles reviennent dès que
-          la fenêtre grandit. */}
-      {!isMini && (
+      {/* (K) Stats chips avec stagger. En mini : gardées, resserrées (rangée ou
+          liste), tant que la fenêtre peut les porter ; retirées seulement quand
+          elle devient vraiment trop basse (homeStatsMode) — le nom et la valeur
+          sont déjà dans la ligne du haut, et chaque ligne gagnée garde le
+          bouton Lancer visible. */}
+      {showStats && (
       <View
         ref={isActive ? statsRef : undefined}
         collapsable={false}
@@ -2103,7 +2198,10 @@ const TimerCard = React.memo(function TimerCard({ timer, isActive, cardWidth, he
             : isMix
             ? onMixEdit
             : undefined;
-          const chipStyle = statsCompact ? styles.statChipCompact : styles.statChip;
+          const chipStyle = [
+            statsCompact ? styles.statChipCompact : styles.statChip,
+            isMini && (statsCompact ? styles.statChipCompactMini : styles.statChipMini),
+          ];
 
           if (isActive) {
             return (
@@ -3250,6 +3348,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderWidth: 1,
     borderRadius: 14,
+  },
+  // Mini : mêmes cases, resserrées pour que la rangée / la liste tienne dans une fenêtre basse.
+  statChipMini: {
+    paddingVertical: 7,
+    paddingHorizontal: 6,
+  },
+  statChipCompactMini: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
   },
   statLabelCompact: {
     fontFamily: fonts.sansSemibold,

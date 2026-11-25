@@ -41,6 +41,7 @@ import MixShareSheet, { publishErrorText } from '../components/common/MixShareSh
 import MixPublicSheet from '../components/common/MixPublicSheet';
 import MixLibrarySheet from '../components/common/MixLibrarySheet';
 import UnsavedChangesSheet from '../components/common/UnsavedChangesSheet';
+import ConfirmSheet from '../components/common/ConfirmSheet';
 import MiniToast from '../components/common/MiniToast';
 import SaveFlashRing from '../components/common/SaveFlashRing';
 import MixMetaSheet from '../components/common/MixMetaSheet';
@@ -60,11 +61,15 @@ import {
   MAX_BLOCK_NOTE_LENGTH,
   getRangesForType,
 } from '../lib/mix-blocks';
-import { makeDefaultMix, isDefaultMix, mixSignature } from '../lib/mixes';
+import { makeDefaultMix, shouldStashMix, mixSignature } from '../lib/mixes';
 import { findLibraryMatch, generateMixUid, withFreshUid } from '../lib/mixIdentity';
 import { loadProfile } from '../lib/profile';
 import { getPreviewMix } from '../lib/previewMix';
-import { updatePublishedMix } from '../lib/publicMixes';
+import { updatePublishedMix, fetchPublishedById } from '../lib/publicMixes';
+import { samePublishedContent } from '../lib/publicMixShape';
+import { sanitizeImportedPayload } from '../lib/mixShare';
+import { privateCopyName, restoreFromPublication } from '../lib/publishedFork';
+import PublishedSaveSheet from '../components/common/PublishedSaveSheet';
 import { DISCIPLINES } from '../lib/disciplines';
 import { formatHoursMinutes } from '../lib/formatters';
 import { DAYS, loadPlanning, formatBlockAsText } from '../lib/planning';
@@ -83,17 +88,23 @@ import {
 import { useLayoutLevel } from '../lib/responsive';
 import { useTimers } from '../contexts/TimersContext';
 import { useHaptic } from '../hooks/useHaptic';
+import { useHoldProgress } from '../hooks/useHoldProgress';
 import { useMixLauncher } from '../hooks/useMixLauncher';
 import MixTutorialSheet from '../components/screens/MixTutorialSheet';
 import { loadMixTutorialSeen, markMixTutorialSeen, shouldShowMixTutorial } from '../lib/mixTutorial';
 import { usePremium } from '../hooks/usePremium';
+import { usePremiumGate } from '../hooks/usePremiumGate';
+import { isDownloaded } from '../lib/libraryLimits';
+import { MIX_EDIT_GATE } from '../lib/premiumFeatures';
 import { useAuth } from '../contexts/AuthContext';
 
 const ACCENT = '#9575FF';
-// Maintenir « Enregistrer » 3 s = feuille « Couleur et note », qui enregistre
-// ensuite (dans Mes mix ou comme ton MIX). La barre qui se remplit montre où on
-// en est : le bouton ne paraît pas figé.
-const SAVE_HOLD_MS = 3000;
+// Un appui sur « Enregistrer » = enregistrement direct (ou mise à jour
+// silencieuse) avec un retour éphémère. Maintenir 0,8 s = feuille « Couleur et
+// note », qui enregistre ensuite (dans Mes mix ou comme ton MIX). La barre qui
+// se remplit montre où on en est : le bouton ne paraît pas figé. Court exprès
+// (retour du 17/11 : 1,5 s paraissait interminable) : la feuille ne détruit rien.
+const SAVE_HOLD_MS = 800;
 
 export default function MixBuilder() {
   const router = useRouter();
@@ -135,6 +146,11 @@ export default function MixBuilder() {
   // Avertissement « modifications non sauvegardées » : { action } (remplacer le
   // brouillon par un autre mix) ou { leaving: true } (quitter le constructeur).
   const [unsaved, setUnsaved] = useState(null);
+  // Nom déjà pris par un autre mix : { clash, meta } tant qu'on attend la réponse.
+  const [overwriteAsk, setOverwriteAsk] = useState(null);
+  // Mix publié modifié qu'on enregistre : { link, item, meta, after } tant qu'on
+  // attend le choix « mettre à jour le fil » / « garder pour moi ».
+  const [publishedAsk, setPublishedAsk] = useState(null);
   const toastTimer = useRef(null);
   const saveStatusTimer = useRef(null);
   const resetUndoRef = useRef(null);
@@ -168,6 +184,15 @@ export default function MixBuilder() {
   // « Modifier » l'ouvrait comme si c'était le mien, partage compris.
   // Il m'appartient dès qu'il est enregistré dans Mes mix.
   const [preview, setPreview] = useState(() => params.preview === '1' || !!currentMix?.isPreview);
+  // Mix TÉLÉCHARGÉ (fil public, lien d'ami) déjà dans Mes mix : en gratuit il se
+  // lance mais reste en LECTURE SEULE — ni blocs, ni nom, ni couleur, ni copie
+  // pour le modifier (porte Premium `mix.editDownloaded`, lib/premiumFeatures.js).
+  // Pour modifier : passer Pro, ou refaire le mix dans ses propres créations.
+  // Un Premium n'y voit rien de spécial.
+  const { locked: gateLocked, deny: denyGate, isPremium: userIsPremium } = usePremiumGate();
+  const lockedMix = !preview && !!draft && gateLocked(MIX_EDIT_GATE) && isDownloaded(draft);
+  const readOnly = preview || lockedMix;
+  const denyEdit = () => denyGate(MIX_EDIT_GATE);
   // Verrou anti double-tap : le lancement est asynchrone (écriture du MIX
   // courant avant de partir), un second appui ne doit pas consommer deux
   // places du quota.
@@ -190,12 +215,12 @@ export default function MixBuilder() {
         index={getIndex() ?? 0}
         drag={drag}
         isActive={isActive}
-        readOnly={preview}
+        readOnly={readOnly}
         onEdit={handleEditRow}
         onDelete={handleDeleteRow}
       />
     ),
-    [preview, handleEditRow, handleDeleteRow]
+    [readOnly, handleEditRow, handleDeleteRow]
   );
 
   useEffect(
@@ -279,10 +304,17 @@ export default function MixBuilder() {
   const updateName = (v) => setDraft((d) => ({ ...d, name: v }));
 
   // Copie sans le drapeau « aperçu » : tout ce qui est enregistré devient un vrai mix.
+  // Il perd aussi la marque « vient du Planning » (`fromPlanning`) : une copie faite pour
+  // entrer dans Mes mix est un vrai mix. Pour rester de passage (simple appui sur Enregistrer,
+  // Lancer), on la remet avec keepTemp.
   const cloneMix = (m) => {
-    const { isPreview: _p, ...rest } = m;
+    const { isPreview: _p, fromPlanning: _f, ...rest } = m;
     return { ...rest, blocks: m.blocks.map((b) => ({ ...b })) };
   };
+  // Un mix fabriqué depuis le Planning reste « de passage » (jamais rangé dans Mes mix tout seul,
+  // voir isTemporaryMix dans lib/mixes.js) quand on l'enregistre d'un simple appui ou qu'on le
+  // lance : seul le maintien sur « Enregistrer » l'y ajoute.
+  const keepTemp = (copy, src) => (src?.fromPlanning ? { ...copy, fromPlanning: true } : copy);
 
   // Le brouillon est une copie : une publication faite depuis la feuille de
   // partage n'y apparaît pas toute seule. On relit donc le lien de publication
@@ -300,7 +332,7 @@ export default function MixBuilder() {
   // enregistrement.
   const dirty = !!currentMix && draftSig !== mixSignature(currentMix);
   // En aperçu, le brouillon n'est pas « modifié » : rien n'est à perdre.
-  const hasUnsavedWork = dirty && !preview && draft.blocks.length > 0;
+  const hasUnsavedWork = dirty && !readOnly && draft.blocks.length > 0;
 
   // ---- Petits messages et retour visuel ----
 
@@ -317,10 +349,10 @@ export default function MixBuilder() {
     setToast(null);
   };
 
-  const flashSaved = (status, text) => {
+  const flashSaved = (status, text, ms) => {
     setSaveStatus(status);
     setSaveTick((t) => t + 1);
-    showToast({ text, icon: 'check' });
+    showToast({ text, icon: 'check' }, ms);
     clearTimeout(saveStatusTimer.current);
     saveStatusTimer.current = setTimeout(() => setSaveStatus(null), 2000);
   };
@@ -424,15 +456,54 @@ export default function MixBuilder() {
     saveStatusTimer.current = setTimeout(() => setSaveStatus(null), 2500);
   };
 
+  // Un mix NEUF (jamais enregistré dans Mes mix, ex. après « Tout vider ») qui
+  // reprend le nom d'un mix existant : dans Mes mix, ou le MIX courant de
+  // l'accueil (qu'un enregistrement remplacerait). Modifier un mix choisi dans
+  // Mes mix ne passe jamais ici : il se met à jour normalement.
+  const findNameClash = () => {
+    const name = (draft.name || '').trim().toLowerCase();
+    if (!name) return null;
+    const same = (m) => m && m.id !== draft.id && (m.name || '').trim().toLowerCase() === name;
+    const entry = library.find(same);
+    if (entry) return { kind: 'library', entry };
+    if (same(currentMix)) return { kind: 'current', entry: currentMix };
+    return null;
+  };
+
+  const askOverwrite = (clash, meta) => {
+    haptic.warning();
+    setOverwriteAsk({ clash, meta: meta && typeof meta === 'object' && !meta.nativeEvent ? meta : null });
+  };
+
+  // « Écraser » confirmé : le mix existant est remplacé par ce brouillon (même
+  // identité, donc pas de doublon). Pour le MIX courant seul, l'enregistrement
+  // normal le remplace.
+  const confirmOverwrite = async () => {
+    const ask = overwriteAsk;
+    setOverwriteAsk(null);
+    if (!ask) return;
+    if (ask.clash.kind === 'current') return handleSave(ask.meta, true);
+    const target = ask.clash.entry;
+    const source = { ...draft, ...(ask.meta || {}), id: target.id, uid: target.uid || draft.uid };
+    setDraft(source);
+    haptic.success();
+    const mix = withLatestPublishedId(cloneMix(source));
+    await saveCurrentMix(mix);
+    await saveAsLibraryEntry({ ...mix, name: mix.name.trim() });
+    flashSaved('saved', 'Enregistré · l\'ancien mix a été remplacé');
+  };
+
   // Le brouillon devient le MIX courant ; s'il est déjà dans « Mes mix », son
   // entrée est mise à jour au passage (sinon la version enregistrée là-bas
   // restait l'ancienne).
+  // Rend `false` si le téléphone n'a pas pu écrire le MIX courant.
   const persistDraft = async (source = draft) => {
-    const mix = withLatestPublishedId(cloneMix(source));
-    await saveCurrentMix(mix);
+    const mix = keepTemp(withLatestPublishedId(cloneMix(source)), source);
+    const written = await saveCurrentMix(mix);
     if (inLibrary) {
       await saveAsLibraryEntry({ ...mix, name: mix.name?.trim() ? mix.name : 'Sans nom' });
     }
+    return written !== false;
   };
 
   // Un appui : on enregistre et on RESTE sur la page (avant, l'écran se fermait
@@ -440,17 +511,78 @@ export default function MixBuilder() {
   // « Enregistré », petit message.
   // `meta` ({ color, note }) vient de la feuille « Couleur et note » : appliqué au
   // brouillon, puis enregistré avec lui.
-  const handleSave = async (meta) => {
+  const handleSave = async (meta, overwriteConfirmed = false) => {
     if (draft.blocks.length === 0) return;
     // Mix qui ne m'appartient pas : un simple appui l'enregistre dans Mes mix
     // (il devient alors le mien) — plus besoin de maintenir.
     if (preview) return handleSavePreview();
+    if (lockedMix) return denyEdit();
     if (inLibrary && nameTaken()) return refuseTakenName();
+    // Mix neuf (pas encore dans Mes mix) qui porte le nom d'un mix existant :
+    // jamais d'écrasement silencieux, on demande d'abord.
+    if (!inLibrary && !overwriteConfirmed) {
+      const clash = findNameClash();
+      if (clash) return askOverwrite(clash, meta);
+    }
+    // Mix déjà publié et modifié : l'enregistrer ne doit pas laisser en silence deux
+    // versions différentes (celle du téléphone, celle du fil). On demande laquelle garder.
+    const cleanMeta = meta && typeof meta === 'object' && !meta.nativeEvent ? meta : null;
+    const diff = await checkPublishedDiff(cleanMeta ? { ...draft, ...cleanMeta } : draft);
+    if (diff) {
+      haptic.warning();
+      setPublishedAsk({ ...diff, meta: cleanMeta, after: null });
+      return;
+    }
+    return commitSave(cleanMeta);
+  };
+
+  // Mix publié dont le contenu a changé depuis la version en ligne ? Rend
+  // { link, item } (`item` = la version en ligne, null si on n'a pas pu la lire) ou
+  // `null` (mix privé, ou identique à ce qui est en ligne : rien à choisir).
+  const checkPublishedDiff = async (source) => {
+    if (!inLibrary || preview || lockedMix) return null;
+    const pid = publishedLink?.id ?? withLatestPublishedId(source).publishedId;
+    if (!pid) return null;
+    let item = null;
+    if (user) {
+      // Jamais bloqué par un réseau qui traîne : au bout de 4 s on juge sans.
+      const res = await Promise.race([
+        fetchPublishedById(pid, user.id),
+        new Promise((resolve) => setTimeout(() => resolve({ ok: false }), 4000)),
+      ]);
+      if (res?.ok) {
+        // Publication disparue du fil : il n'y a plus de version en ligne à protéger.
+        if (!res.item) return null;
+        item = res.item;
+      }
+    }
+    if (item) {
+      const sameCategory = !publishedLink?.category || publishedLink.category === item.category;
+      if (samePublishedContent(source, item) && sameCategory) return null;
+    } else {
+      // Version en ligne illisible (hors connexion) : on compare à ce qui est déjà
+      // enregistré sur le téléphone.
+      const saved = library.find((m) => m.id === source.id);
+      if (saved && mixSignature(saved) === mixSignature(source)) return null;
+    }
+    return { link: { id: item?.id ?? pid, category: publishedLink?.category ?? item?.category ?? null }, item };
+  };
+
+  // L'enregistrement lui-même (mix privé, ou mix publié une fois le choix fait).
+  const commitSave = async (meta) => {
     haptic.success();
     const source = meta ? { ...draft, ...meta } : draft;
     if (meta) setDraft(source);
-    await persistDraft(source);
-    flashSaved('saved', inLibrary ? 'Enregistré · Mes mix mis à jour' : 'Enregistré comme ton MIX');
+    const written = await persistDraft(source);
+    if (!written) {
+      // Jamais de faux « Enregistré » : le téléphone n'a pas pu écrire.
+      haptic.error();
+      showToast({ text: "L'enregistrement n'a pas pu être écrit sur le téléphone. Réessaie.", icon: 'close' }, 4200);
+      return;
+    }
+    // Un mix pas encore dans la liste : on dit comment l'y mettre (le maintien).
+    if (inLibrary) flashSaved('saved', 'Enregistré · Mes mix mis à jour');
+    else flashSaved('saved', "Ton mix est enregistré, mais pas dans ta liste de mix. Maintiens le bouton pour l'y ajouter.", 5000);
   };
 
   // Maintien 2 s : archiver dans « Mes mix », sous un nom qui n'y existe pas
@@ -475,7 +607,7 @@ export default function MixBuilder() {
       await saveCurrentMix(match.entry);
       setDraft(cloneMix(match.entry));
       setPreview(false);
-      showToast({ text: 'Déjà dans Mes mix : ouvert pour modification.', icon: 'check' });
+      showToast({ text: userIsPremium ? 'Déjà dans Mes mix : ouvert pour modification.' : 'Déjà dans Mes mix.', icon: 'check' });
       return;
     }
 
@@ -509,17 +641,22 @@ export default function MixBuilder() {
     await saveCurrentMix(res.entry);
     setDraft(cloneMix(res.entry));
     setPreview(false);
-    flashSaved('added', 'Ajouté à Mes mix : tu peux le modifier');
+    flashSaved('added', userIsPremium ? 'Ajouté à Mes mix : tu peux le modifier' : 'Ajouté à Mes mix');
   };
 
   const handleSaveAsNew = async (meta) => {
     if (draft.blocks.length === 0) return;
     if (preview) return handleSavePreview();
+    if (lockedMix) return denyEdit();
     const baseName = (draft.name || '').trim() || 'Sans nom';
     // Archiver sous un nom déjà utilisé (y compris celui du mix d'origine) est
     // refusé : le nom doit être différent.
     if (library.some((m) => (m.name || '').trim().toLowerCase() === baseName.toLowerCase())) {
-      return refuseTakenName();
+      // Copie d'un mix de Mes mix : le nom doit changer. Mix neuf : on propose
+      // d'écraser celui qui porte ce nom (jamais en silence).
+      if (inLibrary) return refuseTakenName();
+      const clash = findNameClash();
+      return clash ? askOverwrite(clash, meta) : refuseTakenName();
     }
     haptic.success();
     // Couleur et note choisies dans la feuille : elles vont sur l'entrée créée
@@ -533,13 +670,18 @@ export default function MixBuilder() {
       delete entry.fromFeed;
       delete entry.own;
       delete entry.syncSig;
-      await saveAsLibraryEntry(withFreshUid(entry));
+      // Refusé (limite gratuite atteinte : la fenêtre d'explication s'est déjà
+      // ouverte) : rien n'a été ajouté, donc jamais de « Ajouté » à tort.
+      const copy = await saveAsLibraryEntry(withFreshUid(entry));
+      if (!copy) return;
       flashSaved('added', 'Ajouté à Mes mix');
       return;
     }
     // Le mix entre dans Mes mix : même mix, il garde sa clé unique. Si Mes mix en
     // contenait déjà un avec cette clé, c'est lui qui est mis à jour et rendu.
-    const stored = (await saveAsLibraryEntry(entry)) || entry;
+    // Rendu `null` = refusé (limite gratuite) : on s'arrête, rien n'est ajouté.
+    const stored = await saveAsLibraryEntry(entry);
+    if (!stored) return;
     await saveCurrentMix(stored);
     setDraft(cloneMix(stored));
     flashSaved('added', 'Ajouté à Mes mix');
@@ -560,7 +702,7 @@ export default function MixBuilder() {
   // MIX d'usine), est rangé dans Mes mix avant d'être remplacé : rien ne se perd
   // en silence (même règle que « Tester » depuis le fil).
   const stashBaseline = async () => {
-    if (currentMix?.blocks?.length && !currentMix.isPreview && !isDefaultMix(currentMix) && !library.some((m) => m.id === currentMix.id)) {
+    if (shouldStashMix(currentMix, library)) {
       await saveAsLibraryEntry(cloneMix(currentMix));
     }
   };
@@ -583,6 +725,13 @@ export default function MixBuilder() {
     const pending = unsaved;
     if (!pending) return;
     if (pending.leaving) {
+      // Mix publié modifié : on demande d'abord s'il faut mettre le fil à jour.
+      const diff = await checkPublishedDiff(draft);
+      if (diff) {
+        haptic.warning();
+        setPublishedAsk({ ...diff, meta: null, after: () => goBackSafe(router) });
+        return;
+      }
       await persistDraft();
       goBackSafe(router);
       return;
@@ -590,6 +739,20 @@ export default function MixBuilder() {
     // Changer de mix : le brouillon modifié est enregistré dans Mes mix (mis à
     // jour s'il y est déjà), puis on continue.
     if (nameTaken()) return refuseTakenName();
+    const diff = await checkPublishedDiff(draft);
+    if (diff) {
+      haptic.warning();
+      setPublishedAsk({
+        ...diff,
+        meta: null,
+        after: async () => {
+          await pending.action();
+          setLibraryOpen(false);
+          setFeedOpen(false);
+        },
+      });
+      return;
+    }
     const mix = withLatestPublishedId(cloneMix(draft));
     const name = mix.name?.trim() ? mix.name : 'Sans nom';
     await saveAsLibraryEntry(inLibrary ? { ...mix, name } : { ...mix, id: `mix_${Date.now()}`, name });
@@ -625,7 +788,7 @@ export default function MixBuilder() {
         await launchMix({ ...draft, isPreview: true });
         return;
       }
-      await launchMix(cloneMix(draft));
+      await launchMix(keepTemp(cloneMix(draft), draft));
     } finally {
       launchingRef.current = false;
     }
@@ -659,39 +822,105 @@ export default function MixBuilder() {
   };
 
   // Envoie les corrections (nom, orthographe, blocs) vers le fil public.
-  const handlePublishUpdate = async () => {
-    if (!publishedLink || pubState.phase === 'busy') return;
+  // Rend la réponse de la base (`{ item, republished }`) ou `null` si la mise à jour
+  // a été refusée (le message d'erreur est déjà affiché).
+  const runPublishUpdate = async (link, source) => {
+    if (!link || pubState.phase === 'busy') return null;
     if (!user) {
       haptic.warning();
       setPubState({ phase: 'err', text: 'Connecte-toi pour mettre à jour ton mix publié.' });
       showToast({ text: 'Connecte-toi pour mettre à jour ton mix publié.', icon: 'lock' });
-      return;
+      return null;
     }
     setPubState({ phase: 'busy', text: null });
     const profile = await loadProfile();
-    const res = await updatePublishedMix(publishedLink.id, draft, {
+    const res = await updatePublishedMix(link.id, source, {
       userId: user.id,
       authorName: profile.pseudo,
-      category: publishedLink.category,
+      category: link.category,
     });
     if (!res.ok) {
       haptic.error();
       const text = publishErrorText(res);
       setPubState({ phase: 'err', text });
       showToast({ text, icon: 'close' });
-      return;
+      return null;
     }
     haptic.success();
     // L'id ne change que si la publication avait disparu et a été remise en
     // ligne (jamais un remplacement : étoiles et commentaires sont gardés).
-    setPublishedLink({ id: res.item.id, category: res.item.category });
-    handlePublishedChange(draft.id, res.item.id, res.item.category);
-    await markPublished(draft.id, res.item.id);
+    // Le bandeau « MIX PUBLIÉ » ne s'ouvre pas tout seul : il suit seulement un
+    // lien qui existait déjà.
+    setPublishedLink((l) => (l ? { id: res.item.id, category: res.item.category } : l));
+    handlePublishedChange(source.id, res.item.id, res.item.category);
+    await markPublished(source.id, res.item.id);
     const text = res.republished
       ? "Remis en ligne : l'ancienne publication n'existait plus."
       : 'À jour dans le fil public. Étoiles et commentaires gardés.';
     setPubState({ phase: 'ok', text });
     showToast({ text, icon: 'check' });
+    return res;
+  };
+
+  const handlePublishUpdate = () => runPublishUpdate(publishedLink, draft);
+
+  // Choix « Mettre à jour le fil public » (fenêtre « Ce mix est publié ») : le fil
+  // reçoit la nouvelle version, PUIS elle est enregistrée sur le téléphone. Si le fil
+  // refuse (connexion…), rien n'est enregistré : on reste sur le brouillon.
+  const confirmPublishedUpdate = async () => {
+    const ask = publishedAsk;
+    setPublishedAsk(null);
+    if (!ask) return;
+    const source = ask.meta ? { ...draft, ...ask.meta } : draft;
+    if (ask.meta) setDraft(source);
+    const res = await runPublishUpdate(ask.link, source);
+    if (!res) return;
+    const mix = keepTemp({ ...cloneMix(source), publishedId: res.item.id }, source);
+    await saveCurrentMix(mix);
+    await saveAsLibraryEntry({ ...mix, name: mix.name?.trim() ? mix.name : 'Sans nom' });
+    flashSaved('saved', 'Enregistré, et à jour dans le fil public.');
+    ask.after?.();
+  };
+
+  // Choix « Garder pour moi » : la version modifiée devient un mix PRIVÉ à part
+  // (nouveau mix, nouvelle clé unique, jamais relié à la publication). Le mix publié
+  // reste ce qui est en ligne : s'il avait déjà dérivé sur le téléphone, il est
+  // remis à la version du fil.
+  const keepPublishedAsIs = async () => {
+    const ask = publishedAsk;
+    setPublishedAsk(null);
+    if (!ask) return;
+    const source = ask.meta ? { ...draft, ...ask.meta } : draft;
+    // Le nom tapé s'il est libre (l'original reprendra celui du fil), sinon « (privé) ».
+    const taken = library.filter((m) => m.id !== source.id).map((m) => m.name);
+    if (ask.item?.name) taken.push(ask.item.name);
+    const copy = withFreshUid({ ...cloneMix(source), id: `mix_${Date.now()}`, name: privateCopyName(source.name, taken) });
+    delete copy.publishedId;
+    delete copy.fromFeed;
+    delete copy.own;
+    delete copy.syncSig;
+    delete copy.paused;
+    // Refusé (limite gratuite des créations privées : la fenêtre d'explication
+    // s'est déjà ouverte) : rien n'est enregistré, le brouillon reste ouvert.
+    const stored = await saveAsLibraryEntry(copy);
+    if (!stored) {
+      haptic.warning();
+      return;
+    }
+    const original = library.find((m) => m.id === source.id);
+    if (original && ask.item) {
+      const online = sanitizeImportedPayload(ask.item.payload);
+      if (online && !samePublishedContent(original, ask.item)) {
+        await saveAsLibraryEntry(restoreFromPublication(original, online));
+      }
+    }
+    haptic.success();
+    await saveCurrentMix(stored);
+    setDraft(cloneMix(stored));
+    setPublishedLink(null);
+    setPubState({ phase: 'idle', text: null });
+    flashSaved('added', "Gardé pour toi, dans tes créations privées. Le mix publié n'a pas changé.", 5000);
+    ask.after?.();
   };
 
   // ---- Charger un autre mix ----
@@ -726,6 +955,7 @@ export default function MixBuilder() {
       haptic.warning();
       return;
     }
+    if (lockedMix) return denyEdit();
     if (!silent) haptic.light();
     setShareMix(withLatestPublishedId(mix));
     setShareIsDraft(isDraft);
@@ -778,7 +1008,7 @@ export default function MixBuilder() {
   // font déjà ce travail).
   const ListFooter = (
     <View style={styles.feedLinks}>
-      {!preview && !publishedLink && draft.blocks.length > 0 && (
+      {!readOnly && !publishedLink && draft.blocks.length > 0 && (
         <ActionLinkRow
           icon="globe"
           title="Publier ce mix"
@@ -804,7 +1034,20 @@ export default function MixBuilder() {
             <Text style={styles.pubBannerKicker}>APERÇU</Text>
           </View>
           <Text style={styles.pubBannerText}>
-            Ce mix ne t'appartient pas encore : tu peux le lancer ou l'enregistrer. Une fois enregistré dans Mes mix, il est à toi : tu peux le modifier et le partager.
+            {userIsPremium
+              ? "Ce mix ne t'appartient pas encore : tu peux le lancer ou l'enregistrer. Une fois enregistré dans Mes mix, il est à toi : tu peux le modifier et le partager."
+              : "Ce mix ne t'appartient pas : tu peux le lancer ou l'enregistrer dans Mes mix. Il reste en lecture seule ; pour en faire ta version, crée ton propre mix."}
+          </Text>
+        </View>
+      )}
+      {lockedMix && (
+        <View style={styles.pubBanner}>
+          <View style={styles.pubBannerHead}>
+            <AppIcon name="lock" size={13} color={ACCENT} />
+            <Text style={styles.pubBannerKicker}>LECTURE SEULE</Text>
+          </View>
+          <Text style={styles.pubBannerText}>
+            Ce mix vient de la communauté : tu peux le lancer, mais pas le modifier. Crée ton propre mix pour le refaire à ta façon.
           </Text>
         </View>
       )}
@@ -848,7 +1091,7 @@ export default function MixBuilder() {
               choisie ; absente d'un aperçu (le mix n'est pas encore à moi). */}
           <View style={styles.heroKickerRow}>
             <Text style={styles.heroKicker}>Ton MIX</Text>
-            {!preview && (
+            {!readOnly && (
               <Pressable
                 onPress={() => {
                   haptic.light();
@@ -871,7 +1114,7 @@ export default function MixBuilder() {
           <TextInput
             value={draft.name}
             onChangeText={updateName}
-            editable={!preview}
+            editable={!readOnly}
             style={styles.heroName}
             maxLength={28}
             placeholder="Nom du mix"
@@ -928,10 +1171,10 @@ export default function MixBuilder() {
         <View style={styles.sectionHeadText}>
           <Text style={styles.sectionTitle}>Blocs de la séance</Text>
           <Text style={styles.sectionHint}>
-            {preview ? 'Aperçu en lecture seule' : 'Tap édite · Glisse ← supprime · Maintiens drag'}
+            {readOnly ? 'Lecture seule' : 'Tap édite · Glisse ← supprime · Maintiens drag'}
           </Text>
         </View>
-        {draft.blocks.length > 0 && !preview && (
+        {draft.blocks.length > 0 && !readOnly && (
           <Button
             variant="glass"
             size="sm"
@@ -958,7 +1201,7 @@ export default function MixBuilder() {
           <IconButton icon="close" onPress={handleCancel} accessibilityLabel="Annuler" />
           <Text style={styles.topTitle}>Constructeur</Text>
           <View style={styles.topBarRight}>
-            {!preview && (
+            {!readOnly && (
               <IconButton
                 icon="share"
                 size={ROUND_SIZE.nav}
@@ -1000,7 +1243,7 @@ export default function MixBuilder() {
             beaucoup de blocs, "Ajouter un bloc" finissait tout en bas de la
             liste et fallait tout dérouler pour l'atteindre). */}
         <View style={styles.bottomBar} onLayout={(e) => setBarH(e.nativeEvent.layout.height)}>
-          {!preview && (
+          {!readOnly && (
             <Button
               variant="glass"
               fullWidth
@@ -1020,8 +1263,10 @@ export default function MixBuilder() {
             <SaveButton
               disabled={draft.blocks.length === 0}
               oneTap={preview}
+              inLibrary={inLibrary}
               onTap={handleSave}
               onLongComplete={() => {
+                if (lockedMix) return denyEdit();
                 haptic.medium();
                 setMetaOpen(true);
               }}
@@ -1161,6 +1406,28 @@ export default function MixBuilder() {
       )}
 
       {tutorialOpen && <MixTutorialSheet screenH={screenH} onDone={closeTutorial} />}
+
+      {!!overwriteAsk && (
+        <ConfirmSheet
+          screenH={screenH}
+          title="Un mix porte déjà ce nom"
+          body={`« ${(draft.name || '').trim()} » existe déjà. Veux-tu l'écraser avec ce mix ? Sinon, change le nom pour garder les deux.`}
+          confirmLabel="Écraser"
+          cancelLabel="Changer le nom"
+          onConfirm={confirmOverwrite}
+          onClose={() => setOverwriteAsk(null)}
+        />
+      )}
+
+      {!!publishedAsk && (
+        <PublishedSaveSheet
+          screenH={screenH}
+          mixName={(draft.name || '').trim()}
+          onUpdate={confirmPublishedUpdate}
+          onKeep={keepPublishedAsIs}
+          onClose={() => setPublishedAsk(null)}
+        />
+      )}
 
       {!!unsaved && (
         <UnsavedChangesSheet
@@ -1379,20 +1646,30 @@ function RoleChip({ role, selected, onPress, onLayout }) {
 }
 
 // Enregistrer : un appui = enregistrer (on reste sur la page, avec un retour
-// visuel), 2 s d'appui = archiver une copie dans Mes mix.
+// visuel), un maintien (SAVE_HOLD_MS) = feuille « Couleur et note ».
 // Garde sa propre mécanique d'appui (la barre qui se remplit, que Button ne
-// sait pas faire) mais porte le rendu de la recette 'accent' de
+// sait pas faire) mais porte le rendu de la recette 'glass' de
 // lib/buttonTokens.js : même capsule que tous les autres boutons.
-function SaveButton({ disabled, onTap, onLongComplete, oneTap = false, status = null, flashTick = 0 }) {
+// Le maintien passe par useHoldProgress : UNE seule horloge pour la barre ET
+// l'action. Avant, la barre (Reanimated) et le onLongPress du Pressable
+// (minuteur d'Android) tournaient chacun de leur côté : barre pleine, rien ne
+// s'ouvrait, une fois sur deux.
+// `inLibrary` : le mix est déjà dans la liste « Mes mix ». Sinon, un appui simple
+// ne l'enregistre que comme « ton MIX » et c'est le MAINTIEN qui l'ajoute à la
+// liste : le petit texte du bouton le dit en mots simples (retour du 17/11).
+function SaveButton({ disabled, onTap, onLongComplete, oneTap = false, inLibrary = false, status = null, flashTick = 0 }) {
   const haptic = useHaptic();
-  const progress = useSharedValue(0);
   const scale = useSharedValue(1);
-  const longFiredRef = useRef(false);
+  // La vibration de réussite est faite par le gestionnaire (une fois sûr que
+  // l'action a lieu : un refus ne doit pas vibrer comme un succès).
+  const hold = useHoldProgress(() => {
+    if (!disabled) onLongComplete?.();
+  }, SAVE_HOLD_MS, { successHaptic: false });
   // Verre, pas l'accent : le bouton Lancer à côté est l'action principale.
   const r = buttonRecipe({ variant: 'glass' });
 
   const fillStyle = useAnimatedStyle(() => ({
-    width: `${progress.value * 100}%`,
+    width: `${hold.progress.value * 100}%`,
   }));
   const scaleStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
@@ -1400,6 +1677,14 @@ function SaveButton({ disabled, onTap, onLongComplete, oneTap = false, status = 
 
   const confirmed = status === 'saved' || status === 'added';
   const refused = status === 'refused';
+  // Le petit texte sous « Enregistrer » : des PHRASES, pas de « = » (« on dirait un
+  // jeu pour enfants », 17/11), et des mots exacts. Un appui simple enregistre ton
+  // MIX seulement ; l'ajout à la liste de mix est une AUTRE chose (le maintien).
+  // Juste après l'appui, on dit donc franchement que le mix n'est pas dans la liste.
+  let hintText = null;
+  if (refused) hintText = 'Change le nom du mix';
+  else if (status === 'saved') hintText = inLibrary ? null : 'Pas dans la liste de mix';
+  else if (!confirmed) hintText = inLibrary ? 'Maintiens : une note' : 'Maintiens : liste de mix';
 
   return (
     // Contour vert qui se dessine à chaque enregistrement réussi : la
@@ -1407,37 +1692,26 @@ function SaveButton({ disabled, onTap, onLongComplete, oneTap = false, status = 
     <SaveFlashRing trigger={flashTick} radius={BUTTON_HEIGHT.lg / 2} style={styles.saveSlot}>
     <Pressable
       disabled={disabled}
-      delayLongPress={SAVE_HOLD_MS}
-      // Un maintien de 2 s fait presque toujours dériver le doigt : au-delà de
-      // la tolérance par défaut (quelques mm) Android annule l'appui, la barre
-      // se vidait et rien ne s'enregistrait, une fois sur deux. Large tolérance.
+      // Le doigt dérive pendant un maintien : au-delà de la tolérance par
+      // défaut (quelques mm) Android annule l'appui et la barre se vide.
+      // Large tolérance.
       pressRetentionOffset={{ top: 80, bottom: 80, left: 80, right: 80 }}
-      onPressIn={() => {
+      onPressIn={(e) => {
         if (disabled) return;
-        longFiredRef.current = false;
         scale.value = withSpring(TAP_SCALE.lg, springEnergetic);
         // `oneTap` (mix qui n'est pas à moi) : un appui suffit, pas de barre de maintien.
-        if (!oneTap) progress.value = withTiming(1, { duration: SAVE_HOLD_MS });
+        if (!oneTap) hold.start(e);
       }}
-      onPressOut={() => {
+      onPressOut={(e) => {
         scale.value = withSpring(1, springEnergetic);
-        progress.value = withTiming(0, { duration: 200 });
-      }}
-      onLongPress={() => {
-        if (disabled) return;
-        longFiredRef.current = true;
-        // Pas de vibration ici : c'est le gestionnaire qui vibre, une fois sûr
-        // que l'enregistrement a lieu (sinon un refus vibrait comme un succès).
-        // En `oneTap`, un appui prolongé vaut un appui simple.
-        if (oneTap) onTap?.();
-        else onLongComplete?.();
+        // Valide aussi un relâchement tout juste après la fin de la barre (voir
+        // useHoldProgress) ; sinon la barre redescend.
+        if (!oneTap) hold.cancel(e);
       }}
       onPress={() => {
         if (disabled) return;
-        if (longFiredRef.current) {
-          longFiredRef.current = false;
-          return;
-        }
+        // Le maintien a déjà agi : ce tap n'est que le relâchement du doigt.
+        if (hold.wasFired()) return;
         onTap?.();
       }}
       style={styles.savePress}
@@ -1479,9 +1753,9 @@ function SaveButton({ disabled, onTap, onLongComplete, oneTap = false, status = 
           >
             {status === 'added' ? 'Ajouté' : status === 'saved' ? 'Enregistré' : refused ? 'Nom déjà pris' : 'Enregistrer'}
           </Text>
-          {!confirmed && !oneTap && (
+          {!!hintText && !oneTap && (
             <Text style={[styles.btnPrimaryHint, refused && { color: '#FF5454' }]} numberOfLines={1}>
-              {refused ? 'Change le nom du mix' : 'Maintiens 3s = couleur'}
+              {hintText}
             </Text>
           )}
         </View>

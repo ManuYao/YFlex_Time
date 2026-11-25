@@ -11,6 +11,7 @@ import Svg, { Circle, Ellipse, G, Path } from 'react-native-svg';
  *   petal    pétale (printemps)         mote   point de lumière cerclé (été)
  *   star     étoile à quatre branches   bat    chauve-souris (Halloween, passage rare)
  *   heart    coeur                      ember  braise
+ *   gift     petit cadeau (Noël)        bauble boule de Noël
  *   dot      petit point
  *
  * Props :
@@ -34,6 +35,8 @@ export const AMBIANCE_SHAPE_KINDS = [
   'star',
   'bat',
   'heart',
+  'gift',
+  'bauble',
 ];
 
 function renderKind(kind, ink, accent, sw) {
@@ -135,6 +138,59 @@ function renderKind(kind, ink, accent, sw) {
           strokeWidth={sw}
           strokeLinejoin="round"
         />
+      );
+    case 'gift':
+      // Boîte + couvercle (la ligne horizontale), ruban vertical et noeud en deux boucles.
+      return (
+        <>
+          <Path
+            d="M-4.4 -1.9L4.4 -1.9L4.4 4.8L-4.4 4.8Z"
+            fill={accent}
+            fillOpacity={0.36}
+            stroke={ink}
+            strokeWidth={sw}
+            strokeLinejoin="round"
+          />
+          <Path
+            d="M-4.4 0.2L4.4 0.2M0 -1.9L0 4.8"
+            fill="none"
+            stroke={ink}
+            strokeWidth={sw}
+            strokeLinecap="round"
+            strokeOpacity={0.75}
+          />
+          <Path
+            d="M0 -1.9C-0.5 -4.5 -3.3 -4.9 -2.7 -3.2C-2.3 -2.3 -1.1 -2 0 -1.9C1.1 -2 2.3 -2.3 2.7 -3.2C3.3 -4.9 0.5 -4.5 0 -1.9Z"
+            fill="none"
+            stroke={ink}
+            strokeWidth={sw}
+            strokeLinejoin="round"
+          />
+        </>
+      );
+    case 'bauble':
+      // Boule, attache et anneau, avec un petit reflet.
+      return (
+        <>
+          <Circle
+            cy={1.1}
+            r={3.7}
+            fill={accent}
+            fillOpacity={0.4}
+            stroke={ink}
+            strokeWidth={sw}
+          />
+          <Path d="M-1.1 -3.4L1.1 -3.4L1.1 -2.4L-1.1 -2.4Z" fill={ink} fillOpacity={0.85} />
+          <Circle cy={-4.5} r={1} fill="none" stroke={ink} strokeWidth={sw} />
+          <Path
+            d="M-2.2 0.4C-2 -0.6 -1.4 -1.2 -0.6 -1.4"
+            fill="none"
+            stroke={ink}
+            strokeWidth={sw}
+            strokeLinecap="round"
+            strokeOpacity={0.6}
+          />
+        </>
       );
     default:
       return null;

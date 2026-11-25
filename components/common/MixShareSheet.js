@@ -32,6 +32,8 @@ import {
   extractShareCode,
 } from '../../lib/mixShare';
 import { copyToClipboard } from '../../lib/clipboard';
+import { recordTrophyFlag } from '../../lib/trophyFacts';
+import { announceTrophies } from '../../lib/badgeCelebration';
 import { findLibraryMatch, readUid } from '../../lib/mixIdentity';
 import { isShareOnboarded, markShareOnboarded } from '../../lib/shareOnboarding';
 import { loadProfile } from '../../lib/profile';
@@ -586,6 +588,8 @@ function ShareContent({ mix: mixProp, close, scrollToEnd, onImported, goLogin, o
       return;
     }
     haptic.success();
+    // Trophée « Partageur » : le lien d'un de mes mix est prêt à être envoyé à un ami.
+    recordTrophyFlag('sharer').then(() => announceTrophies('any'));
     setCopied(true);
     clearTimeout(copiedTimer.current);
     copiedTimer.current = setTimeout(() => setCopied(false), 2200);

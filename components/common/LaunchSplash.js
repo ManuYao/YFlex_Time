@@ -126,8 +126,10 @@ function SplashShow({ onDone }) {
   // basculer EXACTEMENT le même jour que l'icône du téléphone (hooks/useSeasonIcon.js lit
   // la même valeur `id`, non mélangée), jamais à mi-chemin. Le glissement progressif
   // (lib/ambiance.js, blendAmbiance) reste pour le reste de l'appli (accueil, menu…).
-  const { id: ambianceId, eco } = useAmbiance();
-  const ambiance = eco ? null : getAmbiance(ambianceId);
+  // Mode économie (batterie faible) : l'intro garde quand même la saison du jour (ecoAmbiance,
+  // null seulement à 10 % ou moins), au lieu de retomber sur l'intro neutre.
+  const { id: ambianceId, eco, ecoAmbiance } = useAmbiance();
+  const ambiance = eco ? ecoAmbiance ?? null : getAmbiance(ambianceId);
   const look = useMemo(() => splashLookFor(ambiance?.id), [ambiance?.id]);
   const armed = useArmed();
 

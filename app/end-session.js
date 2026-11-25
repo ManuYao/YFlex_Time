@@ -36,17 +36,20 @@ import { useTimers } from '../contexts/TimersContext';
 import { computeSessionStats } from '../lib/timer-engine';
 import { applyOrder } from '../lib/mixReorder';
 import { buildHistoryEntry, clearSessionDraft } from '../lib/sessionDraft';
+import { recordPlannedLoads } from '../lib/loadJournal';
+import { recordSessionFacts } from '../lib/trophyFacts';
 import { goHomeClean } from '../lib/navigation';
-import { formatDuration } from '../lib/formatters';
+import { formatClock } from '../lib/formatters';
 import { fonts } from '../lib/fonts';
 import { BOTTOM_GAP, PAIR_GAP, SIDE_GAP } from '../lib/buttonTokens';
 import { useUiScale, scaled, useLayoutLevel } from '../lib/responsive';
 import { haptic } from '../hooks/useHaptic';
 import { loadCooldownMap, getCooldownStatus } from '../lib/cooldown';
 import { loadIsPremium } from '../lib/premium';
+import { denyCooldown } from '../hooks/usePremiumGate';
 import BadgeUnlockSheet from '../components/common/BadgeUnlockSheet';
 import { pendingBadges, markBadgeSeen } from '../lib/badgeCelebration';
-import { countSessionsByTimer, notifyHistoryChanged } from '../lib/history';
+import { notifyHistoryChanged } from '../lib/history';
 
 const springEnergetic = { stiffness: 380, damping: 22, mass: 1 };
 
@@ -171,6 +174,10 @@ export default function EndSession() {
         // (lib/sessionDraft.js) : une seule définition de l'entrée d'historique.
         list.push(buildHistoryEntry({ timer, elapsed: elapsedNum, ctx }));
         await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(list));
+        // Journal des charges : les exercices du Planning menés jusqu'au bout (lib/loadJournal.js).
+        await recordPlannedLoads({ timer, elapsed: elapsedNum, ctx });
+        // Exercices menés jusqu'au bout : ils rejoignent la collection (trophée « Collectionneur »).
+        await recordSessionFacts({ timer, elapsed: elapsedNum, ctx });
         // La séance est enregistrée : le brouillon n'a plus lieu d'être (sinon
         // elle serait récupérée une deuxième fois au prochain démarrage).
         await clearSessionDraft();
@@ -179,7 +186,7 @@ export default function EndSession() {
         // Paliers de badge franchis PAR cette séance : le comptage se fait
         // sur la liste qu'on vient d'écrire, pas sur une relecture — inutile
         // de repasser par AsyncStorage pour une valeur qu'on a en main.
-        const fresh = await pendingBadges(countSessionsByTimer(list));
+        const fresh = await pendingBadges('timer');
         if (fresh.length) {
           badgeTotalRef.current = fresh.length;
           setBadgeQueue(fresh);
@@ -209,8 +216,8 @@ export default function EndSession() {
       const map = await loadCooldownMap();
       const status = getCooldownStatus(map, timer.id);
       if (status.isLocked) {
-        haptic.warning();
-        router.replace('/premium');
+        // Pop-up Premium commun : on reste sur le bilan, rien ne nous éjecte vers la page Premium.
+        denyCooldown();
         return;
       }
     }
@@ -232,8 +239,8 @@ export default function EndSession() {
   }
 
   const dateLabel = formatDateLabel(new Date());
-  const restValue = stats.restTotal > 0 ? formatDuration(stats.restTotal) : '—';
-  const workValue = formatDuration(stats.workTotal);
+  const restValue = stats.restTotal > 0 ? formatClock(stats.restTotal) : '—';
+  const workValue = formatClock(stats.workTotal);
 
   // SÉANCE TERMINÉE pulse opacity 0.5↔1
   const statusOpacity = useSharedValue(0.5);
@@ -409,7 +416,7 @@ export default function EndSession() {
                 { fontSize: durationSize, lineHeight: Math.round(durationSize * 1.1) },
               ]}
             >
-              {formatDuration(elapsedNum)}
+              {formatClock(elapsedNum)}
             </Text>
             {/* Le tag du mode est de l'informatif : c'est ce qui saute en
                 premier quand le cercle devient trop petit pour tout loger. */}
@@ -459,7 +466,7 @@ export default function EndSession() {
       {badgeQueue.length > 0 && (
         <BadgeUnlockSheet
           screenH={screenH}
-          timer={timer}
+          trophyId={badgeQueue[0].timerId}
           tier={badgeQueue[0].tier}
           position={badgeTotalRef.current - badgeQueue.length + 1}
           total={badgeTotalRef.current}

@@ -40,7 +40,7 @@ import {
   formatSessionTime,
   formatMixBreakdown,
 } from '../../lib/history';
-import { formatDuration } from '../../lib/formatters';
+import { formatClock } from '../../lib/formatters';
 import { fonts } from '../../lib/fonts';
 import { D, easeImpact, popIn, popOut } from '../../lib/animations';
 import { useHaptic } from '../../hooks/useHaptic';
@@ -629,7 +629,7 @@ function SessionRow({ session, onPress, onDelete, onKeep }) {
 
         <View style={styles.rowDuration}>
           <Text style={styles.rowDurationValue}>
-            {formatDuration(session.durationSeconds || 0)}
+            {formatClock(session.durationSeconds || 0)}
           </Text>
           <Text style={styles.rowDurationLabel}>min</Text>
         </View>

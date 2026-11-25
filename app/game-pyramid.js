@@ -18,12 +18,14 @@ import GameTagOverlays from '../components/screens/GameTagOverlays';
 import HoldToTag from '../components/common/HoldToTag';
 import { useSettings } from '../contexts/SettingsContext';
 import { haptic } from '../hooks/useHaptic';
+import { usePremiumGate } from '../hooks/usePremiumGate';
+import { GAME_GATES } from '../lib/premiumFeatures';
 import { useGameExerciseTag } from '../hooks/useGameExerciseTag';
 import { fonts } from '../lib/fonts';
 import { goBackSafe } from '../lib/navigation';
 import { playGameGo, preloadGameSounds } from '../lib/gameSounds';
 import { createFixedNumberCaller } from '../lib/gameVoice';
-import { speakGame, stopVoiceCoach } from '../lib/voiceCoach';
+import { holdGameFocus, releaseGameFocus, speakGame, stopVoiceCoach } from '../lib/voiceCoach';
 import {
   loadPyramidScores,
   savePyramidScore,
@@ -31,6 +33,7 @@ import {
   setPyramidScoreExercises,
 } from '../lib/gamePyramidScores';
 import { recordGameSession, setGameSessionExercises } from '../lib/gameHistory';
+import useTrophySheet from '../hooks/useTrophySheet';
 import { exercisesLabel, normalizeExercises, shouldHalo } from '../lib/gameExercises';
 import {
   DEFAULT_FORMAT,
@@ -66,6 +69,11 @@ const formatDay = (at) => {
 
 const scoreValue = (s) => s.total;
 
+// Formats réservés à Premium : Évolutif et Dégressif (portes `game.pyramid.up` / `.down`
+// de lib/premiumFeatures.js). La pyramide complète reste gratuite.
+const formatGate = (id) => GAME_GATES.pyramidFormat(id);
+const isPremiumFormat = (id) => id === 'up' || id === 'down';
+
 // Une barre par série, haute comme son nombre de répétitions : on voit la
 // pyramide et où on en est (faites = bleu, en cours = blanc, à venir = pâle).
 const PyramidBars = React.memo(function PyramidBars({ sets, activeIndex, height = 56 }) {
@@ -100,7 +108,11 @@ const PyramidBars = React.memo(function PyramidBars({ sets, activeIndex, height 
 export default function GamePyramid() {
   const router = useRouter();
   const { height } = useWindowDimensions();
+  const { announce: announceTrophy, trophySheet } = useTrophySheet('game');
   const { settings } = useSettings();
+  const { locked: gateLocked, deny: denyPremium } = usePremiumGate();
+  // `formatId` peut être un format libre : on ne demande la porte que pour les deux réservés.
+  const formatLocked = (id) => isPremiumFormat(id) && gateLocked(formatGate(id));
   // Démo (Paramètres › À propos › « Revoir l'astuce des jeux ») : on arrive sur le menu du jeu avec
   // un score d'exemple tout en haut de « Mes scores » (jamais enregistré), pour revoir la bulle
   // d'explication sans jouer.
@@ -177,6 +189,7 @@ export default function GamePyramid() {
     clearTimers();
     callerRef.current?.dispose();
     callerRef.current = null;
+    releaseGameFocus();
     stopVoiceCoach();
     try { deactivateKeepAwake(KEEP_AWAKE_TAG); } catch {}
   };
@@ -224,6 +237,9 @@ export default function GamePyramid() {
       // La règle de la bulle (lib/gameTagTip.js) : si elle doit être montrée, ce sera sur le menu
       // du jeu, dès qu'on y revient.
       tag.noteGameFinished();
+      // Trophée gagné dans cette partie : annoncé ici, à la fin de la partie (lib/badgeCelebration.js).
+      // Grande annonce ou notification selon sa rareté (hooks/useTrophySheet.js).
+      announceTrophy();
     }
   };
 
@@ -360,12 +376,22 @@ export default function GamePyramid() {
   };
 
   const startGame = () => {
+    // Filet : un format Premium ne part jamais sans Premium (réglage resté d'avant, etc.).
+    // Refus commun : usePremiumGate().deny (alerte, son de refus, pop-up Premium).
+    if (formatLocked(formatId)) {
+      const refused = formatId;
+      setFormatId(DEFAULT_FORMAT);
+      setSets(buildSets(DEFAULT_FORMAT, peak));
+      denyPremium(formatGate(refused));
+      return;
+    }
     haptic.medium();
     const planned = buildSets(formatId, peak);
     setsRef.current = planned;
     setSets(planned);
     // Ni choix d'exercice ni choix de rythme dans ce jeu (PYRAMID_REP_MS pour tout).
     cfgRef.current = { formatId, peak, gender: settings.voiceGender };
+    holdGameFocus(); // focus audio tenu toute la partie (voir lib/voiceCoach.js)
     activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(() => {});
     // Son décodé d'avance, sinon le bip final saute.
     preloadGameSounds();
@@ -444,6 +470,10 @@ export default function GamePyramid() {
   };
 
   const chooseFormat = (id) => {
+    if (formatLocked(id)) {
+      denyPremium(formatGate(id));
+      return;
+    }
     haptic.selection();
     setFormatId(id);
     setSets(buildSets(id, peak));
@@ -539,6 +569,7 @@ export default function GamePyramid() {
               <View style={styles.chips}>
                 {Object.values(FORMATS).map((f) => {
                   const on = f.id === formatId;
+                  const locked = formatLocked(f.id);
                   return (
                     <PressTap
                       key={f.id}
@@ -546,11 +577,14 @@ export default function GamePyramid() {
                       tapScale={0.96}
                       containerStyle={styles.chipWrap}
                       style={[styles.chip, on && styles.chipOn]}
-                      accessibilityLabel={`Format ${f.label}`}
+                      accessibilityLabel={locked ? `Format ${f.label}, réservé à Premium` : `Format ${f.label}`}
                     >
-                      <Text style={[styles.chipText, on && styles.chipTextOn]} numberOfLines={1}>
-                        {f.label}
-                      </Text>
+                      <View style={styles.chipInner}>
+                        {locked && <AppIcon name="crown" size={13} color="#F0C954" />}
+                        <Text style={[styles.chipText, on && styles.chipTextOn]} numberOfLines={1}>
+                          {f.label}
+                        </Text>
+                      </View>
                     </PressTap>
                   );
                 })}
@@ -605,7 +639,7 @@ export default function GamePyramid() {
                 scores={listScores}
                 accent={ACCENT}
                 getValue={scoreValue}
-                renderRow={(s, inDay) => (
+                renderRow={(s) => (
                   // Maintenir 1 s une ligne = noter (ou changer) son exercice ; le halo
                   // n'éclaire que le dernier score, tant qu'il n'a pas d'exercice.
                   <HoldToTag
@@ -620,7 +654,7 @@ export default function GamePyramid() {
                     <Text style={styles.scoreCount}>{s.total}</Text>
                     <Text style={styles.scoreMeta}>
                       {FORMATS[s.format].label} {s.peak}
-                      {inDay ? '' : ` · ${formatDay(s.at)}`}
+                      {` · ${formatDay(s.at)}`}
                       {s.complete ? ' · terminée' : ''}
                       {s.exercises?.length ? ` · ${exercisesLabel(s.exercises)}` : ''}
                     </Text>
@@ -762,6 +796,7 @@ export default function GamePyramid() {
       </SafeAreaView>
 
       {/* « Ton exercice » (ouverte seulement quand on maintient un score) et la bulle du menu. */}
+      {trophySheet}
       <GameTagOverlays tag={tag} phase={phase} screenH={height} accent={ACCENT} />
 
       {/* Même feuille que la roue de l'app : fermer sans valider garde le total. */}
@@ -855,6 +890,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.14)',
   },
+  chipInner: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   chipOn: { backgroundColor: ACCENT, borderColor: ACCENT },
   chipText: { fontFamily: fonts.sansBold, fontSize: 13, color: '#FFFFFF' },
   chipTextOn: { color: '#1A0C04' },

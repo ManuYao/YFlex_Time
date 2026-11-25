@@ -22,9 +22,11 @@ import { useGameExerciseTag } from '../hooks/useGameExerciseTag';
 import { fonts } from '../lib/fonts';
 import { goBackSafe } from '../lib/navigation';
 import { playGameGo, preloadGameSounds } from '../lib/gameSounds';
-import { createNumberCaller } from '../lib/gameVoice';
+import { createFixedNumberCaller } from '../lib/gameVoice';
+import { holdGameFocus, releaseGameFocus } from '../lib/voiceCoach';
 import { loadScores, saveScore, deleteScore, setCountScoreExercises } from '../lib/gameScores';
 import { recordGameSession, setGameSessionExercises } from '../lib/gameHistory';
+import useTrophySheet from '../hooks/useTrophySheet';
 import { exercisesLabel, shouldHalo } from '../lib/gameExercises';
 import {
   DEFAULT_TEMPO,
@@ -63,6 +65,7 @@ const scoreValue = (s) => s.count;
 export default function GameCount() {
   const router = useRouter();
   const { height } = useWindowDimensions();
+  const { announce: announceTrophy, trophySheet } = useTrophySheet('game');
   const { settings } = useSettings();
 
   const [phase, setPhase] = useState('ready'); // ready | countdown | playing | done
@@ -117,6 +120,7 @@ export default function GameCount() {
     clearTimers();
     callerRef.current?.dispose();
     callerRef.current = null;
+    releaseGameFocus();
     try { deactivateKeepAwake(KEEP_AWAKE_TAG); } catch {}
   };
 
@@ -147,6 +151,10 @@ export default function GameCount() {
       // La règle de la bulle (lib/gameTagTip.js) : si elle doit être montrée, ce sera sur le menu
       // du jeu, dès qu'on y revient.
       tag.noteGameFinished();
+      // Trophée gagné dans cette partie (Joueur, Record battu…) : annoncé ICI, à la fin de la partie,
+      // jamais à la fin d'un chrono (lib/badgeCelebration.js). Grande annonce ou notification selon
+      // sa rareté (hooks/useTrophySheet.js).
+      announceTrophy();
     }
   };
 
@@ -181,7 +189,7 @@ export default function GameCount() {
 
   const startPlaying = () => {
     const stepMs = tempoMs(tempoRef.current);
-    const caller = callerRef.current ?? createNumberCaller(settings.voiceGender);
+    const caller = callerRef.current ?? createFixedNumberCaller(settings.voiceGender, MAX_COUNT);
     callerRef.current = caller;
     const planner = newPlanner(Math.random);
     countRef.current = 0;
@@ -213,12 +221,13 @@ export default function GameCount() {
 
   const startGame = () => {
     haptic.medium();
+    holdGameFocus(); // focus audio tenu toute la partie (voir lib/voiceCoach.js)
     activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(() => {});
     // Son décodé d'avance, sinon le bip final saute.
     preloadGameSounds();
     // Prépare les premiers chiffres pendant le décompte (décodage des MP3).
-    callerRef.current = createNumberCaller(settings.voiceGender);
-    callerRef.current.preload(1, 3);
+    callerRef.current = createFixedNumberCaller(settings.voiceGender, MAX_COUNT);
+    callerRef.current.preload(1, 12);
     goPhase('countdown');
     setCountdown(3);
     const steps = [
@@ -373,7 +382,7 @@ export default function GameCount() {
                 scores={mine}
                 accent={ACCENT}
                 getValue={scoreValue}
-                renderRow={(s, inDay) => (
+                renderRow={(s) => (
                   // Maintenir 1 s une ligne = noter (ou changer) son exercice ; le halo
                   // n'éclaire que le dernier score, tant qu'il n'a pas d'exercice.
                   <HoldToTag
@@ -388,7 +397,7 @@ export default function GameCount() {
                     <Text style={styles.scoreCount}>{s.count}</Text>
                     <Text style={styles.scoreMeta}>
                       {[
-                        inDay ? null : formatDay(s.at),
+                        formatDay(s.at),
                         TEMPOS[s.tempo]?.label,
                         s.exercises?.length ? exercisesLabel(s.exercises) : null,
                       ]
@@ -497,6 +506,7 @@ export default function GameCount() {
       </SafeAreaView>
 
       {/* « Ton exercice » (ouverte seulement quand on maintient un score) et la bulle du menu. */}
+      {trophySheet}
       <GameTagOverlays tag={tag} phase={phase} screenH={height} accent={ACCENT} />
 
       {/* Même feuille que la roue de l'app : fermer sans valider garde le score. */}

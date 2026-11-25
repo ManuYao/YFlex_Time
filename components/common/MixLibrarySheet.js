@@ -17,7 +17,14 @@ import { ROUND_SIZE } from '../../lib/buttonTokens';
 import { useHaptic } from '../../hooks/useHaptic';
 import { useMyPublications } from '../../hooks/useMyPublications';
 import { usePremium } from '../../hooks/usePremium';
-import { FREE_CREATIONS, FREE_DOWNLOADS } from '../../lib/libraryLimits';
+import {
+  FREE_CREATIONS,
+  FREE_DOWNLOADS,
+  emitMixPauseRequest,
+  isPaused,
+  limitKindOf,
+  pauseGroups,
+} from '../../lib/libraryLimits';
 
 const ONLINE = '#1FC777';
 
@@ -73,11 +80,25 @@ export default function MixLibrarySheet({
   // dans une ref pour que les lignes ci-dessous s'en servent.
   const close = useRef(null);
 
+  const { isPremium } = usePremium();
   const ownIds = useMemo(() => new Set(pubs.items.map((p) => p.id)), [pubs.items]);
+  // Mix EN PAUSE (fin de Premium, lib/libraryLimits.js) : sortis des trois volets,
+  // rangés à part, ni chargés ni lancés. Jamais pour un Premium.
+  const { liveLibrary, pausedList } = useMemo(() => {
+    const live = [];
+    const parked = [];
+    for (const m of library) {
+      if (isPaused(m, isPremium) && limitKindOf(m)) parked.push(m);
+      else live.push(m);
+    }
+    return { liveLibrary: live, pausedList: parked };
+  }, [library, isPremium]);
+  // Une proposition de choix est-elle utile (trop de mix, ou des mix en pause) ?
+  const canChoose = useMemo(() => !isPremium && pauseGroups(library).length > 0, [library, isPremium]);
   // Qui est « en ligne » : chaque publication n'est attribuée qu'à UN mix.
   const assigned = useMemo(
-    () => (pubs.status === 'ok' ? assignPublications(library.filter((m) => !isFeedMix(m, ownIds)), pubs.items) : new Map()),
-    [library, pubs.status, pubs.items, ownIds]
+    () => (pubs.status === 'ok' ? assignPublications(liveLibrary.filter((m) => !isFeedMix(m, ownIds)), pubs.items) : new Map()),
+    [liveLibrary, pubs.status, pubs.items, ownIds]
   );
   const groups = useMemo(() => {
     // Deux volets, jamais mélangés : MES CRÉATIONS (tout ce que j'ai fabriqué ici,
@@ -91,16 +112,15 @@ export default function MixLibrarySheet({
     const mine = [];
     const published = [];
     const fromFeed = [];
-    for (const m of library) {
+    for (const m of liveLibrary) {
       if (isFeedMix(m, ownIds)) fromFeed.push(m);
       else if (known && assigned.get(m.id)) published.push(m);
       else mine.push(m);
     }
     return { mine, published, fromFeed, known };
-  }, [library, ownIds, assigned, pubs.status]);
-  const { isPremium } = usePremium();
+  }, [liveLibrary, ownIds, assigned, pubs.status]);
   // Privés et publiés ouverts au départ, le reste fermé : moins de lignes à afficher.
-  const [open, setOpen] = useState({ mine: true, published: true, fromFeed: false });
+  const [open, setOpen] = useState({ mine: true, published: true, fromFeed: false, paused: true });
   const toggle = (key) => {
     haptic.light();
     setOpen((o) => ({ ...o, [key]: !o[key] }));
@@ -127,13 +147,13 @@ export default function MixLibrarySheet({
     }
   };
 
-  const renderRow = (m, { feed }) => {
+  const renderRow = (m, { feed, parked = false }) => {
     const total = getMixTotalDuration(m.blocks || []);
     // La publication à retirer avec le mix (seulement pour MES créations).
     const published = !feed && pubs.status === 'ok' ? assigned.get(m.id) ?? null : null;
     const author = feed ? m.fromFeed?.author : null;
     return (
-      <View key={m.id} style={styles.libRow}>
+      <View key={m.id} style={[styles.libRow, parked && styles.libRowParked]}>
         {/* Code couleur du mix (Constructeur › maintien de « Enregistrer ») :
             une petite barre sur le bord gauche de la carte. */}
         {!!cleanMixColor(m.color) && (
@@ -141,6 +161,13 @@ export default function MixLibrarySheet({
         )}
         <Pressable
           onPress={async () => {
+            // Un mix en pause ne se charge pas : toucher ouvre le choix des mix
+            // actifs, pour l'échanger contre l'un d'eux.
+            if (parked) {
+              haptic.warning();
+              emitMixPauseRequest();
+              return;
+            }
             const r = await onLoad(m.id);
             if (r !== false) close.current?.();
           }}
@@ -169,22 +196,24 @@ export default function MixLibrarySheet({
           </View>
         </Pressable>
         {launchMode ? (
-          <View style={styles.libPlay} pointerEvents="none">
-            <AppIcon name="play" size={14} color="#FFFFFF" />
+          <View style={[styles.libPlay, parked && styles.libPlayParked]} pointerEvents="none">
+            <AppIcon name={parked ? 'pause' : 'play'} size={14} color="#FFFFFF" />
           </View>
         ) : (
           <>
-            <Pressable
-              onPress={() => {
-                haptic.light();
-                shareAfterCloseRef.current = m;
-                close.current?.();
-              }}
-              style={({ pressed }) => [styles.libShare, pressed && { opacity: 0.7 }]}
-              hitSlop={10}
-            >
-              <AppIcon name="share" size={14} color="rgba(255,255,255,0.55)" />
-            </Pressable>
+            {!parked && (
+              <Pressable
+                onPress={() => {
+                  haptic.light();
+                  shareAfterCloseRef.current = m;
+                  close.current?.();
+                }}
+                style={({ pressed }) => [styles.libShare, pressed && { opacity: 0.7 }]}
+                hitSlop={10}
+              >
+                <AppIcon name="share" size={14} color="rgba(255,255,255,0.55)" />
+              </Pressable>
+            )}
             <Pressable
               onPress={() => handleDelete(m, published)}
               style={({ pressed }) => [styles.libDelete, pressed && { opacity: 0.7 }]}
@@ -202,7 +231,7 @@ export default function MixLibrarySheet({
 
   // Un volet : titre + compteur (n / limite en gratuit), phrase d'explication,
   // puis les lignes. Un volet vide n'est pas affiché.
-  const renderGroup = ({ key, items, title, limit, sub, color, icon, feed }) => {
+  const renderGroup = ({ key, items, title, limit, sub, color, icon, feed, parked = false }) => {
     if (items.length === 0) return null;
     const tint = color ? { color } : null;
     return (
@@ -210,14 +239,14 @@ export default function MixLibrarySheet({
         <Pressable onPress={() => toggle(key)} style={styles.groupHead} hitSlop={6}>
           {!!icon && <AppIcon name={icon} size={11} color={color} />}
           <Text style={[styles.groupTitle, styles.groupTitleFlex, tint]}>
-            {title} · {isPremium ? items.length : `${items.length} / ${limit}`}
+            {title} · {isPremium || limit == null ? items.length : `${items.length} / ${limit}`}
           </Text>
           <Chevron open={open[key]} />
         </Pressable>
         {open[key] && (
           <>
             {!!sub && <Text style={styles.groupSub}>{sub}</Text>}
-            <View style={styles.libList}>{items.map((m) => renderRow(m, { feed }))}</View>
+            <View style={styles.libList}>{items.map((m) => renderRow(m, { feed, parked }))}</View>
           </>
         )}
       </View>
@@ -234,7 +263,7 @@ export default function MixLibrarySheet({
               <View>
                 <Text style={styles.kicker}>{launchMode ? 'LANCER UN MIX' : 'MES MIX'}</Text>
                 <Text style={styles.title}>
-                  {library.length} enregistré{library.length > 1 ? 's' : ''}
+                  {liveLibrary.length} enregistré{liveLibrary.length > 1 ? 's' : ''}
                 </Text>
               </View>
               <IconButton
@@ -247,6 +276,29 @@ export default function MixLibrarySheet({
             </View>
 
             {library.length === 0 && <Text style={styles.libEmpty}>{emptyText}</Text>}
+
+            {/* Fin de Premium : trop de mix pour la bibliothèque gratuite, ou des mix en
+                pause à échanger. Jamais affiché à un Premium. */}
+            {canChoose && (
+              <Pressable
+                onPress={() => {
+                  haptic.light();
+                  emitMixPauseRequest();
+                }}
+                style={({ pressed }) => [styles.pauseBanner, pressed && { opacity: 0.75 }]}
+              >
+                <AppIcon name="pause" size={14} color="#F0C954" />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.pauseBannerTitle}>
+                    {pausedList.length > 0
+                      ? `${pausedList.length} mix en pause`
+                      : 'Plus de mix que la bibliothèque gratuite'}
+                  </Text>
+                  <Text style={styles.pauseBannerSub}>Choisir mes mix actifs · rien n'est supprimé</Text>
+                </View>
+                <Text style={styles.pauseBannerChevron}>›</Text>
+              </Pressable>
+            )}
 
             {renderGroup({
               key: 'mine',
@@ -276,6 +328,18 @@ export default function MixLibrarySheet({
               sub: 'Créés par d’autres (fil public ou ami) : tu peux les modifier.',
               color: 'rgba(149,117,255,0.9)',
               feed: true,
+            })}
+
+            {renderGroup({
+              key: 'paused',
+              items: pausedList,
+              title: 'EN PAUSE',
+              limit: null,
+              sub: 'Gardés sur ton téléphone, de retour avec Pro. Touche-en un pour l’échanger avec un mix actif.',
+              icon: 'pause',
+              color: '#F0C954',
+              feed: false,
+              parked: true,
             })}
 
             {!!notice && (
@@ -360,6 +424,39 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 14,
     paddingRight: 8,
+  },
+  libRowParked: {
+    opacity: 0.55,
+  },
+  libPlayParked: {
+    backgroundColor: 'rgba(255,255,255,0.10)',
+  },
+  pauseBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(240,201,84,0.35)',
+    backgroundColor: 'rgba(240,201,84,0.08)',
+  },
+  pauseBannerTitle: {
+    fontFamily: fonts.sansBold,
+    fontSize: 13,
+    color: '#FFFFFF',
+  },
+  pauseBannerSub: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.55)',
+    marginTop: 2,
+  },
+  pauseBannerChevron: {
+    fontSize: 20,
+    color: 'rgba(255,255,255,0.5)',
   },
   libRowMain: {
     flex: 1,

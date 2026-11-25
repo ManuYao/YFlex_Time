@@ -275,6 +275,8 @@ export default function Settings() {
         'flexTimer_coachNudge',
         // Alerte « ambiance de saison » (lib/seasonNudge.js) : redevient proposable.
         'flexTimer_seasonNudge',
+        // « A été Pro » (components/common/MixPauseGate.js) : repart de zéro.
+        'flexTimer_mixPauseWasPro',
         // Proposition annuelle « les fêtes, chacun à sa façon » (lib/feastNudge.js) : redevient proposable.
         'flexTimer_feastNudge',
         // Proposition « Essaie les jeux » (lib/gamesNudge.js) : repart de zéro après un reset.
@@ -283,6 +285,8 @@ export default function Settings() {
         'flexTimer_holdTip',
         // Bulles d'explication du menu (lib/hubTips.js) : redeviennent à montrer.
         'flexTimer_hubTips',
+        // Réglage de test « verrou portrait coupé » (lib/orientationState.js) : remis à zéro.
+        'flexTimer_orientationTest',
         // Tutoriel du MIX (lib/mixTutorial.js) : redevient à montrer.
         'flexTimer_mixTutorialSeen',
         // Tutoriel de démarrage (lib/tutorial.js) : après un reset la personne
@@ -296,6 +300,14 @@ export default function Settings() {
         // Pesées du suivi de poids (lib/bodyWeight.js) : données personnelles
         // locales, effacées avec le reste.
         'flexTimer_bodyWeight',
+        // Journal des charges (lib/loadJournal.js) : local, effacé avec le reste.
+        'flexTimer_loadJournal',
+        // Trophées (lib/trophyFacts.js, lib/badgeCelebration.js) : faits mémorisés (mix publié,
+        // lien envoyé, exercices…), trophées déjà annoncés et passage à la version 2. Sans cette
+        // purge, un trophée regagné après un reset ne serait jamais annoncé.
+        'flexTimer_trophyFacts',
+        'flexTimer_badgesSeen',
+        'flexTimer_trophiesV2',
         // Scores des jeux (lib/gameScores.js) : données personnelles locales.
         'flexTimer_gameScores',
         'flexTimer_gamePyramidScores',
@@ -702,6 +714,14 @@ export default function Settings() {
               onPress={() => {
                 haptic.light();
                 router.push('/diagnostic');
+              }}
+            />
+            <LinkRow
+              label="Aperçu des trophées"
+              sub="Voir chaque annonce possible, sans rien gagner"
+              onPress={() => {
+                haptic.light();
+                router.push('/trophy-preview');
               }}
             />
             <LinkRow label="Contact" sub={CONTACT_EMAIL} onPress={handleContact} isLast />

@@ -9,6 +9,10 @@ import { useSettings } from '../../contexts/SettingsContext';
 import useAmbiance from '../../hooks/useAmbiance';
 import { haptic } from '../../hooks/useHaptic';
 import { fonts } from '../../lib/fonts';
+import { useRouter } from 'expo-router';
+import { getAmbiance } from '../../lib/ambiance';
+import { cycleDevAmbiance, useDevAmbiance } from '../../lib/ambianceDevPreview';
+import { goHomeClean } from '../../lib/navigation';
 
 // Feuille « Ambiance de saison » (Paramètres > Apparence). Trois choix, une
 // phrase qui suit le choix, et l'ambiance du moment. Le choix s'applique tout
@@ -22,8 +26,8 @@ export const AMBIANCE_OPTIONS = [
 ];
 
 const DESCRIPTIONS = {
-  auto: "Les saisons et quelques moments de l'année.",
-  seasons: 'Les quatre saisons seulement.',
+  auto: "Les saisons et les fêtes de l'année (Halloween, Noël, Saint-Valentin…).",
+  seasons: 'Les quatre saisons seulement, sans aucune fête.',
   none: "L'app reste comme avant. Chacun choisit.",
 };
 
@@ -38,6 +42,9 @@ export default function AmbianceSheet({ screenH, onClose }) {
   const { settings, update } = useSettings();
   // `mode` est déjà ramené à une valeur connue ; `ambiance` vaut null en « Aucune ».
   const { mode, ambiance } = useAmbiance();
+  // Outil de test (développement seulement).
+  const forced = useDevAmbiance();
+  const router = useRouter();
 
   const choose = (value) => {
     haptic.light();
@@ -100,6 +107,35 @@ export default function AmbianceSheet({ screenH, onClose }) {
               Les effets de saison demandent un peu plus de puissance : sur un téléphone ancien,
               l'app peut être moins fluide. Choisis « Aucune » si tu le remarques.
             </Text>
+          ) : null}
+
+          {/* OUTIL DE TEST — n'existe qu'en développement (serveur local), jamais dans un APK ni
+              une mise à jour. À retirer quand Noël est validé (voir lib/ambianceDevPreview.js). */}
+          {__DEV__ ? (
+            <View style={styles.devBox}>
+              <Text style={styles.devTitle}>APERÇU · DÉVELOPPEMENT SEULEMENT</Text>
+              <Button
+                variant="glass"
+                size="sm"
+                fullWidth
+                label={`Forcer : ${forced ? getAmbiance(forced)?.label : 'date réelle'}`}
+                onPress={() => {
+                  haptic.light();
+                  cycleDevAmbiance();
+                }}
+              />
+              <Button
+                variant="glass"
+                size="sm"
+                fullWidth
+                label="Voir la proposition des fêtes"
+                onPress={() => {
+                  haptic.light();
+                  close();
+                  goHomeClean(router, { preview: 'feast' });
+                }}
+              />
+            </View>
           ) : null}
 
           <Button
@@ -214,5 +250,20 @@ const styles = StyleSheet.create({
   },
   cta: {
     marginTop: 22,
+  },
+  devBox: {
+    gap: 8,
+    marginTop: 16,
+    padding: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: 'rgba(255,255,255,0.22)',
+  },
+  devTitle: {
+    fontFamily: fonts.monoRegular,
+    fontSize: 10,
+    letterSpacing: 1,
+    color: 'rgba(255,255,255,0.45)',
   },
 });

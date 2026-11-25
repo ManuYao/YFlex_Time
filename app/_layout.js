@@ -15,6 +15,8 @@ import { setAudioModeAsync } from 'expo-audio';
 import GrainOverlay from '../components/common/GrainOverlay';
 import LaunchSplash from '../components/common/LaunchSplash';
 import UpdateGate from '../components/common/UpdateGate';
+import TrophyNotice from '../components/common/TrophyNotice';
+import OrientationGate from '../components/common/OrientationGate';
 import HistorySyncGate from '../components/common/HistorySyncGate';
 import APKBlockedScreen from '../components/common/APKBlockedScreen';
 import MaintenanceBanner from '../components/common/MaintenanceBanner';
@@ -31,6 +33,8 @@ import { TimersProvider } from '../contexts/TimersContext';
 import { SettingsProvider } from '../contexts/SettingsContext';
 import { AuthProvider } from '../contexts/AuthContext';
 import LibraryLimitGate from '../components/common/LibraryLimitGate';
+import MixPauseGate from '../components/common/MixPauseGate';
+import PremiumPromptGate from '../components/common/PremiumPromptGate';
 import MemoryBadge from '../components/common/MemoryBadge';
 import BatteryEcoGate from '../components/common/BatteryEcoGate';
 
@@ -175,6 +179,8 @@ export default function RootLayout() {
                   />
                   <Stack.Screen name="profile" options={{ animation: 'fade' }} />
                   <Stack.Screen name="analysis" options={{ animation: 'fade' }} />
+                  <Stack.Screen name="trophies" options={{ animation: 'fade' }} />
+                  <Stack.Screen name="trophy-preview" options={{ animation: 'fade' }} />
                   <Stack.Screen name="login" options={{ animation: 'fade' }} />
                   <Stack.Screen name="settings" options={{ animation: 'fade' }} />
                   <Stack.Screen name="terms" options={{ animation: 'fade' }} />
@@ -196,11 +202,20 @@ export default function RootLayout() {
                   <Stack.Screen name="archive-detail" options={{ animation: 'fade' }} />
                 </Stack>
                 <UpdateGate />
+                {/* Notification de trophée : petite carte qu'on balaye (lib/trophyNotices.js). */}
+                <TrophyNotice />
+                {/* Orientation : portrait verrouillé en plein écran, libre dans une
+                    fenêtre réduite (lib/orientationPolicy.js). Ne rend rien. */}
+                <OrientationGate />
                 <HistorySyncGate />
                 {/* « Agrandis la fenêtre » : recouvre un écran devenu inutilisable
                     dans une fenêtre minuscule (lib/responsive.js). */}
                 <SmallWindowNotice />
                 <LibraryLimitGate />
+                {/* Perte de Premium : choisir ses mix actifs, les autres passent en pause. */}
+                <MixPauseGate />
+                {/* Pop-up Premium commun (refus d'une fonction réservée) : couronne + « Voir Premium ». */}
+                <PremiumPromptGate />
                 {/* Compteur de mémoire (Paramètres › Mémoire) : rien tant que le réglage est coupé. */}
                 <MemoryBadge />
                 {/* Économie de batterie : coupe les décors animés à 20 % (lib/batteryEco.js). */}

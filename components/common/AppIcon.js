@@ -95,6 +95,11 @@ const MIX_PATH = (() => {
     .join('');
 })();
 
+// Quatre quarts d'anneau séparés : les quatre saisons (trophée « Quatre saisons »).
+const QUARTERS_PATH = [0, 1, 2, 3]
+  .map((k) => arc(90 * k + GAP_DEG / 2, 90 * k + 90 - GAP_DEG / 2))
+  .join('');
+
 const BASIC_WEDGE = (() => {
   const r = 5.2;
   const [x0, y0] = polar(0, r);
@@ -130,6 +135,9 @@ export const ICON_NAMES = [
   'star', 'star-fill', 'globe', 'flag', 'heart', 'heart-fill',
   'hub', 'expand', 'history', 'calendar', 'chat',
   'edit', 'move', 'bulb', 'season', 'up', 'down',
+  // Trophées (18.16.0)
+  'question', 'five', 'weekfull', 'tag', 'tri', 'record', 'trend', 'scale', 'hourglass',
+  'chart', 'sunrise', 'moon', 'weekend', 'target', 'quarters',
 ];
 
 export default function AppIcon({ name, size = 20, color = '#FFFFFF', opacity = 1, strokeWidth, style, accent }) {
@@ -710,6 +718,143 @@ export default function AppIcon({ name, size = 20, color = '#FFFFFF', opacity = 
             {...line}
             d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"
           />
+        </>
+      );
+      break;
+
+    // ── Trophées (18.16.0) : une icône par exploit, même grille de 24 et même trait. ──
+    // Point d'interrogation seul (sans cercle) : un trophée secret pas encore trouvé.
+    case 'question':
+      body = (
+        <>
+          <Path {...line} d="M9.3 9.4a2.8 2.8 0 0 1 5.4.9c0 1.9-2.7 2.4-2.7 4.1" />
+          <Circle {...solid} cx={12} cy={17.4} r={1.25} />
+        </>
+      );
+      break;
+    // Cinq points en couronne : les cinq modes.
+    case 'five':
+      body = (
+        <>
+          {[0, 72, 144, 216, 288].map((deg) => {
+            const [x, y] = polar(deg, 7);
+            return <Circle key={deg} {...solid} cx={x} cy={y} r={2.3} />;
+          })}
+          <Circle {...solid} cx={12} cy={12} r={1.2} />
+        </>
+      );
+      break;
+    // Calendrier coché : une semaine complète.
+    case 'weekfull':
+      body = (
+        <>
+          <Rect {...line} x={4} y={5.5} width={16} height={14.5} rx={2.5} />
+          <Line {...line} x1={4} y1={10.5} x2={20} y2={10.5} />
+          <Line {...line} x1={8.5} y1={3.5} x2={8.5} y2={7.5} />
+          <Line {...line} x1={15.5} y1={3.5} x2={15.5} y2={7.5} />
+          <Path {...line} d="M9 15.3l2.1 2.1 4-4.3" />
+        </>
+      );
+      break;
+    // Étiquette : un exercice de la collection.
+    case 'tag':
+      body = (
+        <>
+          <Path
+            {...line}
+            {...tint}
+            d="M4 12.6V5.5A1.5 1.5 0 0 1 5.5 4h7.1l7.6 7.6a1.6 1.6 0 0 1 0 2.3l-6.3 6.3a1.6 1.6 0 0 1-2.3 0z"
+          />
+          <Circle {...solid} cx={8.4} cy={8.4} r={1.5} />
+        </>
+      );
+      break;
+    // Trois points reliés : les trois jeux.
+    case 'tri':
+      body = (
+        <>
+          <Path {...line} d="M12 6.5 6.5 16h11z" />
+          <Circle {...solid} cx={12} cy={6.5} r={2.7} />
+          <Circle {...solid} cx={6.5} cy={16} r={2.7} />
+          <Circle {...solid} cx={17.5} cy={16} r={2.7} />
+        </>
+      );
+      break;
+    // Flèche vers un socle : un record battu.
+    case 'record':
+      body = <Path {...line} d="M12 18.5V5.5M6.8 10.7 12 5.5l5.2 5.2M6 21h12" />;
+      break;
+    // Courbe qui monte : une surcharge acceptée.
+    case 'trend':
+      body = <Path {...line} d="M3.5 16.5l6-6 4 4 7-7M15 7.5h5.5V13" />;
+      break;
+    // Pèse-personne : le suivi du poids.
+    case 'scale':
+      body = (
+        <>
+          <Rect {...line} x={3.5} y={4.5} width={17} height={15} rx={3} />
+          <Path {...line} d="M8.3 11a3.7 3.7 0 0 1 7.4 0M12 11l1.6-2.2" />
+        </>
+      );
+      break;
+    // Sablier : le temps passé depuis la première séance.
+    case 'hourglass':
+      body = (
+        <>
+          <Path
+            {...line}
+            d="M7 3.5h10M7 20.5h10M8 3.5v1.6c0 2.4 4 4.4 4 6.9s-4 4.5-4 6.9v1.6M16 3.5v1.6c0 2.4-4 4.4-4 6.9s4 4.5 4 6.9v1.6"
+          />
+          <Path {...solid} d="M9.4 19.3c.6-1.7 2.6-2.7 2.6-2.7s2 1 2.6 2.7z" />
+        </>
+      );
+      break;
+    // Quatre barres sur une ligne de base : un bilan.
+    case 'chart':
+      body = <Path {...line} d="M6.5 19v-5.5M10.5 19V9M14.5 19v-7.5M18.5 19V6M4 21.5h16" />;
+      break;
+    // Soleil qui se lève : une séance avant 7 h.
+    case 'sunrise':
+      body = (
+        <Path
+          {...line}
+          d="M3.5 18.5h17M7.2 18.5a4.8 4.8 0 0 1 9.6 0M12 6.5v3M5.7 10.4l1.8 1.6M18.3 10.4l-1.8 1.6"
+        />
+      );
+      break;
+    // Croissant de lune : une séance après 22 h.
+    case 'moon':
+      body = <Path {...line} {...tint} d="M19.5 14.6A7.8 7.8 0 1 1 9.4 4.5a6.2 6.2 0 0 0 10.1 10.1z" />;
+      break;
+    // Calendrier à deux cases : le samedi et le dimanche.
+    case 'weekend':
+      body = (
+        <>
+          <Rect {...line} x={4} y={5.5} width={16} height={14.5} rx={2.5} />
+          <Line {...line} x1={4} y1={10.5} x2={20} y2={10.5} />
+          <Line {...line} x1={8.5} y1={3.5} x2={8.5} y2={7.5} />
+          <Line {...line} x1={15.5} y1={3.5} x2={15.5} y2={7.5} />
+          <Rect {...solid} x={8} y={13.2} width={3.2} height={3.2} rx={0.8} />
+          <Rect {...solid} x={12.8} y={13.2} width={3.2} height={3.2} rx={0.8} />
+        </>
+      );
+      break;
+    // Cible : une minute pile.
+    case 'target':
+      body = (
+        <>
+          <Circle {...line} cx={12} cy={12} r={8.5} />
+          <Circle {...line} cx={12} cy={12} r={4.6} />
+          <Circle {...solid} cx={12} cy={12} r={1.6} />
+        </>
+      );
+      break;
+    // Quatre quarts d'anneau : les quatre saisons.
+    case 'quarters':
+      body = (
+        <>
+          <Path {...dial} d={QUARTERS_PATH} />
+          <Circle {...solid} cx={12} cy={12} r={1.5} />
         </>
       );
       break;

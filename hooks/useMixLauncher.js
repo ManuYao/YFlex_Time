@@ -5,7 +5,7 @@ import { useHaptic } from './useHaptic';
 import { useCooldown } from './useCooldown';
 import { usePremium } from './usePremium';
 import { useTimers } from '../contexts/TimersContext';
-import { playSound } from '../lib/sounds';
+import { denyCooldown } from './usePremiumGate';
 
 /**
  * Lance un MIX depuis n'importe quel écran (constructeur, hub Mix et Partage,
@@ -15,7 +15,7 @@ import { playSound } from '../lib/sounds';
  * (lib/cooldown.js, TABATA 4 / MIX 3 par semaine) doit donc s'appliquer
  * EXACTEMENT comme sur le bouton Lancer de l'accueil, sinon ce raccourci
  * deviendrait la porte dérobée du quota. Même règles qu'app/home.js :
- *  - verrouillé → vibration d'alerte, son de refus, page Premium ;
+ *  - verrouillé → vibration d'alerte, son de refus, pop-up Premium commun ;
  *  - sinon on part ; la place est consommée au GO (app/countdown.js), pas ici.
  *
  * Rend `launchMix(mix)` → `true` si la séance part, `false` sinon (mix vide
@@ -41,9 +41,7 @@ export function useMixLauncher() {
       if (!mix || !Array.isArray(mix.blocks) || mix.blocks.length === 0) return false;
 
       if (!isPremium && getStatus('mix').isLocked) {
-        haptic.warning();
-        playSound('blockedTimer');
-        router.push('/premium');
+        denyCooldown(); // vibration + son + pop-up Premium commun
         return false;
       }
 

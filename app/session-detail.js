@@ -11,7 +11,7 @@ import MixCompositionBar from '../components/common/MixCompositionBar';
 import { loadHistory, formatMixBreakdown } from '../lib/history';
 import { GAME_ROUTES, gameTagLabel, isGameSession } from '../lib/gameHistoryShape';
 import { sessionWorkSeconds } from '../lib/profileStats';
-import { formatDuration } from '../lib/formatters';
+import { formatClock } from '../lib/formatters';
 import { goBackSafe } from '../lib/navigation';
 import { fonts } from '../lib/fonts';
 import { BOTTOM_GAP, PAIR_GAP, ROUND_SIZE, SIDE_GAP } from '../lib/buttonTokens';
@@ -19,6 +19,7 @@ import { useUiScale, scaled } from '../lib/responsive';
 import { haptic } from '../hooks/useHaptic';
 import { loadCooldownMap, getCooldownStatus } from '../lib/cooldown';
 import { loadIsPremium } from '../lib/premium';
+import { denyCooldown } from '../hooks/usePremiumGate';
 
 export default function SessionDetail() {
   const router = useRouter();
@@ -44,8 +45,8 @@ export default function SessionDetail() {
       const map = await loadCooldownMap();
       const status = getCooldownStatus(map, session.timerId);
       if (status.isLocked) {
-        haptic.warning();
-        router.replace('/premium');
+        // Pop-up Premium commun : on reste sur le détail de la séance.
+        denyCooldown();
         return;
       }
     }
@@ -75,9 +76,9 @@ export default function SessionDetail() {
   }
 
   const dateLabel = formatDateLabel(new Date(session.date));
-  const restValue = session.restTotal > 0 ? formatDuration(session.restTotal) : '—';
+  const restValue = session.restTotal > 0 ? formatClock(session.restTotal) : '—';
   // Même règle que le temps sous tension du Profil (lib/profileStats.js).
-  const workValue = formatDuration(sessionWorkSeconds(session));
+  const workValue = formatClock(sessionWorkSeconds(session));
   const isGame = isGameSession(session);
   const roundsLabel = isGame
     ? String(session.reps || 0)
@@ -135,7 +136,7 @@ export default function SessionDetail() {
                   { fontSize: durationSize, lineHeight: Math.round(durationSize * 1.1) },
                 ]}
               >
-                {formatDuration(session.durationSeconds || 0)}
+                {formatClock(session.durationSeconds || 0)}
               </Text>
               <View style={styles.intensityRow}>
                 <View style={[styles.intensityBar, { backgroundColor: session.color }]} />

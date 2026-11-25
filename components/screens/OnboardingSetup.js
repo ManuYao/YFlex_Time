@@ -23,8 +23,8 @@ const AMBIANCE = [
   { value: 'none', label: 'Aucune' },
 ];
 const AMBIANCE_SUBS = {
-  auto: "Les saisons et quelques moments de l'année.",
-  seasons: 'Les quatre saisons seulement.',
+  auto: "Les saisons et les fêtes de l'année (Halloween, Noël…).",
+  seasons: 'Les quatre saisons seulement, sans aucune fête.',
   none: "L'app reste simple, sans décor de saison.",
 };
 

@@ -1,0 +1,19 @@
+# Fins de ligne : LF partout, dans le dépôt ET dans les dossiers de travail, quel que soit le système.
+# Même contenu = même empreinte native dans tous les clones (voir CLAUDE.md, ÉTAT DES APK ET DES OTA).
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.mp3 binary
+*.wav binary
+*.ogg binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.apk binary
+*.aab binary
+*.jar binary
+*.zip binary

@@ -81,7 +81,7 @@ export default function ProgressionSheet({ screenH, suggestion, onAdjust, onClos
           </View>
 
           <Text style={styles.body}>
-            Tu l'as fait {count} fois sur {weeks} semaines, toujours à {kg(weight)} kg. Ton corps
+            Tu l'as fait {count} séances de suite à {kg(weight)} kg, sur {weeks} semaine{weeks > 1 ? 's' : ''}. Ton corps
             s'est adapté : c'est le bon moment pour ajouter un cran. Un petit pas à la fois,
             c'est comme ça qu'on progresse sans se blesser.
           </Text>

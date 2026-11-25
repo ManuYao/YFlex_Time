@@ -1,7 +1,7 @@
 // Icône de l'application qui change avec la saison / la fête (Android).
 //
 // Une « activity-alias » par variante (base, printemps, été, automne, hiver,
-// fin d'année, Halloween, Saint-Valentin), une seule activée à la fois par le
+// Noël, fin d'année, Halloween, Saint-Valentin), une seule activée à la fois par le
 // module natif modules/season-icon (PackageManager). MainActivity perd son
 // filtre LAUNCHER (sinon deux icônes dans le lanceur) : ce sont les alias qui
 // portent le lancement ; ses autres filtres (liens profonds) restent.
@@ -13,7 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const { withAndroidManifest, withDangerousMod, AndroidConfig } = require('expo/config-plugins');
 
-const VARIANTS = ['base', 'spring', 'summer', 'autumn', 'winter', 'yearend', 'halloween', 'valentine'];
+const VARIANTS = ['base', 'spring', 'summer', 'autumn', 'winter', 'christmas', 'yearend', 'halloween', 'valentine'];
 const SRC = path.join(__dirname, '..', 'design', 'android-icons');
 
 const withAliases = (config) =>

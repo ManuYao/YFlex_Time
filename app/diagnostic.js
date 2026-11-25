@@ -19,6 +19,36 @@ import {
 import { describeNative, diagnoseNative } from '../lib/nativeMemoryShape';
 import { getEcoDebug, subscribeEcoDebug, setEcoSimulation } from '../lib/batteryEco';
 import { getLightDebug, subscribeLightDebug, setHeatSimulation } from '../lib/lightMode';
+import {
+  getGameAudioEvents,
+  subscribeGameAudioLog,
+  clearGameAudioLog,
+  formatGameAudioLog,
+  formatGameAudioTime,
+  GAME_AUDIO_WARN_TAGS,
+} from '../lib/gameAudioLog';
+import { copyToClipboard } from '../lib/clipboard';
+import {
+  getOrientationState,
+  loadOrientationTest,
+  setOrientationTest,
+  subscribeOrientationState,
+} from '../lib/orientationState';
+import {
+  getWindowEvents,
+  subscribeWindowLog,
+  clearWindowLog,
+  formatWindowLog,
+  formatWindowTime,
+  WINDOW_WARN_TAGS,
+} from '../lib/windowLog';
+
+// Modes de TEST du verrou d'orientation (lib/orientationState.js).
+const ORIENTATION_CHOICES = [
+  { mode: 'normal', label: 'Normal : comme avant' },
+  { mode: 'soft', label: 'Souple : ne tourne pas, ne force pas le portrait' },
+  { mode: 'none', label: 'Aucun : l\'app peut tourner' },
+];
 
 const LIGHT_LABELS = ['Normaux', 'Ralentis', 'Coupés'];
 import {
@@ -45,6 +75,11 @@ export default function Diagnostic() {
   const [track, setTrack] = useState(null);
   const [eco, setEco] = useState(getEcoDebug());
   const [light, setLight] = useState(getLightDebug());
+  const [gameLog, setGameLog] = useState(getGameAudioEvents());
+  const [logCopied, setLogCopied] = useState(false);
+  const [testMode, setTestMode] = useState(getOrientationState().testMode);
+  const [winLog, setWinLog] = useState(getWindowEvents());
+  const [winCopied, setWinCopied] = useState(false);
   const readable = isMemoryReadable();
   // Mémoire NATIVE, chauffe, processeur par fil : seulement avec le module natif
   // de l'APK récent (sinon rien n'est affiché ni mesuré).
@@ -65,6 +100,12 @@ export default function Diagnostic() {
     loadMemoryBadge();
     return subscribeMemoryBadge(setBadgeOn);
   }, []);
+  useEffect(() => subscribeGameAudioLog(() => setGameLog(getGameAudioEvents())), []);
+  useEffect(() => {
+    loadOrientationTest();
+    return subscribeOrientationState((s) => setTestMode(s.testMode));
+  }, []);
+  useEffect(() => subscribeWindowLog(() => setWinLog(getWindowEvents())), []);
 
   return (
     <GradientBackground colors={['#1A1A1A', '#0A0A0A', '#000000']} ambient>
@@ -279,11 +320,138 @@ export default function Diagnostic() {
           </View>
 
           <View style={styles.card}>
+            <Text style={styles.cardKicker}>VOIX DU COACH ET DES JEUX (JOURNAL)</Text>
+            {gameLog.length === 0 ? (
+              <Text style={[styles.cardBody, styles.perfHint]}>
+                Lance une séance avec le coach vocal, ou un jeu avec la voix qui compte : chaque
+                phrase dite, chaque coupure et chaque perte du son s'enregistrent ici. Reviens
+                après une séance ou une partie capricieuse (musique en fond, appel en cours),
+                puis copie le journal.
+              </Text>
+            ) : (
+              <>
+                {gameLog
+                  .slice(-80)
+                  .reverse()
+                  .map((e, i) => (
+                    <Text
+                      key={`${e.at}-${i}`}
+                      style={[
+                        styles.eventRow,
+                        GAME_AUDIO_WARN_TAGS.includes(e.tag) ? styles.eventWarn : null,
+                      ]}
+                    >
+                      {`${formatGameAudioTime(e.at)}  ${e.tag}  ${e.detail}`}
+                    </Text>
+                  ))}
+                <Button
+                  variant="glass"
+                  size="md"
+                  label={logCopied ? 'Journal copié' : 'Copier le journal'}
+                  onPress={async () => {
+                    haptic.light();
+                    const ok = await copyToClipboard(formatGameAudioLog());
+                    if (ok) {
+                      setLogCopied(true);
+                      setTimeout(() => setLogCopied(false), 2000);
+                    }
+                  }}
+                  style={[styles.cta, { marginTop: 14 }]}
+                />
+                <Button
+                  variant="glass"
+                  size="md"
+                  label="Vider le journal"
+                  onPress={() => {
+                    haptic.light();
+                    clearGameAudioLog();
+                  }}
+                  style={[styles.cta, { marginTop: 8 }]}
+                />
+              </>
+            )}
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.cardKicker}>FENÊTRE FLOTTANTE (TEST)</Text>
+            <Text style={styles.cardBody}>
+              Pour comprendre pourquoi la pop-up Samsung s'ouvre grande et se redimensionne mal
+              (SmartWOD, lui, s'ouvre petite et bouge dans tous les sens).{'\n'}
+              1. Choisis un verrou ci-dessous.{'\n'}
+              2. Affiche le compteur (carte suivante) : la taille de la fenêtre apparaît en haut à
+              gauche.{'\n'}
+              3. Ferme l'app complètement, rouvre-la, puis ouvre-la en pop-up (glisser-déposer) et
+              essaie de la rétrécir par les bords et par les coins.{'\n'}
+              4. Reviens ici (agrandis la fenêtre si besoin), copie le journal et colle-le dans un
+              message. Remets « Normal » après le test.
+            </Text>
+            {ORIENTATION_CHOICES.map((c) => (
+              <Button
+                key={c.mode}
+                variant={testMode === c.mode ? 'solid' : 'glass'}
+                size="md"
+                label={testMode === c.mode ? `✓ ${c.label}` : c.label}
+                onPress={() => {
+                  haptic.light();
+                  setOrientationTest(c.mode);
+                }}
+                style={[styles.cta, { marginTop: 8 }]}
+              />
+            ))}
+            {winLog.length === 0 ? (
+              <Text style={[styles.cardBody, styles.perfHint, { marginTop: 14 }]}>
+                Le journal de la fenêtre se remplit tout seul : taille à l'ouverture, à chaque
+                redimensionnement, et verrou demandé à Android.
+              </Text>
+            ) : (
+              <>
+                <View style={{ marginTop: 14 }}>
+                  {winLog
+                    .slice(-14)
+                    .reverse()
+                    .map((e, i) => (
+                      <Text
+                        key={`${e.at}-${i}`}
+                        style={[styles.eventRow, WINDOW_WARN_TAGS.includes(e.tag) ? styles.eventWarn : null]}
+                      >
+                        {`${formatWindowTime(e.at)}  ${e.tag}  ${e.detail}`}
+                      </Text>
+                    ))}
+                </View>
+                <Button
+                  variant="glass"
+                  size="md"
+                  label={winCopied ? 'Journal copié' : 'Copier le journal de la fenêtre'}
+                  onPress={async () => {
+                    haptic.light();
+                    const ok = await copyToClipboard(formatWindowLog());
+                    if (ok) {
+                      setWinCopied(true);
+                      setTimeout(() => setWinCopied(false), 2000);
+                    }
+                  }}
+                  style={[styles.cta, { marginTop: 14 }]}
+                />
+                <Button
+                  variant="glass"
+                  size="md"
+                  label="Vider le journal de la fenêtre"
+                  onPress={() => {
+                    haptic.light();
+                    clearWindowLog();
+                  }}
+                  style={[styles.cta, { marginTop: 8 }]}
+                />
+              </>
+            )}
+          </View>
+
+          <View style={styles.card}>
             <Text style={styles.cardTitle}>Compteur sur tous les écrans</Text>
             <Text style={styles.cardBody}>
               Affiche un petit chiffre en haut à droite de chaque écran (mémoire actuelle et plus
               bas atteint), pour le suivre pendant que tu utilises l'app. Aucun coût quand il est
-              coupé.
+              coupé. La taille de la fenêtre s'affiche en haut à gauche.
             </Text>
             <Button
               variant={badgeOn ? 'solid' : 'glass'}
@@ -441,6 +609,7 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.75)',
     marginTop: 4,
   },
+  eventWarn: { color: '#FFC933' },
   footnote: {
     fontFamily: fonts.sansMedium,
     fontSize: 11,

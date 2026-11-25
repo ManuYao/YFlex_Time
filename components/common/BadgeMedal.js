@@ -1,15 +1,18 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import Svg, { Circle, Defs, G, Line, LinearGradient, Path, RadialGradient, Rect, Stop } from 'react-native-svg';
+import Svg, { Circle, Defs, G, LinearGradient, Path, RadialGradient, Rect, Stop } from 'react-native-svg';
 
 import { fonts } from '../../lib/fonts';
 import { BADGE_TIERS, BADGE_THRESHOLDS } from '../../lib/badges';
+import { TICKS, buildTickPaths, orEmpty } from '../../lib/medalGeometry';
 
 // Même grammaire que TickRing : 60 graduations, une sur cinq plus longue.
 // Le trophée est donc l'anneau de l'app, pas une médaille générique — et les
 // graduations allumées encodent le palier (un tiers, deux tiers, complet),
 // donc la forme dit déjà lequel on regarde avant même de lire le chiffre.
-const TICKS = 60;
+//
+// Depuis la 18.16.0 les graduations sont regroupées en quelques tracés (lib/medalGeometry.js)
+// au lieu de 60 éléments : la page Trophées montre 68 médailles d'un coup. Dessin identique.
 
 // ⚠️ Couleurs en hexadécimal OPAQUE uniquement, jamais en `rgba()` :
 // react-native-svg ignore la composante alpha d'un rgba() passé à `stopColor`
@@ -44,7 +47,14 @@ export const tierThreshold = (timerId, tierKey) => {
   return (BADGE_THRESHOLDS[timerId] || BADGE_THRESHOLDS.amrap)[i];
 };
 
-export default function BadgeMedal({
+// Taille du texte au centre selon sa longueur : « 150 » tient à la taille d'origine, « 1h30 »
+// ou « 5000 » demandent un peu moins de place dans le cœur.
+const labelScale = (text) => {
+  const n = String(text).length;
+  return n <= 3 ? 0.26 : n === 4 ? 0.22 : 0.19;
+};
+
+function BadgeMedal({
   tier,
   size = 96,
   locked = false,
@@ -84,27 +94,12 @@ export default function BadgeMedal({
   const claspY = c + ring * 0.285;
   const lockScale = claspR / 12;
 
-  const ticks = [];
-  for (let i = 0; i < TICKS; i++) {
-    const a = (i / TICKS) * Math.PI * 2 - Math.PI / 2;
-    const major = i % 5 === 0;
-    const inner = outer - ring * (major ? 0.108 : 0.075);
-    // Un palier en cours garde ses graduations à SA couleur : voir l'anneau
-    // de l'or se remplir en doré motive plus qu'un gris uniforme.
-    ticks.push(
-      <Line
-        key={i}
-        x1={c + Math.cos(a) * inner}
-        y1={c + Math.sin(a) * inner}
-        x2={c + Math.cos(a) * outer}
-        y2={c + Math.sin(a) * outer}
-        stroke={i < active ? tierPalette.hi : TICK_OFF}
-        strokeOpacity={i < active ? 1 : major ? TICK_OFF_MAJOR_OPACITY : TICK_OFF_OPACITY}
-        strokeWidth={ring * (major ? 0.025 : 0.015)}
-        strokeLinecap="round"
-      />
-    );
-  }
+  // Un palier en cours garde ses graduations à SA couleur : voir l'anneau
+  // de l'or se remplir en doré motive plus qu'un gris uniforme.
+  const ticks = useMemo(
+    () => buildTickPaths({ c, outer, ring, active }),
+    [c, outer, ring, active]
+  );
 
   return (
     // `overflow: 'hidden'` est une ceinture de sécurité, pas de la décoration :
@@ -128,7 +123,36 @@ export default function BadgeMedal({
           )}
         </Defs>
         {glow && <Circle cx={c} cy={c} r={c} fill={`url(#${glowId})`} />}
-        {ticks}
+        <Path
+          d={orEmpty(ticks.off.minor)}
+          fill="none"
+          stroke={TICK_OFF}
+          strokeOpacity={TICK_OFF_OPACITY}
+          strokeWidth={ring * 0.015}
+          strokeLinecap="round"
+        />
+        <Path
+          d={orEmpty(ticks.off.major)}
+          fill="none"
+          stroke={TICK_OFF}
+          strokeOpacity={TICK_OFF_MAJOR_OPACITY}
+          strokeWidth={ring * 0.025}
+          strokeLinecap="round"
+        />
+        <Path
+          d={orEmpty(ticks.lit[0].minor)}
+          fill="none"
+          stroke={tierPalette.hi}
+          strokeWidth={ring * 0.015}
+          strokeLinecap="round"
+        />
+        <Path
+          d={orEmpty(ticks.lit[0].major)}
+          fill="none"
+          stroke={tierPalette.hi}
+          strokeWidth={ring * 0.025}
+          strokeLinecap="round"
+        />
         {/* Verrouillé : cœur sombre NEUTRE plutôt que le dégradé du palier.
             La feuille laisse voir le fond coloré du mode, et un cœur
             translucide teinté s'y confondait. C'est aussi lui qui porte le
@@ -186,7 +210,7 @@ export default function BadgeMedal({
           <Text
             style={[
               styles.value,
-              { fontSize: ring * 0.26, color: locked ? tierPalette.hi : '#0A0A0A' },
+              { fontSize: ring * labelScale(label), color: locked ? tierPalette.hi : '#0A0A0A' },
             ]}
             numberOfLines={1}
           >
@@ -197,6 +221,8 @@ export default function BadgeMedal({
     </View>
   );
 }
+
+export default React.memo(BadgeMedal);
 
 const styles = StyleSheet.create({
   // Centrage par flexbox, pas par `textAlignVertical` (Android seulement, et

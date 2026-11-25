@@ -15,6 +15,7 @@ const PAL = {
   summer: { a: '#FFC93A', b: '#4CC9FF' },
   autumn: { a: '#FF9A2E', b: '#E8512B' },
   winter: { a: '#A9D4FF', b: '#FFFFFF' },
+  christmas: { a: '#FF4F64', b: '#FFD76A' }, // rouge des cadeaux, or (le vert est déjà le fond de l'icône)
   yearend: { a: '#FFE08A', b: '#C9B8FF' },
   halloween: { a: '#FF8A2B', b: '#9D6BFF' },
   valentine: { a: '#FF6F9C', b: '#FFC1D6' },
@@ -44,6 +45,10 @@ function shape(kind, accent, sw) {
       return `<g transform="scale(0.19)" fill="#FFFFFF" fill-opacity="0.9"><path d="M0 -6C3 -10 6 -10 8 -6C14 -12 22 -12 30 -6C26 -4 25 0 26 6C22 2 18 3 16 8C13 4 9 5 8 10C6 6 2 6 0 12C-2 6 -6 6 -8 10C-9 5 -13 4 -16 8C-18 3 -22 2 -26 6C-25 0 -26 -4 -30 -6C-22 -12 -14 -12 -8 -6C-6 -10 -3 -10 0 -6Z"/><path d="M-6 -7L-4 -15L0 -9L4 -15L6 -7Z"/></g>`;
     case 'heart':
       return `<path d="M0 -1.2C-0.6 -3.2 -4.2 -3 -4.2 -0.2C-4.2 1.8 -1.2 3.5 0 4.7C1.2 3.5 4.2 1.8 4.2 -0.2C4.2 -3 0.6 -3.2 0 -1.2Z" fill="${accent}" fill-opacity="0.7" ${st}/>`;
+    case 'gift':
+      return `<path d="M-4.4 -1.9L4.4 -1.9L4.4 4.8L-4.4 4.8Z" fill="${accent}" fill-opacity="0.8" ${st}/><path d="M-4.4 0.2L4.4 0.2M0 -1.9L0 4.8" fill="none" ${st} stroke-opacity="0.85"/><path d="M0 -1.9C-0.5 -4.5 -3.3 -4.9 -2.7 -3.2C-2.3 -2.3 -1.1 -2 0 -1.9C1.1 -2 2.3 -2.3 2.7 -3.2C3.3 -4.9 0.5 -4.5 0 -1.9Z" fill="none" ${st}/>`;
+    case 'bauble':
+      return `<circle cy="1.1" r="3.7" fill="${accent}" fill-opacity="0.8" ${st}/><path d="M-1.1 -3.4L1.1 -3.4L1.1 -2.4L-1.1 -2.4Z" fill="${INK}" fill-opacity="0.9"/><circle cy="-4.5" r="1" fill="none" ${st}/><path d="M-2.2 0.4C-2 -0.6 -1.4 -1.2 -0.6 -1.4" fill="none" ${st} stroke-opacity="0.7"/>`;
     default:
       return '';
   }
@@ -89,6 +94,8 @@ const MOTIFS = {
   summer: build('summer', ['mote', 'mote', 'mote', 'mote'], 'mote', [PAL.summer.a, PAL.summer.b]),
   autumn: build('autumn', ['leaf', 'leaf', 'leaf', 'leaf'], 'leaf', [PAL.autumn.a, PAL.autumn.b]),
   winter: build('winter', ['flake', 'dot', 'flake', 'dot'], 'flake', [PAL.winter.a, PAL.winter.b]),
+  // Noël : un grand cadeau en haut à droite, une boule, un cadeau, et des flocons en petits points.
+  christmas: build('christmas', ['flake', 'gift', 'bauble', 'gift'], 'gift', [PAL.christmas.a, PAL.christmas.b]),
   yearend: build('yearend', ['star', 'dot', 'star', 'dot'], 'star', [PAL.yearend.a, PAL.yearend.b]),
   halloween: build('halloween', ['ember', 'ember', 'ember', 'ember'], 'bat', [PAL.halloween.a, PAL.halloween.b]),
   valentine: build('valentine', ['heart', 'heart', 'heart', 'dot'], 'heart', [PAL.valentine.a, PAL.valentine.b]),

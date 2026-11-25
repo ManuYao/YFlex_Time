@@ -4,6 +4,11 @@ import { View, StyleSheet } from 'react-native';
 import { SkeletonGroup, SkeletonBlock } from '../common/Skeleton';
 
 const AVATAR = 96;
+
+// Hauteur de la carte « Trophées » (components/screens/ProfileTrophies.js) avec ses « derniers
+// gagnés » : anneau 112 + « le prochain » 73 + derniers gagnés 197 (médailles 52 + textes + bouton 48).
+// Un tout nouveau profil, sans trophée gagné, a une carte un peu plus courte (262).
+const TROPHY_CARD_HEIGHT = 382;
 // Hauteurs des barres de l'histogramme factice : inégales exprès, un histogramme
 // aux barres toutes pareilles ressemble à une règle, pas à un graphique.
 const BARS = [58, 84, 46, 112, 76, 128, 66, 96];
@@ -130,27 +135,15 @@ export default function ProfileSkeleton({ showAccount = true, weightCount = 0 })
         </View>
       </View>
 
-      {/* ── Trophées : cinq modes, trois médailles chacun ── */}
+      {/* ── Trophées : anneau, « le prochain », derniers gagnés, bouton ── */}
       <View style={styles.section}>
         <View style={styles.titleSlot}>
           <SkeletonBlock width={64} height={10} radius={5} />
         </View>
-        <View style={styles.card}>
-          {[0, 1, 2, 3, 4].map((i) => (
-            <View key={i} style={[styles.trophyRow, i > 0 && styles.navRowDivider]}>
-              <SkeletonBlock width={34} height={34} radius={17} />
-              <View style={styles.navText}>
-                <SkeletonBlock width={70} height={13} radius={7} />
-                <SkeletonBlock width={110} height={9} radius={5} />
-              </View>
-              <View style={styles.medals}>
-                <SkeletonBlock width={38} height={38} radius={19} />
-                <SkeletonBlock width={38} height={38} radius={19} />
-                <SkeletonBlock width={38} height={38} radius={19} />
-              </View>
-            </View>
-          ))}
+        <View style={styles.hintSlot}>
+          <SkeletonBlock width={210} height={11} radius={6} />
         </View>
+        <SkeletonBlock height={TROPHY_CARD_HEIGHT} radius={18} />
       </View>
     </SkeletonGroup>
   );
@@ -185,6 +178,12 @@ const styles = StyleSheet.create({
   // Même hauteur que le titre de section réel (10 px de texte + 8 de marge).
   titleSlot: {
     height: 21,
+    paddingHorizontal: 4,
+    paddingTop: 2,
+  },
+  // Même hauteur que la phrase d'explication d'une section (12,5 px + 10 de marge).
+  hintSlot: {
+    height: 27,
     paddingHorizontal: 4,
     paddingTop: 2,
   },
@@ -257,16 +256,5 @@ const styles = StyleSheet.create({
   navText: {
     flex: 1,
     gap: 8,
-  },
-  trophyRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  medals: {
-    flexDirection: 'row',
-    gap: 3,
   },
 });

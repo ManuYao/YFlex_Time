@@ -11,6 +11,7 @@ import Animated, {
 
 import AppIcon from '../common/AppIcon';
 import BadgeMedal from '../common/BadgeMedal';
+import TrophyMedal from '../common/TrophyMedal';
 import Button from '../common/Button';
 import HeatmapGrid from '../common/HeatmapGrid';
 import TickRing from '../common/TickRing';
@@ -237,16 +238,22 @@ export function TrophiesCard({ recap, ink }) {
       </Reveal>
       <View style={styles.medals}>
         {list.map((t, i) => (
-          <Reveal key={`${t.timerId}-${t.tier}`} delay={120 + i * 110} style={styles.medalItem}>
-            <BadgeMedal tier={t.tier} size={86} value={t.threshold} timerId={t.timerId} glow />
-            <Text style={[styles.medalName, { color: ink.primary }]}>{t.name}</Text>
-            <Text style={[styles.medalTier, { color: ink.tertiary }]}>{t.tierLabel}</Text>
+          <Reveal key={`${t.id}-${t.tier || 'done'}`} delay={120 + i * 110} style={styles.medalItem}>
+            {t.tier ? (
+              <BadgeMedal tier={t.tier} size={86} value={t.short} glow />
+            ) : (
+              <TrophyMedal kind={t.kind} size={86} icon={t.icon} colors={t.colors || ['#FFFFFF']} revealed glow />
+            )}
+            <Text style={[styles.medalName, { color: ink.primary }]} numberOfLines={2}>
+              {t.name}
+            </Text>
+            <Text style={[styles.medalTier, { color: ink.tertiary }]}>{t.tagLabel}</Text>
           </Reveal>
         ))}
       </View>
       <Reveal delay={200 + list.length * 110}>
         <Text style={[styles.caption, { color: ink.tertiary }]}>
-          {`${recap.trophies.length} ${plural(recap.trophies.length, 'palier franchi', 'paliers franchis')} cette saison.`}
+          {`${recap.trophies.length} ${plural(recap.trophies.length, 'trophée gagné', 'trophées gagnés')} cette saison.`}
         </Text>
       </Reveal>
     </View>

@@ -31,6 +31,7 @@ import { loadComboScores } from '../lib/gameComboStore';
 import { loadProfile } from '../lib/profile';
 import { computeSeasonRecap, seasonRangeByKey } from '../lib/seasonRecap';
 import { markSeasonSeen } from '../lib/seasonRecapState';
+import { loadTrophyEvaluation } from '../lib/trophyLoader';
 import { playSound } from '../lib/sounds';
 import { TIMERS } from '../lib/timers-config';
 import { getTokens } from '../lib/tokens';
@@ -107,7 +108,15 @@ export default function SeasonRecap() {
         loadComboScores(),
       ]);
       if (cancelled) return;
-      const recap = computeSeasonRecap(sessions, TIMERS, range, { archives, games: { count, pyramid, combo } });
+      // Les trophées de la saison, avec leur date (lib/trophyLoader.js) : ceux gagnés avant la
+      // sortie des nouveaux trophées y sont aussi, ils n'avaient jamais été annoncés.
+      const evaluation = await loadTrophyEvaluation({ sessions });
+      if (cancelled) return;
+      const recap = computeSeasonRecap(sessions, TIMERS, range, {
+        archives,
+        games: { count, pyramid, combo },
+        trophyEvents: evaluation.recent,
+      });
       setData({ recap, pseudo: profile?.pseudo });
       markSeasonSeen(range.key);
     })();

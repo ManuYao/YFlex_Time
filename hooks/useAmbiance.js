@@ -13,6 +13,8 @@ import {
 } from '../lib/ambiance';
 import { useLightLevel } from '../lib/lightMode';
 import { useEcoCritApplied } from '../lib/batteryEco';
+// OUTIL DE TEST (développement seulement) : voir lib/ambianceDevPreview.js.
+import { useDevAmbiance } from '../lib/ambianceDevPreview';
 
 /**
  * L'ambiance du moment : { mode, id, ambiance } — `ambiance` vaut null quand il n'y en a
@@ -43,6 +45,8 @@ function useBaseAmbiance() {
   const { settings } = useSettings();
   const mode = normalizeAmbianceMode(settings.ambianceMode);
   const [today, setToday] = useState(() => new Date());
+  // Ambiance forcée par l'outil de test (développement seulement, jamais hors `__DEV__`).
+  const forced = useDevAmbiance();
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
@@ -55,7 +59,14 @@ function useBaseAmbiance() {
     return () => sub.remove();
   }, []);
 
-  return useMemo(() => ambianceFor(mode, today), [mode, today]);
+  return useMemo(() => {
+    // « Saisons » retire les fêtes même forcées : on voit l'effet du choix pendant le test.
+    const forcedOk = forced && mode !== 'none' && (mode === 'auto' || getAmbiance(forced)?.kind === 'season');
+    if (__DEV__ && forcedOk) {
+      return { mode, id: forced, ambiance: getAmbiance(forced), forced: true };
+    }
+    return ambianceFor(mode, today);
+  }, [mode, today, forced]);
 }
 
 /**
@@ -71,8 +82,9 @@ export default function useAmbiance() {
   const level = useLightLevel();
   const crit = useEcoCritApplied(); // batterie à 10 % ou moins : même la lueur est coupée
   return useMemo(
-    // `ecoAmbiance` : ambiance gardée pour que AmbianceBackdrop dessine au minimum la lueur de la
-    // saison, FIXE, quand tout le reste est coupé (sauf batterie critique, ≤ 10 % : rien du tout).
+    // `ecoAmbiance` : l'ambiance qui serait affichée, gardée pour que le décor (AmbianceBackdrop)
+    // puisse dessiner au minimum la lueur de la saison, FIXE, quand tout le reste est coupé
+    // (sauf batterie critique, ≤ 10 % : alors rien du tout).
     () =>
       level >= 2 && value.ambiance
         ? { ...value, ambiance: null, eco: true, ecoAmbiance: crit ? null : value.ambiance }

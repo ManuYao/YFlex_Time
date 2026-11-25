@@ -8,7 +8,7 @@ import Animated from 'react-native-reanimated';
 import GradientBackground from '../components/common/GradientBackground';
 import IconButton from '../components/common/IconButton';
 import MixPill from '../components/common/MixPill';
-import ModeStatsSheet from '../components/common/ModeStatsSheet';
+import TrophyDetailSheet from '../components/common/TrophyDetailSheet';
 import DisciplineSheet from '../components/common/DisciplineSheet';
 import MixPublicSheet from '../components/common/MixPublicSheet';
 import MixShareSheet from '../components/common/MixShareSheet';
@@ -26,11 +26,13 @@ import ProfileSeasonRow from '../components/screens/ProfileSeasonRow';
 import { useTimers } from '../contexts/TimersContext';
 import { useAuth } from '../contexts/AuthContext';
 import { usePremium } from '../hooks/usePremium';
+import { denyPremium } from '../hooks/usePremiumGate';
+import { gatePromptText } from '../lib/premiumFeatures';
 import { useScreenReady } from '../hooks/useScreenReady';
 import { haptic } from '../hooks/useHaptic';
 import { goBackSafe } from '../lib/navigation';
 import { fonts } from '../lib/fonts';
-import { getBadgeProgress } from '../lib/badges';
+import { loadTrophyEvaluation } from '../lib/trophyLoader';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   loadProfile,
@@ -68,7 +70,9 @@ export default function Profile() {
   // Mix proposé à la publication depuis le Profil (null = feuille fermée).
   const [publishMixSheet, setPublishMixSheet] = useState(null);
   const [feedRefresh, setFeedRefresh] = useState(0);
-  const [statsTimerId, setStatsTimerId] = useState(null);
+  // Trophées (lib/trophyLoader.js) : le résumé du Profil et la fiche ouverte au toucher.
+  const [trophyEval, setTrophyEval] = useState(null);
+  const [trophySheet, setTrophySheet] = useState(null); // null | { state, tierIndex }
   const [logoutConfirm, setLogoutConfirm] = useState(false);
   const [pseudoSheet, setPseudoSheet] = useState(null); // null | 'edit' | 'welcome' | 'taken'
   // Suivi du poids (local) : lu avec le reste, pour que la hauteur de la page
@@ -105,11 +109,17 @@ export default function Profile() {
     React.useCallback(() => {
       let cancelled = false;
       (async () => {
-        const [prof, hist, kgs] = await Promise.all([loadProfile(), loadHistory(), loadBodyWeights()]);
+        const [prof, hist, kgs, trophies] = await Promise.all([
+          loadProfile(),
+          loadHistory(),
+          loadBodyWeights(),
+          loadTrophyEvaluation(),
+        ]);
         if (cancelled) return;
         setProfile(prof);
         setSessions(hist);
         setWeights(kgs);
+        setTrophyEval(trophies);
         setDataLoaded(true);
       })();
       return () => {
@@ -210,18 +220,6 @@ export default function Profile() {
     [profile, stats.oldestSessionDate]
   );
 
-  // Trophées réels
-  const trophies = useMemo(() => {
-    let unlocked = 0;
-    for (const t of timers) {
-      const count = stats.badgeCounts?.[t.id] ?? 0;
-      unlocked += getBadgeProgress(t.id, count).tiers.filter((x) => x.unlocked).length;
-    }
-    return { unlocked, total: timers.length * 3 };
-  }, [timers, stats.badgeCounts]);
-
-  const statsTimer = statsTimerId ? timers.find((t) => t.id === statsTimerId) : null;
-
   return (
     <View style={styles.root}>
       <BlurTargetView ref={blurTargetRef} style={StyleSheet.absoluteFill}>
@@ -263,8 +261,8 @@ export default function Profile() {
                 isPremium={isPremium}
                 streak={stats.streak}
                 bestStreak={stats.bestStreak}
-                trophyCount={trophies.unlocked}
-                trophyTotal={trophies.total}
+                trophyCount={trophyEval?.unlockedCount ?? 0}
+                trophyTotal={trophyEval?.total ?? 0}
                 onEditDisciplines={() => setDisciplineSheet(true)}
                 onEditPseudo={() => setPseudoSheet('edit')}
                 accountConnected={!!user}
@@ -275,6 +273,7 @@ export default function Profile() {
                 stats={stats}
                 isPremium={isPremium}
                 onGoPremium={() => router.push('/premium')}
+                onLockedPress={() => denyPremium(gatePromptText('stats.advanced'))}
                 onOpenAnalysis={() => router.push('/analysis')}
                 weightSlot={
                   <ProfileWeight
@@ -295,9 +294,9 @@ export default function Profile() {
                 onOpen={(key) => router.push({ pathname: '/season-recap', params: { key } })}
               />
               <ProfileGamification
-                badgeCounts={stats.badgeCounts}
-                hasData={stats.hasData}
-                onOpenModeStats={setStatsTimerId}
+                evaluation={trophyEval}
+                onOpenAllTrophies={() => router.push('/trophies')}
+                onOpenTrophy={(state, tierIndex) => setTrophySheet({ state, tierIndex })}
               />
               </Animated.View>
               )}
@@ -362,17 +361,13 @@ export default function Profile() {
           onOpenFeed={() => setPublicMixSheet(true)}
         />
       )}
-      {statsTimer && (
-        <ModeStatsSheet
-          timer={statsTimer}
-          stats={{
-            count: stats.badgeCounts?.[statsTimer.id] ?? 0,
-            totalSeconds: stats.modeSeconds?.[statsTimer.id] ?? 0,
-            timeLabel: stats.modeTimeLabels?.[statsTimer.id] ?? '0min',
-          }}
+      {trophySheet && (
+        <TrophyDetailSheet
           screenH={screenH}
-          blurTargetRef={blurTargetRef}
-          onClose={() => setStatsTimerId(null)}
+          state={trophySheet.state}
+          tierIndex={trophySheet.tierIndex ?? null}
+          isPremium={isPremium}
+          onClose={() => setTrophySheet(null)}
         />
       )}
       {logoutConfirm && (

@@ -27,12 +27,22 @@ import { useGameExerciseTag } from '../hooks/useGameExerciseTag';
 import { exercisesLabel, shouldHalo } from '../lib/gameExercises';
 import { useSettings } from '../contexts/SettingsContext';
 import { haptic } from '../hooks/useHaptic';
+import PremiumTag from '../components/common/PremiumTag';
+import { usePremiumGate } from '../hooks/usePremiumGate';
+import { GAME_GATES } from '../lib/premiumFeatures';
 import { useKeyboardHeight, scrollToFocusedInput } from '../hooks/useKeyboardHeight';
 import { fonts } from '../lib/fonts';
 import { goBackSafe } from '../lib/navigation';
 import { DEFAULT_TEMPO, TEMPOS } from '../lib/gameCount';
 import { playGameGo, preloadGameSounds } from '../lib/gameSounds';
-import { areGameWordsReady, prepareGameWords, speakGame, stopVoiceCoach } from '../lib/voiceCoach';
+import {
+  areGameWordsReady,
+  holdGameFocus,
+  prepareGameWords,
+  releaseGameFocus,
+  speakGame,
+  stopVoiceCoach,
+} from '../lib/voiceCoach';
 import {
   loadComboScores,
   saveComboScore,
@@ -42,6 +52,7 @@ import {
   setComboScoreExercises,
 } from '../lib/gameComboStore';
 import { recordGameSession, setGameSessionExercises } from '../lib/gameHistory';
+import useTrophySheet from '../hooks/useTrophySheet';
 import {
   DEFAULT_SETUP,
   EXO_MAX,
@@ -91,7 +102,19 @@ export default function GameCombo() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
+  const { announce: announceTrophy, trophySheet } = useTrophySheet('game');
   const { settings } = useSettings();
+  const { locked, deny } = usePremiumGate();
+
+  // Combo Bi-Exo est réservé à Premium. Le menu des jeux refuse déjà le toucher ; ce filet
+  // couvre un accès direct (lien, démo) : on ressort de l'écran (retour au menu des jeux) et
+  // le pop-up Premium commun explique pourquoi, sans rien jouer.
+  const comboLocked = locked(GAME_GATES.combo);
+  useEffect(() => {
+    if (!comboLocked) return;
+    goBackSafe(router, '/games');
+    deny(GAME_GATES.combo);
+  }, [comboLocked, router, deny]);
 
   const [phase, setPhase] = useState('ready'); // ready | countdown | playing | done
   const [tempoId, setTempoId] = useState(DEFAULT_TEMPO);
@@ -156,6 +179,7 @@ export default function GameCombo() {
 
   const releaseGame = () => {
     clearTimers();
+    releaseGameFocus();
     stopVoiceCoach();
     try { deactivateKeepAwake(KEEP_AWAKE_TAG); } catch {}
   };
@@ -230,6 +254,9 @@ export default function GameCombo() {
       // La règle de la bulle (lib/gameTagTip.js) : si elle doit être montrée, ce sera sur le menu
       // du jeu, dès qu'on y revient.
       tag.noteGameFinished();
+      // Trophée gagné dans cette partie : annoncé ici, à la fin de la partie (lib/badgeCelebration.js).
+      // Grande annonce ou notification selon sa rareté (hooks/useTrophySheet.js).
+      announceTrophy();
     }
   };
 
@@ -317,6 +344,7 @@ export default function GameCombo() {
     };
     cfgRef.current = { tempoId, setup: clean, gender: settings.voiceGender };
     saveComboSetup(clean);
+    holdGameFocus(); // focus audio tenu toute la partie (voir lib/voiceCoach.js)
     activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(() => {});
     // Son décodé d'avance, sinon le bip final saute.
     preloadGameSounds();
@@ -462,7 +490,10 @@ export default function GameCombo() {
               scrollEventThrottle={32}
             >
               <View ref={contentRef} collapsable={false} style={styles.readyInner}>
-                <Text style={styles.tag}>JEU · DEUX MOTS, DEUX EXERCICES</Text>
+                <View style={styles.tagRow}>
+                  <Text style={styles.tag}>JEU · DEUX MOTS, DEUX EXERCICES</Text>
+                  <PremiumTag />
+                </View>
                 <Text style={styles.rules}>
                   Choisis deux mots et un exercice pour chacun. La voix en crie un au hasard : tu fais
                   tout de suite UNE répétition de l’exercice qui va avec. Enchaîne pendant 3 min 30. Le
@@ -519,7 +550,7 @@ export default function GameCombo() {
                   scores={scores}
                   accent={ACCENT}
                   getValue={scoreValue}
-                  renderRow={(s, inDay) => (
+                  renderRow={(s) => (
                     // Maintenir 1 s une ligne = noter (ou changer) son exercice ; le halo
                     // n'éclaire que le dernier score, tant qu'il n'a pas d'exercice.
                     <HoldToTag
@@ -534,7 +565,7 @@ export default function GameCombo() {
                       <Text style={styles.scoreCount}>{s.total}</Text>
                       <Text style={styles.scoreMeta} numberOfLines={1}>
                         {TEMPOS[s.tempo]?.label} · {s.detail || s.words}
-                        {inDay ? '' : ` · ${formatDay(s.at)}`}
+                        {` · ${formatDay(s.at)}`}
                         {s.complete ? ' · terminée' : ''}
                         {s.exercises?.length ? ` · ${exercisesLabel(s.exercises)}` : ''}
                       </Text>
@@ -678,6 +709,7 @@ export default function GameCombo() {
 
       {/* « Ton exercice » (ouverte seulement quand on maintient un score ; le combo coche d'office
           les deux exercices écrits par le joueur) et la bulle du menu. */}
+      {trophySheet}
       <GameTagOverlays
         tag={tag}
         phase={phase}
@@ -709,6 +741,7 @@ const styles = StyleSheet.create({
   topSpacer: { width: 44 },
   readyContent: { paddingHorizontal: 20 },
   readyInner: { gap: 14 },
+  tagRow: { alignItems: 'center', gap: 8 },
   tag: {
     fontFamily: fonts.sansBold,
     fontSize: 11,

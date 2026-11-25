@@ -9,7 +9,7 @@ import { haptic } from '../../hooks/useHaptic';
 import { MAX_MIX_NOTE, MIX_COLORS, cleanMixColor, cleanMixNote } from '../../lib/mixMeta';
 
 /**
- * Feuille « Couleur et note » d'un MIX (Constructeur : maintien de 3 s sur
+ * Feuille « Couleur et note » d'un MIX (Constructeur : maintien de 1,5 s sur
  * « Enregistrer », ou touche sur la pastille de couleur). Une teinte de la
  * palette (la petite barre des cartes de « Mes mix » et du partage) et une note
  * courte. Rien n'est écrit tant qu'on ne touche pas un des deux boutons du bas :

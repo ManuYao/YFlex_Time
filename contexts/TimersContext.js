@@ -5,6 +5,7 @@ import { TIMERS } from '../lib/timers-config';
 import {
   addToLibrary as persistAddToLibrary,
   receiveMix as persistReceiveMix,
+  applyMixPause as persistMixPause,
   removeFromLibrary as persistRemoveFromLibrary,
   saveCurrentMix as persistCurrentMix,
   loadLibrary,
@@ -15,8 +16,10 @@ import {
   LEGACY_ACTIVE_KEY,
   LIBRARY_MIGRATION_KEY,
 } from '../lib/mixes';
-import { getMixTotalDuration, hasEstimatedDuration } from '../lib/mix-blocks';
+import { getMixTotalDuration, hasEstimatedDuration, healMixIds } from '../lib/mix-blocks';
 import { ensureUid } from '../lib/mixIdentity';
+import { recordTrophyFlag } from '../lib/trophyFacts';
+import { announceTrophies } from '../lib/badgeCelebration';
 
 const STORAGE_KEY = 'flexTimer_timerOverrides';
 
@@ -49,7 +52,10 @@ const applyMixToTimer = (timer, currentMix) => {
         .slice(0, 5)
         .map((b) => (b.label || b.type || '—').toUpperCase().slice(0, 8))
         .concat(blocks.length > 5 ? ['…'] : []);
-  return { ...timer, stats, phases, _mix: currentMix || null };
+  // Le MIX qui se JOUE a toujours des ids de blocs distincts, même si le mix enregistré (ancienne
+  // version) en contenait deux pareils : le chrono, l'écran « Ma séance » et l'écran de fin
+  // lisent tous ce MIX-là, donc ils voient exactement les mêmes ids (réparation déterministe).
+  return { ...timer, stats, phases, _mix: healMixIds(currentMix) || null };
 };
 
 const applyOverrides = (timers, overrides, currentMix) =>
@@ -148,9 +154,10 @@ export function TimersProvider({ children }) {
       withUid && !withUid.publishedId && prev?.publishedId && prev.id === withUid.id
         ? { ...withUid, publishedId: prev.publishedId }
         : withUid;
-    const mix = ensureUid(keepLink);
+    const mix = ensureUid(healMixIds(keepLink));
     setCurrentMixState(mix);
-    await persistCurrentMix(mix);
+    // `false` si l'écriture sur le téléphone a échoué (l'écran concerné le dit).
+    return persistCurrentMix(mix);
   }, []);
 
   // Relie (ou délie, `publishedId` nul) un mix à sa publication dans le fil
@@ -159,6 +166,8 @@ export function TimersProvider({ children }) {
   // s'écrasent entre eux.
   const markPublished = useCallback(async (mixId, publishedId) => {
     if (!mixId) return;
+    // Trophée « Sur scène » : un mix vient d'être publié (la date est gardée une fois).
+    if (publishedId) recordTrophyFlag('stage').then(() => announceTrophies('any'));
     const apply = (m) => {
       const next = { ...m };
       if (publishedId) next.publishedId = publishedId;
@@ -208,6 +217,13 @@ export function TimersProvider({ children }) {
 
   const removeFromLibrary = useCallback(async (id) => {
     const next = await persistRemoveFromLibrary(id);
+    setLibrary(next);
+  }, []);
+
+  // « Mes mix actifs » (perte de Premium) : les mix choisis restent actifs, les
+  // autres passent en pause — rien n'est supprimé (lib/libraryLimits.js).
+  const applyMixPause = useCallback(async (kinds, keepIds) => {
+    const next = await persistMixPause(kinds, keepIds);
     setLibrary(next);
   }, []);
 
@@ -300,11 +316,12 @@ export function TimersProvider({ children }) {
       saveAsLibraryEntry,
       receiveMix,
       removeFromLibrary,
+      applyMixPause,
       loadFromLibrary,
       markPublished,
       clearPublication,
     }),
-    [timers, updateStat, resetTimer, resetAll, hydrated, library, currentMix, saveCurrentMix, saveAsLibraryEntry, receiveMix, removeFromLibrary, loadFromLibrary, markPublished, clearPublication]
+    [timers, updateStat, resetTimer, resetAll, hydrated, library, currentMix, saveCurrentMix, saveAsLibraryEntry, receiveMix, removeFromLibrary, applyMixPause, loadFromLibrary, markPublished, clearPublication]
   );
 
   return <TimersContext.Provider value={value}>{children}</TimersContext.Provider>;
