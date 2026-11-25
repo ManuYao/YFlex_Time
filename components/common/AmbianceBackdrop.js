@@ -484,12 +484,15 @@ function Scene({ ambiance, ink, w, h, active }) {
 }
 
 // `ambianceId` : impose une ambiance précise (bilan de saison) au lieu de celle du jour.
-export default function AmbianceBackdrop({ tone = 'light', ambianceId = null }) {
+// `still` : décor visible mais FIGÉ (rien ne bouge). À poser tant qu'un minuteur tourne
+// (parties des jeux) : pas d'animation en boucle pendant l'effort, moins de travail et de batterie.
+export default function AmbianceBackdrop({ tone = 'light', ambianceId = null, still = false }) {
   const { ambiance: current, ecoAmbiance } = useAmbiance();
   const ambiance = ambianceId ? getAmbiance(ambianceId) : current;
   // Mode allégé niveau 2 : on ne garde que la lueur de la saison, figée (voir StaticGlow).
   const ecoOnly = !ambiance && !ambianceId && ecoAmbiance ? ecoAmbiance : null;
-  const active = useAmbianceActive();
+  const activeAmbiance = useAmbianceActive();
+  const active = activeAmbiance && !still;
   const [size, setSize] = useState({ w: 0, h: 0 });
 
   const handleLayout = useCallback((e) => {
