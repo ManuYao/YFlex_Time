@@ -111,8 +111,6 @@ export default function Settings() {
   // UpdateGate (app/_layout.js) affiche dès qu'une version pas encore vue est détectée ;
   // ici accessible à tout moment depuis la ligne "Version".
   const [updateSheet, setUpdateSheet] = useState(null);
-  // TEMP : aperçu d'une grosse mise à jour (lib/changelogDemo.js).
-  const [updateDemo, setUpdateDemo] = useState(false);
   const [contactSheet, setContactSheet] = useState(false);
   // Ligne « Tutoriel » dépliante (À propos) : repliée par défaut.
   const [tutorialsOpen, setTutorialsOpen] = useState(false);
@@ -637,20 +635,7 @@ export default function Settings() {
               label="Version"
               sub={pending ? 'Mise à jour prête à installer' : `Flex Timer ${APP_VERSION} · build 42`}
               subPrefix={pending ? <ModeDots /> : null}
-              onPress={() => {
-                setUpdateDemo(false);
-                setUpdateSheet(updateCandidate?.mode || 'info');
-              }}
-            />
-            {/* TEMP : pour juger la lisibilité du « Quoi de neuf » avec une longue liste. */}
-            <LinkRow
-              label="Aperçu d'une grosse mise à jour"
-              sub="Exemple de « Quoi de neuf » avec 10 nouveautés"
-              onPress={() => {
-                haptic.light();
-                setUpdateDemo(true);
-                setUpdateSheet('info');
-              }}
+              onPress={() => setUpdateSheet(updateCandidate?.mode || 'info')}
             />
             {/* Tutoriel : une seule ligne qui se déplie, pour ne pas allonger l'écran. Chaque entrée
                 relance À LA MAIN un tutoriel ou une astuce, sans rien enregistrer (les vraies
@@ -761,16 +746,13 @@ export default function Settings() {
             screenH={screenH}
             mode={updateSheet}
             showHistory
-            demo={updateDemo}
             onRestart={() => {
               if (updateCandidate) markUpdatePopupSeen(updateCandidate.id, updateCandidate.mode);
               restart();
             }}
             onClose={() => {
-              // L'aperçu d'exemple ne marque rien comme « vu ».
-              if (!updateDemo && updateCandidate) markUpdatePopupSeen(updateCandidate.id, updateCandidate.mode);
+              if (updateCandidate) markUpdatePopupSeen(updateCandidate.id, updateCandidate.mode);
               setUpdateSheet(null);
-              setUpdateDemo(false);
             }}
           />
         )}
