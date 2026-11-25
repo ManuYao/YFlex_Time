@@ -11,6 +11,7 @@ import { fonts } from '../../lib/fonts';
 import { haptic } from '../../hooks/useHaptic';
 import { playSound } from '../../lib/sounds';
 import { CHANGELOG_HISTORY } from '../../lib/changelog';
+import { CHANGELOG_DEMO } from '../../lib/changelogDemo';
 import { D, slideInY } from '../../lib/animations';
 
 // Le même dégradé 4 couleurs que le launch splash / Confetti : signature
@@ -55,7 +56,7 @@ const SHEET_FIXED_H_COMPACT = 225;
  * lire le détail. Sans `title` (entrée générique, anciennes entrées), le texte
  * s'affiche seul, comme avant.
  */
-export default function UpdateSheet({ screenH, mode = 'pending', showHistory = false, onRestart, onClose }) {
+export default function UpdateSheet({ screenH, mode = 'pending', showHistory = false, demo = false, onRestart, onClose }) {
   const insets = useSafeAreaInsets();
 
   useEffect(() => {
@@ -64,7 +65,9 @@ export default function UpdateSheet({ screenH, mode = 'pending', showHistory = f
   }, []);
 
   const isPending = mode === 'pending';
-  const [latest, previous] = CHANGELOG_HISTORY;
+  // `demo` (TEMP, Paramètres > À propos) : montre une longue liste d'exemple
+  // (lib/changelogDemo.js) au lieu de la vraie entrée, pour juger la lisibilité.
+  const [latest, previous] = demo ? [CHANGELOG_DEMO, CHANGELOG_HISTORY[0]] : CHANGELOG_HISTORY;
   const count = latest.items.length;
   const compact = !isPending && count >= COUNT_FROM;
   // La liste peut dépasser la hauteur de la feuille : sans borne, BottomSheet
