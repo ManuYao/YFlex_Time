@@ -50,7 +50,10 @@ const write = (img, file) => {
   fs.writeFileSync(file, PNG.sync.write(img, { colorType: 6 }));
 };
 
+// `node design/build-android-icons.js christmas` : seulement ces variantes (les autres ne sont pas réécrites).
+const ONLY = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 for (const v of fs.readdirSync(SRC)) {
+  if (ONLY.length && !ONLY.includes(v)) continue;
   const dir = path.join(SRC, v);
   if (!fs.statSync(dir).isDirectory() || !fs.existsSync(path.join(dir, 'foreground-1024.png'))) continue;
   write(resize(load(path.join(dir, 'foreground-1024.png')), 432), path.join(OUT, v, 'fg.png'));

@@ -60,6 +60,9 @@ import CoachNudgeSheet from '../components/common/CoachNudgeSheet';
 import SeasonNudgeSheet from '../components/common/SeasonNudgeSheet';
 import { loadSeasonNudgeSeen, markSeasonNudgeSeen, shouldShowSeasonNudge } from '../lib/seasonNudge';
 import GamesNudgeSheet from '../components/common/GamesNudgeSheet';
+import FeastNudgeSheet from '../components/common/FeastNudgeSheet';
+import { loadFeastNudgeState, markFeastNudgeShown, shouldShowFeastNudge } from '../lib/feastNudge';
+import { ambianceIdFor, isFeast, normalizeAmbianceMode } from '../lib/ambiance';
 import { markGamesNudgeSeen, noteGamesNudgeLaunch } from '../lib/gamesNudge';
 import { shouldShowGamesNudge } from '../lib/gamesNudgeShape';
 import { isGameSession } from '../lib/gameHistoryShape';
@@ -313,6 +316,10 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   const profileRef = useRef(null);
   const { timers, updateStat, hydrated } = useTimers();
   const { settings, update: updateSetting } = useSettings();
+  // Réglages À JOUR pour la file de démarrage (son effet ne dépend que de `hydrated` : sans ce
+  // ref, il lirait les réglages du rendu où il a démarré, peut-être avant leur chargement).
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
   const { getStatus: getCooldownStatusRaw } = useCooldown();
   const { isPremium } = usePremium();
   // Premium débloque tout, sans jamais toucher au calcul de quota/lockout
@@ -425,6 +432,9 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   // Alerte unique « ambiance de saison » (lib/seasonNudge.js) : conseille de la
   // désactiver sur un téléphone moins puissant.
   const [showSeasonNudge, setShowSeasonNudge] = useState(false);
+  // Proposition annuelle « les fêtes, chacun à sa façon » (lib/feastNudgeShape.js) : l'id de la
+  // fête du moment (Halloween, Noël, Saint-Valentin) quand elle est ouverte, sinon null.
+  const [feastNudge, setFeastNudge] = useState(null);
   // Proposition « Essaie les jeux » (lib/gamesNudge.js) : dernière de la file de démarrage.
   const [showGamesNudge, setShowGamesNudge] = useState(false);
   // Lu par handleScrollBeginDrag (callback stable, sans dépendance) pour
@@ -465,6 +475,11 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
       previewRef.current = true;
       if (previewParam === 'games') {
         setShowGamesNudge(true);
+      } else if (previewParam === 'feast') {
+        // Aperçu (outil de test de la feuille d'ambiance, en développement) : la fête du jour,
+        // sinon Noël.
+        const today = ambianceIdFor('auto', new Date());
+        setFeastNudge(isFeast(today) ? today : 'christmas');
       } else if (previewParam === 'hold') {
         setTourKind('hold');
         setTourPhase('wait');
@@ -533,7 +548,8 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   const overlayBusyRef = useRef(false);
   overlayBusyRef.current =
     isLaunching || statsOpen || !!picker || badgeQueue.length > 0 || !!primerLaunch ||
-    showCoachNudge || showSeasonNudge || showGamesNudge || showTutorialInvite || modePickerOpen || tourPhase !== 'off';
+    showCoachNudge || showSeasonNudge || !!feastNudge || showGamesNudge || showTutorialInvite || modePickerOpen ||
+    tourPhase !== 'off';
 
   // Compte cette ouverture de l'app pour la proposition des jeux (une fois par démarrage).
   useEffect(() => {
@@ -622,6 +638,18 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
         if (cancelled || overlayBusyRef.current) return;
         if (seasonKey) {
           router.push({ pathname: '/season-recap', params: { key: seasonKey } });
+          return;
+        }
+
+        // Fêtes et croyances (lib/feastNudgeShape.js) : pendant Halloween, Noël ou la
+        // Saint-Valentin, une fois par an, proposer de ne garder que les saisons. Haut dans la
+        // file (demande de l'utilisateur : « hyper important ») et liée au décor visible MAINTENANT.
+        const feastMode = normalizeAmbianceMode(settingsRef.current.ambianceMode);
+        const feastId = ambianceIdFor(feastMode, new Date());
+        const feastState = await loadFeastNudgeState();
+        if (cancelled || overlayBusyRef.current) return;
+        if (shouldShowFeastNudge({ lastAt: feastState.lastAt, ambianceMode: feastMode, ambianceId: feastId })) {
+          setFeastNudge(feastId);
           return;
         }
 
@@ -900,6 +928,21 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
   }, []);
   const handleSeasonNudgeDisable = useCallback(() => {
     updateSetting('ambianceMode', 'none');
+  }, [updateSetting]);
+
+  // Fêtes et croyances : notée à la fermeture (quel que soit le chemin), sauf en aperçu ;
+  // « Seulement les saisons » passe le réglage sur « Saisons » tout de suite.
+  const handleFeastNudgeClose = useCallback(() => {
+    const id = feastNudge;
+    setFeastNudge(null);
+    if (previewRef.current) {
+      previewRef.current = false;
+      return;
+    }
+    markFeastNudgeShown(id);
+  }, [feastNudge]);
+  const handleFeastNudgeSeasonsOnly = useCallback(() => {
+    updateSetting('ambianceMode', 'seasons');
   }, [updateSetting]);
 
   // Proposition des jeux : marquée vue à la fermeture (quel que soit le chemin) ; « Voir les jeux »
@@ -1518,6 +1561,15 @@ function HomeScreen({ initialIndex, heatMap, statsMap }) {
           screenH={rootH}
           onDisable={handleSeasonNudgeDisable}
           onClose={handleSeasonNudgeClose}
+        />
+      )}
+
+      {feastNudge && (
+        <FeastNudgeSheet
+          screenH={rootH}
+          feastId={feastNudge}
+          onSeasonsOnly={handleFeastNudgeSeasonsOnly}
+          onClose={handleFeastNudgeClose}
         />
       )}
 
