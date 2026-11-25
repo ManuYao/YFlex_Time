@@ -545,8 +545,8 @@ export default function GamePyramid() {
   return (
     <GradientBackground colors={GAME_BG} ambient>
       {/* Décor de la saison une fois la partie lancée, jamais dans le réglage (règle des jeux) */}
-      {/* Figé tant que le minuteur tourne : il ne bouge qu'à l'écran de résultat */}
-      {phase !== 'ready' && <AmbianceBackdrop tone="light" still={phase !== 'done'} />}
+      {/* Toujours figé dans un jeu (partie, repos et résultat) : aucune animation en boucle */}
+      {phase !== 'ready' && <AmbianceBackdrop tone="light" still />}
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         {phase === 'ready' && (
           <>
