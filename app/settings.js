@@ -285,7 +285,7 @@ export default function Settings() {
         'flexTimer_holdTip',
         // Bulles d'explication du menu (lib/hubTips.js) : redeviennent à montrer.
         'flexTimer_hubTips',
-        // Réglage de test « verrou portrait coupé » (lib/orientationState.js) : remis à zéro.
+        // Ancien réglage de test du verrou d'orientation (retiré le 25/11/2026) : purge d'une valeur restée.
         'flexTimer_orientationTest',
         // Tutoriel du MIX (lib/mixTutorial.js) : redevient à montrer.
         'flexTimer_mixTutorialSeen',
