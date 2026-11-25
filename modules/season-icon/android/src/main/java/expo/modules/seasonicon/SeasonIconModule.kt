@@ -9,7 +9,7 @@ import expo.modules.kotlin.modules.ModuleDefinition
 // Active UNE activity-alias de lanceur (déclarées par plugins/withSeasonIcons.js)
 // et désactive les autres : c'est ce qui change l'icône de l'application.
 class SeasonIconModule : Module() {
-  private val variants = listOf("base", "spring", "summer", "autumn", "winter", "yearend", "halloween", "valentine")
+  private val variants = listOf("base", "spring", "summer", "autumn", "winter", "christmas", "yearend", "halloween", "valentine")
 
   private fun component(ctx: Context, v: String) = ComponentName(ctx.packageName, "${ctx.packageName}.SeasonIcon_$v")
 

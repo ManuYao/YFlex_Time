@@ -29,9 +29,11 @@ const ensureListener = () => {
 };
 
 export default function useSeasonIcon() {
-  const { id } = useAmbiance();
+  const { id, forced } = useAmbiance();
   useEffect(() => {
+    // Une ambiance forcée par l'outil de test (développement) ne touche jamais l'icône.
+    if (forced) return;
     wantedIcon = id || 'base';
     ensureListener();
-  }, [id]);
+  }, [id, forced]);
 }
