@@ -475,7 +475,8 @@ export default function GameCombo() {
   return (
     <GradientBackground colors={GAME_BG} ambient>
       {/* Décor de la saison une fois la partie lancée, jamais dans le réglage (règle des jeux) */}
-      {phase !== 'ready' && <AmbianceBackdrop tone="light" />}
+      {/* Figé tant que le minuteur tourne : il ne bouge qu'à l'écran de résultat */}
+      {phase !== 'ready' && <AmbianceBackdrop tone="light" still={phase !== 'done'} />}
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         {phase === 'ready' && (
           <>
